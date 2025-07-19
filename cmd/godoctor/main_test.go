@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func setupTestSession(t *testing.T, env ...string) *mcp.ClientSession {
+func setupTestSession(t *testing.T) *mcp.ClientSession {
 	t.Helper()
 
 	tempDir := t.TempDir()
@@ -23,7 +22,6 @@ func setupTestSession(t *testing.T, env ...string) *mcp.ClientSession {
 	}
 
 	runCmd := exec.Command(binaryPath)
-	runCmd.Env = append(os.Environ(), env...)
 	transport := mcp.NewCommandTransport(runCmd)
 
 	client := mcp.NewClient(&mcp.Implementation{Name: "test-client", Version: "v0.0.1"}, nil)
@@ -41,45 +39,49 @@ func setupTestSession(t *testing.T, env ...string) *mcp.ClientSession {
 func TestGetDocTool(t *testing.T) {
 	testCases := []struct {
 		name              string
-		symbol            string
-		env               []string
+		pkgPath           string
+		symbolName        string
 		expectError       bool
 		expectedSubstring string
 	}{
 		{
 			name:              "std library symbol",
-			symbol:            "fmt.Println",
+			pkgPath:           "fmt",
+			symbolName:        "Println",
 			expectError:       false,
-			expectedSubstring: "Println formats using the default formats",
+			expectedSubstring: "func Println(a ...any)",
+		},
+		{
+			name:              "std library package",
+			pkgPath:           "fmt",
+			symbolName:        "",
+			expectError:       false,
+			expectedSubstring: "Package fmt implements formatted I/O",
 		},
 		{
 			name:              "third party symbol",
-			symbol:            "github.com/modelcontextprotocol/go-sdk/mcp.NewClient",
+			pkgPath:           "github.com/google/generative-ai-go/genai",
+			symbolName:        "NewClient",
 			expectError:       false,
-			expectedSubstring: "NewClient creates a new",
+			expectedSubstring: "func NewClient(ctx context.Context, opts ...option.ClientOption) (*Client, error)",
 		},
 		{
 			name:              "package not found",
-			symbol:            "nonexistent/pkg.Symbol",
+			pkgPath:           "nonexistent/pkg",
+			symbolName:        "Symbol",
 			expectError:       true,
-			expectedSubstring: "could not find package",
-		},
-		{
-			name:              "custom goroot",
-			symbol:            "fmt.Println",
-			env:               []string{"GO_DOCTOR_GOROOT=/nonexistent"},
-			expectError:       true,
-			expectedSubstring: `could not find package "fmt"`,
+			expectedSubstring: "no such package",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			session := setupTestSession(t, tc.env...)
+			session := setupTestSession(t)
 			params := &mcp.CallToolParams{
-				Name: "getDoc",
+				Name: "go-doc",
 				Arguments: map[string]any{
-					"symbol": tc.symbol,
+					"package_path": tc.pkgPath,
+					"symbol_name":  tc.symbolName,
 				},
 			}
 			res, err := session.CallTool(context.Background(), params)
@@ -103,7 +105,10 @@ func TestGetDocTool(t *testing.T) {
 				}
 			} else {
 				if res.IsError {
-					t.Errorf("tool returned an error: %v", res.Content)
+					t.Errorf("tool returned an error: %+v", res.Content)
+					if textContent, ok := res.Content[0].(*mcp.TextContent); ok {
+						t.Logf("Error content: %s", textContent.Text)
+					}
 					return
 				}
 				textContent, ok := res.Content[0].(*mcp.TextContent)

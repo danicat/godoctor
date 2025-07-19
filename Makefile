@@ -13,7 +13,7 @@ SERVER_BINARY=$(BINARY_DIR)/$(SERVER_BINARY_NAME)
 CLIENT_BINARY=$(BINARY_DIR)/$(CLIENT_BINARY_NAME)
 
 # Version
-VERSION=0.0.1
+VERSION := 0.1.0
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
 all: build
@@ -29,4 +29,8 @@ clean:
 test:
 	$(GOTEST) -v ./...
 
-.PHONY: all build clean test
+test-cov:
+	$(GOTEST) -v -coverprofile=coverage.out ./...
+	@echo "to view the coverage report, run: go tool cover -html=coverage.out"
+
+.PHONY: all build clean test test-cov

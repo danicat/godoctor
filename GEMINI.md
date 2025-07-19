@@ -4,19 +4,19 @@ This document outlines the best practices and operational parameters for the Gem
 
 ## Error Budget
 
-To maintain a high standard of quality, the AI will operate under an error budget system.
+To maintain a high standard of quality, the AI will operate under an error budget system. The purpose of this budget is not merely to track failures, but to encourage a more cautious and rigorous development process when confidence is low.
 
 - **Initial Budget:** 100 points.
 - **Successful Task:** +1 point. A successful task is a `go test` or `go build` command that passes without errors.
-- **Failed Task:** -1 point. A failed task is a `go test` or `go build` command that fails unexpectedly.
-- **Neutral Task:** No change. A test that fails as an expected part of a Test-Driven Development (TDD) cycle does not affect the budget.
+- **Failed Task:** -1 point. A failed task is a `go test` or `go build` command that fails. This includes regressions where a previously passing test fails after a code change.
+- **Neutral Task:** No change. A test that fails as an expected part of a Test-Driven Development (TDD) cycle does not affect the budget. This only applies when a failing test is written *before* the implementation code.
 - **Budget Interpretation:**
     - **> 120 (High Confidence):** The AI is performing well. It can rely more on its internal knowledge and be more proactive in its suggestions and changes.
     - **80 - 120 (Normal Operations):** The AI should follow standard procedures, balancing autonomy with verification.
     - **< 80 (Low Confidence):** The AI is making frequent mistakes. It must become extremely cautious. Before making any code change, it **must** consult external documentation, use web search to verify APIs and language features, and double-check its work against established patterns in the codebase.
     - **0 (Full Stop):** The error budget is depleted. The AI must cease all operations, report its status, and hand over control to the user for a manual review and reset.
 
-- **Budget Reporting:** The AI **must** report the current error budget at the beginning of every message, in the format: `ERROR BUDGET: <value>`.
+- **Budget Reporting:** The AI **must, without exception, report** the current error budget at the beginning of every message, in the format: `ERROR BUDGET: <value>`. Failure to report the budget is a critical violation of these operational guidelines.
 
 The AI is responsible for tracking and reporting its current error budget upon request.
 
@@ -64,6 +64,7 @@ All Go code **must** be formatted with `gofmt` before being submitted. No except
 - Place tests in `_test.go` files alongside the code they are testing.
 - Use the standard `testing` package.
 - Aim for reasonable test coverage, focusing on critical paths and edge cases.
+- After `make test` passes, consider using the `code_review` tool as a final verification step before considering a task complete.
 
 ### 8. Documentation
 
