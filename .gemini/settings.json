@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "godoc-mcp-server": {
+      "command": "godoc-mcp-server"
+    }
+  }
+}
