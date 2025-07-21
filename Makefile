@@ -33,4 +33,10 @@ test-cov:
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	@echo "to view the coverage report, run: go tool cover -html=coverage.out"
 
-.PHONY: all build clean test test-cov
+integration-test: build
+	@echo "--- Running Integration Test: go-doc ---"
+	$(CLIENT_BINARY) -server $(SERVER_BINARY) fmt Println
+	@echo "\n--- Running Integration Test: code_review ---"
+	$(CLIENT_BINARY) -server $(SERVER_BINARY) -review cmd/godoctor/main.go
+
+.PHONY: all build clean test test-cov integration-test

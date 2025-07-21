@@ -18,7 +18,7 @@ import (
 
 var (
 	version     = "dev"
-	searchPaths = []string{"./bin/godoctor", "godoctor"}
+	searchPaths = []string{"godoctor"}
 )
 
 type codeReviewArgs struct {
