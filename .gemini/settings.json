@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "godoctor": {
-      "command": "bin/godoctor"
+      "command": "godoctor"
     }
   }
 }

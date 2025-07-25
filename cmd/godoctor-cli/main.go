@@ -38,6 +38,7 @@ func run() error {
 	reviewFile := flag.String("review", "", "path to a file to be reviewed by the code_review tool, or - for stdin")
 	hint := flag.String("hint", "", "a hint for the code reviewer")
 	serverPathFlag := flag.String("server", "", "path to the godoctor server binary")
+	httpServerFlag := flag.String("http-server", "", "URL of a running godoctor server (e.g., http://localhost:8080)")
 	helpFlag := flag.Bool("help", false, "print this help message")
 
 	flag.Usage = func() {
@@ -71,14 +72,18 @@ func run() error {
 		cancel()
 	}()
 
-	// Find the godoctor binary by checking common locations.
-	godoctorPath, err := findGoDoctor(*serverPathFlag)
-	if err != nil {
-		return err
-	}
-
 	// Connect to the server
-	transport := mcp.NewCommandTransport(exec.CommandContext(ctx, godoctorPath))
+	var transport mcp.Transport
+	if *httpServerFlag != "" {
+		transport = mcp.NewSSEClientTransport(*httpServerFlag, nil)
+	} else {
+		// Find the godoctor binary by checking common locations.
+		godoctorPath, err := findGoDoctor(*serverPathFlag)
+		if err != nil {
+			return err
+		}
+		transport = mcp.NewCommandTransport(exec.CommandContext(ctx, godoctorPath))
+	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "godoctor-cli", Version: version}, nil)
 	session, err := client.Connect(ctx, transport)
 	if err != nil {
