@@ -65,6 +65,16 @@ The `godoctor` binary is the MCP server. It can be run in two modes.
 ./bin/godoctor --listen :8080
 ```
 
+#### Agent Instructions
+
+The `godoctor` server includes a special `-instructions` flag designed to help configure AI agents. When used, this flag prints a detailed guide on when and how to use the `go-doc` and `code-review` tools and then exits. This output is ideal for inclusion in an agent's configuration file (e.g., `GEMINI.md`).
+
+```bash
+# Print the agent instructions
+./bin/godoctor -instructions
+```
+This command takes precedence over all other flags.
+
 ### Client (`godoctor-cli`)
 
 The `godoctor-cli` is the primary way to interact with GoDoctor from the command line.

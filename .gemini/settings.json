@@ -1,7 +1,12 @@
 {
-  "mcpServers": {
-    "godoctor": {
-      "command": "godoctor"
+    "mcpServers": {
+        "gopls": {
+            "command": "gopls",
+            "args": ["mcp"]
+        },
+        "godoctor": {
+            "command": "godoctor",
+            "args": ["--api-key-env=GODOCTOR_API_KEY"]
+        }
     }
-  }
 }
