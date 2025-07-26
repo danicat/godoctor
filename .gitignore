@@ -1,2 +1,5 @@
 # Log files
 *.log
+
+# Binaries
+bin/
