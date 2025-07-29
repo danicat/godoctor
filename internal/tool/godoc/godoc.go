@@ -13,7 +13,7 @@ import (
 // Register registers the go-doc tool with the server.
 func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "go-doc",
+		Name: "godoc",
 		Description: `
 The go-doc tool retrieves Go documentation for a specified package and, optionally, a specific symbol within that package. It acts as a direct interface to the standard 'go doc' command-line tool.
 

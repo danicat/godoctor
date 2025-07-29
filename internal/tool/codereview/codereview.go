@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 	"regexp"
 
 	"github.com/google/generative-ai-go/genai"
@@ -26,10 +28,10 @@ type CodeReviewParams struct {
 
 // ReviewSuggestion defines the structured output for a single review suggestion.
 type ReviewSuggestion struct {
-	LineNumber  int    `json:"line_number"`
-	Principle   string `json:"principle"`
-	Comment     string `json:"comment"`
-	Suggestion  string `json:"suggestion"`
+	LineNumber int    `json:"line_number"`
+	Principle  string `json:"principle"`
+	Comment    string `json:"comment"`
+	Suggestion string `json:"suggestion"`
 }
 
 // CodeReviewHandler holds the dependencies for the code review tool.
@@ -121,4 +123,44 @@ Example of a valid response:
 			&mcp.TextContent{Text: cleanedJSON},
 		},
 	}, nil
+}
+
+// Register adds the code_review tool to the given MCP server.
+func Register(server *mcp.Server, apiKeyEnv string) {
+	apiKey := os.Getenv(apiKeyEnv)
+	if apiKey != "" {
+		reviewHandler, err := NewCodeReviewHandler(apiKey)
+		if err != nil {
+			log.Printf("Disabling code_review tool: failed to create handler: %v", err)
+		} else {
+			mcp.AddTool(server, &mcp.Tool{
+				Name: "code_review",
+				Description: `
+The code-review tool provides an expert-level, AI-powered review of a given Go source file. It analyzes the code against established Go community best practices and provides structured, actionable feedback.
+
+When to use:
+This tool is ideal for improving code quality before committing changes. Use it to check for violations of Go idioms, potential bugs, and unclear code. It is particularly useful after making significant changes or when you want a second opinion on your code's style and structure.
+
+Parameters:
+- file_content (string, required): The full content of the Go source file to be reviewed.
+- model_name (string, optional): The specific generative AI model to use for the review. If omitted, it defaults to a pre-configured model.
+- hint (string, optional): A natural language hint to guide the AI's review, focusing it on a specific concern (e.g., performance, clarity, error handling).
+
+Output:
+- A JSON array of review suggestion objects. If no issues are found, it returns an empty array [].
+- Each suggestion object has the following structure:
+  - line_number (integer): The line number in the source file where the issue was found.
+  - principle (string): The Go programming principle that is being violated (e.g., "Clarity", "Simplicity").
+  - comment (string): A detailed explanation of the issue.
+  - suggestion (string): A concrete recommendation on how to fix the issue.
+
+Example:
+- To review a simple Go function:
+  {"file_content": "package main\n\nimport \"fmt\"\n\nfunc main() {\n    h := \"Hello, World!\"\n    fmt.Println(h)\n}"}
+`,
+			}, reviewHandler.CodeReviewTool)
+		}
+	} else {
+		log.Printf("%s not set, disabling code_review tool.", apiKeyEnv)
+	}
 }

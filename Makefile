@@ -33,10 +33,22 @@ test-cov:
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	@echo "to view the coverage report, run: go tool cover -html=coverage.out"
 
+gofmt:
+	$(GOCMD) fmt ./...
+
+goimports:
+	$(GOCMD) run golang.org/x/tools/cmd/goimports@latest -w $(shell pwd)
+
 integration-test: build
 	@echo "--- Running Integration Test: go-doc ---"
 	$(CLIENT_BINARY) -server $(SERVER_BINARY) fmt Println
 	@echo "\n--- Running Integration Test: code_review ---"
 	$(CLIENT_BINARY) -server $(SERVER_BINARY) -review cmd/godoctor/main.go
 
-.PHONY: all build clean test test-cov integration-test
+install: build
+	@echo "Installing $(SERVER_BINARY_NAME) and $(CLIENT_BINARY_NAME) using go install..."
+	$(GOCMD) install $(LDFLAGS) ./cmd/godoctor
+	$(GOCMD) install $(LDFLAGS) ./cmd/godoctor-cli
+	@echo "Installation complete. Binaries typically installed to $GOPATH/bin or $GOBIN."
+
+.PHONY: all build clean test test-cov gofmt goimports integration-test install

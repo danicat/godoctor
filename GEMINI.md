@@ -102,7 +102,9 @@ The goal of the read workflow is to understand the codebase.
 4. **Understand a package's public API**: When you need to understand what a package provides to external code (i.e., its public API), use `go_package_api`. This is especially useful for understanding third-party dependencies or other packages in the same monorepo.
    EXAMPLE: to see the API of the `storage` package: `go_package_api({"packagePaths":["example.com/internal/storage"]})`
 
-### Editing workflow
+### How to Use
+
+The `scalpel` tool is designed for making surgical edits in files. It takes a `file_path`, an `operation`, and other optional parameters depending on the operation. See the tool's description for detailed parameter information.
 
 The editing workflow is iterative. You should cycle through these steps until the task is complete.
 
@@ -111,7 +113,7 @@ The editing workflow is iterative. You should cycle through these steps until th
 2. **Find references**: Before modifying the definition of any symbol, use the `go_symbol_references` tool to find all references to that identifier. This is critical for understanding the impact of your change. Read the files containing references to evaluate if any further edits are required.
    EXAMPLE: `go_symbol_references({"file":"/path/to/server.go","symbol":"Server.Run"})`
 
-3. **Make edits**: Make the required edits, including edits to references you identified in the previous step. Don't proceed to the next step until all planned edits are complete.
+3. **Make edits**: Make the required edits, including edits to references you identified in the previous step. For precise, surgical edits, use the `scalpel` tool. Don't proceed to the next step until all planned edits are complete.
 
 4. **Check for errors**: After every code modification, you MUST call the `go_diagnostics` tool. Pass the paths of the files you have edited. This tool will report any build or analysis errors.
    EXAMPLE: `go_diagnostics({"files":["/path/to/server.go"]})`
