@@ -4,12 +4,30 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"regexp"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/api/option"
 )
+
+// Register registers the code_review tool with the server.
+func Register(server *mcp.Server, apiKey string) {
+	if apiKey != "" {
+		reviewHandler, err := NewCodeReviewHandler(apiKey)
+		if err != nil {
+			log.Printf("Disabling code_review tool: failed to create handler: %v", err)
+		} else {
+			mcp.AddTool(server, &mcp.Tool{
+				Name:        "code_review",
+				Description: "Provides an expert-level, AI-powered review of a given Go source file.",
+			}, reviewHandler.CodeReviewTool)
+		}
+	} else {
+		log.Printf("API key not set, disabling code_review tool.")
+	}
+}
 
 // GenerativeModel is an interface that abstracts the genai.GenerativeModel.
 // This allows for mocking in tests.

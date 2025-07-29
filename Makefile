@@ -13,7 +13,7 @@ SERVER_BINARY=$(BINARY_DIR)/$(SERVER_BINARY_NAME)
 CLIENT_BINARY=$(BINARY_DIR)/$(CLIENT_BINARY_NAME)
 
 # Version
-VERSION := 0.1.0
+VERSION := 0.1.4
 LDFLAGS=-ldflags "-X main.version=$(VERSION)"
 
 all: build
@@ -22,6 +22,9 @@ build:
 	@mkdir -p $(BINARY_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(SERVER_BINARY) ./cmd/godoctor
 	$(GOBUILD) $(LDFLAGS) -o $(CLIENT_BINARY) ./cmd/godoctor-cli
+
+install:
+	$(GOCMD) install $(LDFLAGS) ./...
 
 clean:
 	@rm -rf $(BINARY_DIR)
@@ -39,4 +42,4 @@ integration-test: build
 	@echo "\n--- Running Integration Test: code_review ---"
 	$(CLIENT_BINARY) -server $(SERVER_BINARY) -review cmd/godoctor/main.go
 
-.PHONY: all build clean test test-cov integration-test
+.PHONY: all build install clean test test-cov integration-test
