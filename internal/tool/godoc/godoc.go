@@ -14,7 +14,7 @@ import (
 func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "godoc",
-		Description: "Retrieves Go documentation for a specified package and, optionally, a specific symbol within that package.",
+		Description: "Retrieves Go documentation for a specified package and, optionally, a specific symbol within that package. This tool is useful for understanding the functionality of a Go package or a specific symbol (function, type, etc.) within it.",
 	}, getDocHandler)
 }
 

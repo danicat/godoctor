@@ -12,7 +12,7 @@ import (
 
 	"github.com/danicat/godoctor/internal/tool/codereview"
 	"github.com/danicat/godoctor/internal/tool/godoc"
-	"github.com/danicat/godoctor/internal/tool/goimports"
+	"github.com/danicat/godoctor/internal/tool/gopretty"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -73,7 +73,7 @@ func run(ctx context.Context, args []string) error {
 func addTools(server *mcp.Server, apiKeyEnv string) {
 	// Register the go-doc tool unconditionally.
 	godoc.Register(server)
-	goimports.Register(server)
+	gopretty.Register(server)
 
 	// Register the code_review tool only if an API key is available.
 	codereview.Register(server, os.Getenv(apiKeyEnv))
@@ -85,36 +85,51 @@ func printInstructions() {
 
 When working with a Go codebase, a typical workflow involves understanding the code, making changes, and then reviewing those changes. The godoctor tools are designed to assist with each of these stages.
 
-## Tool: go-doc
+## Tool: godoc
 
 ### When to Use
 
-Use the go-doc tool whenever you need to understand a piece of Go code. This could be before you modify it, when you are trying to debug it, or when you are exploring a new codebase. It is your primary tool for code comprehension.
+Use the godoc tool whenever you need to understand a piece of Go code. This could be before you modify it, when you are trying to debug it, or when you are exploring a new codebase. It is your primary tool for code comprehension.
 
 **Key Scenarios:**
 
-- **Before Modifying Code:** Before changing a function or type, use go-doc to understand its purpose, parameters, and return values.
-- **Debugging:** When you encounter a bug, use go-doc to inspect the functions involved and understand their expected behavior.
-- **Code Exploration:** When you are new to a project, use go-doc to explore the public API of different packages.
+- **Before Modifying Code:** Before changing a function or type, use godoc to understand its purpose, parameters, and return values.
+- **Debugging:** When you encounter a bug, use godoc to inspect the functions involved and understand their expected behavior.
+- **Code Exploration:** When you are new to a project, use godoc to explore the public API of different packages.
 
 ### How to Use
 
-The go-doc tool takes a package_path and an optional symbol_name. See the tool's description for detailed parameter information.
+The godoc tool takes a package_path and an optional symbol_name. See the tool's description for detailed parameter information.
 
-## Tool: code-review
+## Tool: gopretty
 
 ### When to Use
 
-Use the code-review tool after you have made changes to the code and before you commit them. This tool acts as an expert Go developer, providing feedback on your changes to ensure they meet the standards of the Go community.
+Use the gopretty tool to format your Go code. This tool runs both goimports and gofmt on a file to ensure it is correctly formatted and all necessary imports are present.
 
 **Key Scenarios:**
 
-- **After Making Changes:** Once you have implemented a new feature or fixed a bug, use the code-review tool to get feedback on your work.
-- **Improving Code Quality:** If you are refactoring code, use the code-review tool to ensure your changes are an improvement.
-- **Learning Go:** The code-review tool is a great way to learn idiomatic Go. By reviewing your code, you can see where you are deviating from best practices.
+- **After Making Changes:** After you have modified a file, run gopretty on it to ensure it is correctly formatted.
+- **Before Committing:** Before you commit your changes, run gopretty on all the files you have changed to ensure they are all correctly formatted.
 
 ### How to Use
 
-The code-review tool takes the content of a Go file as input. See the tool's description for detailed parameter information.
+The gopretty tool takes the path of a Go file as input. See the tool's description for detailed parameter information.
+
+## Tool: code_review
+
+### When to Use
+
+Use the code_review tool after you have made changes to the code and before you commit them. This tool acts as an expert Go developer, providing feedback on your changes to ensure they meet the standards of the Go community.
+
+**Key Scenarios:**
+
+- **After Making Changes:** Once you have implemented a new feature or fixed a bug, use the code_review tool to get feedback on your work.
+- **Improving Code Quality:** If you are refactoring code, use the code_review tool to ensure your changes are an improvement.
+- **Learning Go:** The code_review tool is a great way to learn idiomatic Go. By reviewing your code, you can see where you are deviating from best practices.
+
+### How to Use
+
+The code_review tool takes the content of a Go file as input. See the tool's description for detailed parameter information.
 `)
 }

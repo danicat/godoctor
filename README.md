@@ -7,9 +7,9 @@ This project was developed and refined through an iterative process of AI-driven
 ## Features
 
 *   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `code_review` tool analyzes your code for quality, clarity, and adherence to Go best practices.
-*   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `go-doc` tool.
+*   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `godoc` tool.
+*   **Code Formatting:** The `gopretty` tool formats your Go code using both `goimports` and `gofmt`.
 *   **Flexible Transports:** Communicate with the `godoctor` server via standard I/O or over the network with a new HTTP mode.
-*   **Powerful CLI:** A command-line interface (`godoctor-cli`) for direct interaction with the GoDoctor server, either by launching a local process or connecting to a remote one.
 *   **MCP Compliant:** Built on the Model Context Protocol for broad compatibility with modern development tools.
 
 ## Installation
@@ -25,7 +25,7 @@ This project was developed and refined through an iterative process of AI-driven
     cd godoctor
     make build
     ```
-    This will create the `godoctor` server and `godoctor-cli` client in the `bin/` directory.
+    This will create the `godoctor` server in the `bin/` directory. You can also run `make install` to install the binary in your `$GOPATH/bin` directory.
 
 ## Usage
 
@@ -57,7 +57,7 @@ The `code_review` tool requires a Gemini API Key to function. The server can be 
 
 The `godoctor` binary is the MCP server. It can be run in two modes.
 
-*   **Standard I/O (default):** The server communicates over `stdin` and `stdout`. This is the mode used when the `godoctor-cli` starts it automatically.
+*   **Standard I/O (default):** The server communicates over `stdin` and `stdout`.
 *   **HTTP Mode:** The server can listen for connections on a network port.
 
 ```bash
@@ -67,7 +67,7 @@ The `godoctor` binary is the MCP server. It can be run in two modes.
 
 #### Agent Instructions
 
-The `godoctor` server includes a special `-instructions` flag designed to help configure AI agents. When used, this flag prints a detailed guide on when and how to use the `go-doc` and `code-review` tools and then exits. This output is ideal for inclusion in an agent's configuration file (e.g., `GEMINI.md`).
+The `godoctor` server includes a special `-instructions` flag designed to help configure AI agents. When used, this flag prints a detailed guide on when and how to use the `godoc`, `gopretty`, and `code_review` tools and then exits. This output is ideal for inclusion in an agent's configuration file (e.g., `GEMINI.md`).
 
 ```bash
 # Print the agent instructions
@@ -75,50 +75,12 @@ The `godoctor` server includes a special `-instructions` flag designed to help c
 ```
 This command takes precedence over all other flags.
 
-### Client (`godoctor-cli`)
-
-The `godoctor-cli` is the primary way to interact with GoDoctor from the command line.
-
-By default, it finds and starts a `godoctor` server process for you. Alternatively, you can connect to a server that is already running in HTTP mode.
-
-#### Code Review
-
-```bash
-# Review a file using a local, auto-started server
-./bin/godoctor-cli -review cmd/godoctor/main.go
-
-# Review a file by connecting to a running HTTP server
-./bin/godoctor-cli --http-server http://localhost:8080 -review cmd/godoctor/main.go
-
-# Review code from stdin with a hint
-git diff --staged | ./bin/godoctor-cli -review - -hint "Focus on improving error handling"
-```
-
-#### Get Documentation
-
-```bash
-# Get package documentation for 'fmt' using an auto-started server
-./bin/godoctor-cli fmt
-
-# Get documentation for 'fmt.Println' from a running HTTP server
-./bin/godoctor-cli --http-server http://localhost:8080 fmt Println
-```
-
-### Help
-
-For a full list of commands and flags:
-
-```bash
-./bin/godoctor-cli -help
-```
-
 ## Development
 
 This project follows the standard Go project layout.
 
 *   `cmd/godoctor`: The source code for the MCP server.
-*   `cmd/godoctor-cli`: The source code for the command-line client.
-*   `internal/tool`: The implementation of the `code_review` and `go-doc` tools.
+*   `internal/tool`: The implementation of the `code_review`, `godoc`, and `gopretty` tools.
 
 To run the test suite:
 

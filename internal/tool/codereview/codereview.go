@@ -21,7 +21,7 @@ func Register(server *mcp.Server, apiKey string) {
 		} else {
 			mcp.AddTool(server, &mcp.Tool{
 				Name:        "code_review",
-				Description: "Provides an expert-level, AI-powered review of a given Go source file.",
+				Description: "Provides an expert-level, AI-powered review of a given Go source file. This tool is useful for improving code quality before committing changes.",
 			}, reviewHandler.CodeReviewTool)
 		}
 	} else {
@@ -44,10 +44,10 @@ type CodeReviewParams struct {
 
 // ReviewSuggestion defines the structured output for a single review suggestion.
 type ReviewSuggestion struct {
-	LineNumber  int    `json:"line_number"`
-	Principle   string `json:"principle"`
-	Comment     string `json:"comment"`
-	Suggestion  string `json:"suggestion"`
+	LineNumber int    `json:"line_number"`
+	Principle  string `json:"principle"`
+	Comment    string `json:"comment"`
+	Suggestion string `json:"suggestion"`
 }
 
 // CodeReviewHandler holds the dependencies for the code review tool.
@@ -71,7 +71,7 @@ func NewCodeReviewHandler(apiKey string) (*CodeReviewHandler, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create genai client: %w", err)
 	}
-	handler.defaultModel = client.GenerativeModel("gemini-1.5-pro")
+	handler.defaultModel = client.GenerativeModel("gemini-2.5-pro")
 	return handler, nil
 }
 

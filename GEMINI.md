@@ -1,123 +1,69 @@
-# Gemini Go Doctor Guidelines
+# GoDoctor Agent Instructions
 
-This document outlines the best practices and operational parameters for the Gemini AI assistant when working on this Go project. The primary goal is to ensure code quality, maintainability, and adherence to idiomatic Go conventions.
+This document provides instructions for an AI agent on how to effectively use the `godoctor` tool suite.
 
-## Error Budget
+## General Workflow
 
-To maintain a high standard of quality, the AI will operate under an error budget system. The purpose of this budget is not merely to track failures, but to encourage a more cautious and rigorous development process when confidence is low.
+When working with a Go codebase, a typical workflow involves understanding the code, making changes, and then reviewing those changes. The godoctor tools are designed to assist with each of these stages.
 
-- **Initial Budget:** 100 points.
-- **Successful Task:** +1 point. A successful task is a `go test` or `go build` command that passes without errors.
-- **Failed Task:** -1 point. A failed task is a `go test` or `go build` command that fails. This includes regressions where a previously passing test fails after a code change.
-- **Neutral Task:** No change. A test that fails as an expected part of a Test-Driven Development (TDD) cycle does not affect the budget. This only applies when a failing test is written *before* the implementation code.
-- **Budget Interpretation:**
-    - **> 120 (High Confidence):** The AI is performing well. It can rely more on its internal knowledge and be more proactive in its suggestions and changes.
-    - **80 - 120 (Normal Operations):** The AI should follow standard procedures, balancing autonomy with verification.
-    - **< 80 (Low Confidence):** The AI is making frequent mistakes. It must become extremely cautious. Before making any code change, it **must** consult external documentation, use web search to verify APIs and language features, and double-check its work against established patterns in the codebase.
-    - **0 (Full Stop):** The error budget is depleted. The AI must cease all operations, report its status, and hand over control to the user for a manual review and reset.
+## Tool: godoc
 
-- **Budget Reporting:** The AI **must, without exception, report** the current error budget at the beginning of every message, in the format: `ERROR BUDGET: <value>`. Failure to report the budget is a critical violation of these operational guidelines.
+### Description
+Retrieves Go documentation for a specified package and, optionally, a specific symbol within that package. This tool is useful for understanding the functionality of a Go package or a specific symbol (function, type, etc.) within it.
 
-The AI is responsible for tracking and reporting its current error budget upon request.
+### When to Use
 
-## Go Programming Best Practices
+Use the `godoc` tool whenever you need to understand a piece of Go code. This could be before you modify it, when you are trying to debug it, or when you are exploring a new codebase. It is your primary tool for code comprehension.
 
-All code contributed to this project must adhere to the following principles.
+**Key Scenarios:**
 
-### 1. Formatting
+- **Before Modifying Code:** Before changing a function or type, use `godoc` to understand its purpose, parameters, and return values.
+- **Debugging:** When you encounter a bug, use `godoc` to inspect the functions involved and understand their expected behavior.
+- **Code Exploration:** When you are new to a project, use `godoc` to explore the public API of different packages.
 
-All Go code **must** be formatted with `gofmt` before being submitted. No exceptions. This ensures a consistent and readable codebase.
+### How to Use
 
-### 2. Naming Conventions
+The `godoc` tool takes the following parameters:
+- `package_path` (string, required): The full import path of the Go package (e.g., "fmt", "github.com/spf13/cobra").
+- `symbol_name` (string, optional): The name of a specific symbol within the package (e.g., "Println", "Command").
 
-- **Packages:** Use short, concise, all-lowercase names. Avoid `under_scores` or `mixedCaps`.
-- **Variables, Functions, and Methods:** Use `camelCase` for unexported (internal) identifiers and `PascalCase` for exported (public) identifiers.
-- **Interfaces:** Interface types should not have a prefix like `I`. Name them for what they do (e.g., `io.Reader`).
+## Tool: gopretty
 
-### 3. Error Handling
+### Description
+Formats a Go source file using goimports and gofmt. This tool is useful for ensuring that your code adheres to Go's formatting standards.
 
-- Errors are values. Do not discard errors using the blank identifier (`_`).
-- Handle errors explicitly. The `if err != nil` pattern is the standard.
-- Provide context to errors. Use `fmt.Errorf("context: %w", err)` to wrap errors and build a meaningful error chain.
+### When to Use
 
-### 4. Simplicity and Clarity
+Use the `gopretty` tool to format your Go code. This tool runs both `goimports` and `gofmt` on a file to ensure it is correctly formatted and all necessary imports are present.
 
-- "Clear is better than clever." Write code that is easy for other developers to understand.
-- Avoid unnecessary complexity and abstractions.
-- Prefer returning concrete types, not interfaces.
+**Key Scenarios:**
 
-### 5. Concurrency
+- **After Making Changes:** After you have modified a file, run `gopretty` on it to ensure it is correctly formatted.
+- **Before Committing:** Before you commit your changes, run `gopretty` on all the files you have changed to ensure they are all correctly formatted.
 
-- "Don't communicate by sharing memory, share memory by communicating."
-- Use channels to manage communication between goroutines.
-- Be mindful of race conditions. Use the `-race` flag during testing to detect them.
+### How to Use
 
-### 6. Packages and Project Structure
+The `gopretty` tool takes the following parameter:
+- `file_path` (string, required): The path of a Go file to format.
 
-- Keep packages focused on a single purpose.
-- Circular dependencies are a design flaw and are not allowed.
-- Follow the project's existing directory structure.
+## Tool: code_review
 
-### 7. Testing
+### Description
+Provides an expert-level, AI-powered review of a given Go source file. This tool is useful for improving code quality before committing changes.
 
-- Write unit tests for new functionality.
-- Place tests in `_test.go` files alongside the code they are testing.
-- Use the standard `testing` package.
-- Aim for reasonable test coverage, focusing on critical paths and edge cases.
-- After `make test` passes, consider using the `code_review` tool as a final verification step before considering a task complete.
+### When to Use
 
-### 8. Documentation
+Use the `code_review` tool after you have made changes to the code and before you commit them. This tool acts as an expert Go developer, providing feedback on your changes to ensure they meet the standards of the Go community.
 
-- All exported identifiers (`PascalCase`) **must** have a doc comment.
-- Comments should explain the *why*, not the *what*.
-- Follow the conventions outlined in [Effective Go](https://go.dev/doc/effective_go).
+**Key Scenarios:**
 
-By adhering to these guidelines, we aim to build a robust, maintainable, and high-quality Go application.
-# The gopls MCP server
+- **After Making Changes:** Once you have implemented a new feature or fixed a bug, use the `code_review` tool to get feedback on your work.
+- **Improving Code Quality:** If you are refactoring code, use the `code_review` tool to ensure your changes are an improvement.
+- **Learning Go:** The `code_review` tool is a great way to learn idiomatic Go. By reviewing your code, you can see where you are deviating from best practices.
 
-These instructions describe how to efficiently work in the Go programming language using the gopls MCP server. You can load this file directly into a session where the gopls MCP server is connected.
+### How to Use
 
-## Detecting a Go workspace
-
-At the start of every session, you MUST use the `go_workspace` tool to learn about the Go workspace. The rest of these instructions apply whenever that tool indicates that the user is in a Go workspace.
-
-## Go programming workflows
-
-These guidelines MUST be followed whenever working in a Go workspace. There are two workflows described below: the 'Read Workflow' must be followed when the user asks a question about a Go workspace. The 'Edit Workflow' must be followed when the user edits a Go workspace.
-
-You may re-do parts of each workflow as necessary to recover from errors. However, you must not skip any steps.
-
-### Read workflow
-
-The goal of the read workflow is to understand the codebase.
-
-1. **Understand the workspace layout**: Start by using `go_workspace` to understand the overall structure of the workspace, such as whether it's a module, a workspace, or a GOPATH project.
-
-2. **Find relevant symbols**: If you're looking for a specific type, function, or variable, use `go_search`. This is a fuzzy search that will help you locate symbols even if you don't know the exact name or location.
-   EXAMPLE: search for the 'Server' type: `go_search({"query":"server"})`
-
-3. **Understand a file and its intra-package dependencies**: When you have a file path and want to understand its contents and how it connects to other files *in the same package*, use `go_file_context`. This tool will show you a summary of the declarations from other files in the same package that are used by the current file. `go_file_context` MUST be used immediately after reading any Go file for the first time, and MAY be re-used if dependencies have changed.
-   EXAMPLE: to understand `server.go`'s dependencies on other files in its package: `go_file_context({"file":"/path/to/server.go"})`
-
-4. **Understand a package's public API**: When you need to understand what a package provides to external code (i.e., its public API), use `go_package_api`. This is especially useful for understanding third-party dependencies or other packages in the same monorepo.
-   EXAMPLE: to see the API of the `storage` package: `go_package_api({"packagePaths":["example.com/internal/storage"]})`
-
-### Editing workflow
-
-The editing workflow is iterative. You should cycle through these steps until the task is complete.
-
-1. **Read first**: Before making any edits, follow the Read Workflow to understand the user's request and the relevant code.
-
-2. **Find references**: Before modifying the definition of any symbol, use the `go_symbol_references` tool to find all references to that identifier. This is critical for understanding the impact of your change. Read the files containing references to evaluate if any further edits are required.
-   EXAMPLE: `go_symbol_references({"file":"/path/to/server.go","symbol":"Server.Run"})`
-
-3. **Make edits**: Make the required edits, including edits to references you identified in the previous step. Don't proceed to the next step until all planned edits are complete.
-
-4. **Check for errors**: After every code modification, you MUST call the `go_diagnostics` tool. Pass the paths of the files you have edited. This tool will report any build or analysis errors.
-   EXAMPLE: `go_diagnostics({"files":["/path/to/server.go"]})`
-
-5. **Fix errors**: If `go_diagnostics` reports any errors, fix them. The tool may provide suggested quick fixes in the form of diffs. You should review these diffs and apply them if they are correct. Once you've applied a fix, re-run `go_diagnostics` to confirm that the issue is resolved. It is OK to ignore 'hint' or 'info' diagnostics if they are not relevant to the current task. Note that Go diagnostic messages may contain a summary of the source code, which may not match its exact text.
-
-6. **Run tests**: Once `go_diagnostics` reports no errors (and ONLY once there are no errors), run the tests for the packages you have changed. You can do this with `go test [packagePath...]`. Don't run `go test ./...` unless the user explicitly requests it, as doing so may slow down the iteration loop.
-
-
+The `code_review` tool takes the following parameters:
+- `file_content` (string, required): The full content of the Go source file to be reviewed.
+- `model_name` (string, optional): The specific generative AI model to use for the review. If omitted, it defaults to a pre-configured model.
+- `hint` (string, optional): A natural language hint to guide the AI's review, focusing it on a specific concern (e.g., performance, clarity, error handling).
