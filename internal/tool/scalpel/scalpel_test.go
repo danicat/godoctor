@@ -1,7 +1,9 @@
 package scalpel_test
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/danicat/godoctor/internal/tool/scalpel"
@@ -21,7 +23,7 @@ line 2
 	tests := []struct {
 		name         string
 		params       *scalpel.ScalpelParams
-		want         string
+		want         func(string) string
 		wantErr      bool
 		finalContent string
 	}{
@@ -38,7 +40,6 @@ line 2
 				Content:   "inserted ",
 				Start:     &scalpel.Position{Line: 1, Column: 1},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `inserted line 1
 line 2
 `,
@@ -51,7 +52,6 @@ line 2
 				Content:   " inserted",
 				Start:     &scalpel.Position{Line: 2, Column: 7},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `line 1
 line 2 inserted
 `,
@@ -64,7 +64,6 @@ line 2 inserted
 				Content:   "inserted ",
 				Start:     &scalpel.Position{Line: 1, Column: 4},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `lininserted e 1
 line 2
 `,
@@ -77,7 +76,6 @@ line 2
 				Content:   "inserted\nlines\n",
 				Start:     &scalpel.Position{Line: 1, Column: 1},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `inserted
 lines
 line 1
@@ -102,7 +100,6 @@ line 2
 				Start:     &scalpel.Position{Line: 1, Column: 1},
 				End:       &scalpel.Position{Line: 1, Column: 4},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `e 1
 line 2
 `,
@@ -115,7 +112,6 @@ line 2
 				Start:     &scalpel.Position{Line: 2, Column: 4},
 				End:       &scalpel.Position{Line: 2, Column: 7},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `line 1
 lin
 `,
@@ -128,7 +124,6 @@ lin
 				Start:     &scalpel.Position{Line: 1, Column: 1},
 				End:       &scalpel.Position{Line: 2, Column: 1},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `line 2
 `,
 		},
@@ -140,7 +135,6 @@ lin
 				Start:     &scalpel.Position{Line: 1, Column: 1},
 				End:       &scalpel.Position{Line: 2, Column: 7},
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `
 `,
 		},
@@ -163,7 +157,6 @@ lin
 				End:       &scalpel.Position{Line: 1, Column: 4},
 				Content:   "replaced",
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `replacede 1
 line 2
 `,
@@ -177,7 +170,6 @@ line 2
 				End:       &scalpel.Position{Line: 2, Column: 7},
 				Content:   "replaced",
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `line 1
 linreplaced
 `,
@@ -191,7 +183,6 @@ linreplaced
 				End:       &scalpel.Position{Line: 2, Column: 1},
 				Content:   "replaced",
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `replacedline 2
 `,
 		},
@@ -204,7 +195,6 @@ linreplaced
 				End:       &scalpel.Position{Line: 2, Column: 7},
 				Content:   "replaced",
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `replaced
 `,
 		},
@@ -217,7 +207,6 @@ linreplaced
 				End:       &scalpel.Position{Line: 1, Column: 6},
 				Content:   "",
 			},
-			want: `{"status": "success", "message": "Operation completed successfully."}`,
 			finalContent: `1
 line 2
 `,
@@ -237,7 +226,6 @@ line 2
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Because the scalpel Operation modifies the file, we need to reset the file content before each test.
-			// We also need to close the file before the test runs, and re-open it after.
 			f, err := os.Create(tmpfile.Name())
 			require.NoError(t, err)
 			_, err = f.WriteString(initialContent)
@@ -251,7 +239,18 @@ line 2
 			}
 			require.NoError(t, err)
 
-			require.JSONEq(t, tt.want, got)
+			// The new 'want' is the final content with line numbers.
+			var builder strings.Builder
+			lines := strings.Split(tt.finalContent, "\n")
+			for i, line := range lines {
+				if i == len(lines)-1 && len(line) == 0 {
+					continue
+				}
+				builder.WriteString(fmt.Sprintf("%d: %s\n", i+1, line))
+			}
+			want := builder.String()
+
+			require.Equal(t, want, got)
 
 			if tt.finalContent != "" {
 				content, err := os.ReadFile(tmpfile.Name())

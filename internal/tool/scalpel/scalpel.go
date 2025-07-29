@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -14,12 +15,12 @@ import (
 // Execute runs the specified scalpel command.
 func Execute(params *ScalpelParams) (string, error) {
 	if params.FilePath == "" {
-		return "", scalpelErrorf("file_path required for all scalpel operations")
+		return "", fmt.Errorf("file_path is a required parameter for all scalpel operations")
 	}
 
 	originalContent, err := os.ReadFile(params.FilePath)
 	if err != nil {
-		return "", scalpelErrorf("failed to read file %s: %w", params.FilePath, err)
+		return "", fmt.Errorf("failed to read file %q: %w", params.FilePath, err)
 	}
 
 	var newContent []byte
@@ -28,11 +29,11 @@ func Execute(params *ScalpelParams) (string, error) {
 	switch params.Operation {
 	case "insert":
 		if params.Start == nil {
-			return "", scalpelErrorf("start position required for insert operation")
+			return "", fmt.Errorf("insert operation failed: the 'start' position is required")
 		}
 		offset, err := positionToOffset(originalContent, *params.Start)
 		if err != nil {
-			return "", scalpelErrorf("failed to calculate insert offset: %w", err)
+			return "", fmt.Errorf("failed to calculate insert offset for %+v: %w", *params.Start, err)
 		}
 		newContent = make([]byte, 0, len(originalContent)+len(params.Content))
 		newContent = append(newContent, originalContent[:offset]...)
@@ -40,36 +41,36 @@ func Execute(params *ScalpelParams) (string, error) {
 		newContent = append(newContent, originalContent[offset:]...)
 	case "delete":
 		if params.Start == nil || params.End == nil {
-			return "", scalpelErrorf("start and end positions required for delete operation")
+			return "", fmt.Errorf("delete operation failed: 'start' and 'end' positions are required")
 		}
 		startOffset, err = positionToOffset(originalContent, *params.Start)
 		if err != nil {
-			return "", scalpelErrorf("failed to calculate start offset for delete: %w", err)
+			return "", fmt.Errorf("failed to calculate start offset for delete for %+v: %w", *params.Start, err)
 		}
 		endOffset, err = positionToOffset(originalContent, *params.End)
 		if err != nil {
-			return "", scalpelErrorf("failed to calculate end offset for delete: %w", err)
+			return "", fmt.Errorf("failed to calculate end offset for delete for %+v: %w", *params.End, err)
 		}
 		if startOffset > endOffset {
-			return "", scalpelErrorf("start offset %d cannot be greater than end offset %d", startOffset, endOffset)
+			return "", fmt.Errorf("invalid range: start offset %d cannot be greater than end offset %d", startOffset, endOffset)
 		}
 		newContent = make([]byte, 0, len(originalContent)-(endOffset-startOffset))
 		newContent = append(newContent, originalContent[:startOffset]...)
 		newContent = append(newContent, originalContent[endOffset:]...)
 	case "replace":
 		if params.Start == nil || params.End == nil {
-			return "", scalpelErrorf("start and end positions required for replace operation")
+			return "", fmt.Errorf("replace operation failed: 'start' and 'end' positions are required")
 		}
 		startOffset, err = positionToOffset(originalContent, *params.Start)
 		if err != nil {
-			return "", scalpelErrorf("failed to calculate start offset for replace: %w", err)
+			return "", fmt.Errorf("failed to calculate start offset for replace for %+v: %w", *params.Start, err)
 		}
 		endOffset, err = positionToOffset(originalContent, *params.End)
 		if err != nil {
-			return "", scalpelErrorf("failed to calculate end offset for replace: %w", err)
+			return "", fmt.Errorf("failed to calculate end offset for replace for %+v: %w", *params.End, err)
 		}
 		if startOffset > endOffset {
-			return "", scalpelErrorf("start offset %d cannot be greater than end offset %d", startOffset, endOffset)
+			return "", fmt.Errorf("invalid range: start offset %d cannot be greater than end offset %d", startOffset, endOffset)
 		}
 		newContent = make([]byte, 0, len(originalContent)-(endOffset-startOffset)+len(params.Content))
 		newContent = append(newContent, originalContent[:startOffset]...)
@@ -77,26 +78,20 @@ func Execute(params *ScalpelParams) (string, error) {
 		newContent = append(newContent, originalContent[endOffset:]...)
 	case "replaceAll":
 		if params.Pattern == "" || params.Replacement == "" {
-			return "", scalpelErrorf("pattern and replacement required for replaceAll operation")
+			return "", fmt.Errorf("replaceAll operation failed: 'pattern' and 'replacement' are required")
 		}
 		re, err := regexp.Compile(params.Pattern)
 		if err != nil {
-			return "", scalpelErrorf("failed to compile regex: %w", err)
+			return "", fmt.Errorf("failed to compile regex pattern: %w", err)
 		}
 		newContent = re.ReplaceAll(originalContent, []byte(params.Replacement))
-		// Calculate replacements_made by comparing original and new content length, or by counting matches
-		// For simplicity, we'll just return a success message for now.
-		// A more robust solution would involve iterating through matches and counting.
-		// For now, we'll return a generic success message.
-		return `{"status": "success", "message": "Operation completed successfully."}`,
-		nil
 	case "search":
 		if params.Pattern == "" {
-			return "", fmt.Errorf("pattern is required for search operation")
+			return "", fmt.Errorf("search operation failed: 'pattern' is required")
 		}
 		re, err := regexp.Compile(params.Pattern)
 		if err != nil {
-			return "scalpelErrorf("failed to compile regex: %w", err)rr)
+			return "", fmt.Errorf("failed to compile regex pattern: %w", err)
 		}
 		matches := []Match{}
 		for _, submatches := range re.FindAllSubmatchIndex(originalContent, -1) {
@@ -110,25 +105,43 @@ func Execute(params *ScalpelParams) (string, error) {
 		}
 		jsonMatches, err := json.Marshal(matches)
 		if err != nil {
-			return "", fmt.Errorf("failed to marshal matches to JSON: %w", err)
+			return "", fmt.Errorf("failed to marshal search matches to JSON: %w", err)
 		}
 		return string(jsonMatches), nil
+	case "read":
+		if params.Start == nil && params.End == nil {
+			return formatWithLineNumbers(originalContent), nil
+		}
+		if params.Start == nil || params.End == nil {
+			return "", fmt.Errorf("read operation failed: both 'start' and 'end' positions must be provided, or neither")
+		}
+		startOffset, err = positionToOffset(originalContent, *params.Start)
+		if err != nil {
+			return "", fmt.Errorf("failed to calculate start offset for read for %+v: %w", *params.Start, err)
+		}
+		endOffset, err = positionToOffset(originalContent, *params.End)
+		if err != nil {
+			return "", fmt.Errorf("failed to calculate end offset for read for %+v: %w", *params.End, err)
+		}
+		if startOffset > endOffset {
+			return "", fmt.Errorf("invalid range: start offset %d cannot be greater than end offset %d", startOffset, endOffset)
+		}
+		return formatWithLineNumbers(originalContent[startOffset:endOffset]), nil
 	default:
-		return "", fmt.Errorf("unknown operation: %s", params.Operation)
+		return "", fmt.Errorf("unknown operation: %q", params.Operation)
 	}
 
 	if err := os.WriteFile(params.FilePath, newContent, 0644); err != nil {
 		return "", fmt.Errorf("failed to write file: %w", err)
 	}
 
-	return `{"status": "success", "message": "Operation completed successfully."}`,
-		nil
+	return formatWithLineNumbers(newContent), nil
 }
 
 // positionToOffset converts a Position (line/column or offset) to a byte offset.
 func positionToOffset(content []byte, pos Position) (int, error) {
 	if pos.Offset != 0 {
-		if pos.Offset > len(content) {
+		if pos.Offset < 0 || pos.Offset > len(content) {
 			return 0, fmt.Errorf("offset %d is out of bounds for file length %d", pos.Offset, len(content))
 		}
 		return pos.Offset, nil
@@ -148,10 +161,6 @@ func positionToOffset(content []byte, pos Position) (int, error) {
 		offset += len(lines[i]) + 1 // +1 for the newline character
 	}
 
-
-func scalpelErrorf(format string, args ...interface{}) error {
-	return fmt.Errorf("scalpel: "+format, args...)
-}
 	if pos.Column-1 > len(lines[pos.Line-1]) {
 		return 0, fmt.Errorf("column %d is out of bounds for line %d", pos.Column, pos.Line)
 	}
@@ -160,11 +169,27 @@ func scalpelErrorf(format string, args ...interface{}) error {
 	return offset, nil
 }
 
+func formatWithLineNumbers(content []byte) string {
+	var builder strings.Builder
+	lines := bytes.Split(content, []byte("\n"))
+	for i, line := range lines {
+		if i == len(lines)-1 && len(line) == 0 {
+			continue
+		}
+		builder.WriteString(fmt.Sprintf("%d: %s\n", i+1, line))
+	}
+	return builder.String()
+}
+
+// Register registers the scalpel tool with the MCP server.
+// It handles incoming tool calls, executes the corresponding scalpel operation,
+// and returns the result or an error. Errors from the Execute function are
+// propagated back to the client.
 func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "scalpel",
-		Description: "A powerful tool for precise file editing. Supports inserting content at specific positions, deleting content within a defined range, and replacing text either by range or by searching for a pattern.",
-	}, func(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[ScalpelParams]) (*mcp.CallToolResult, error) {
+        Description: "A tool for surgical file editing. It operates on a file specified by `file_path` and performs an `operation`.\n\n**Operations:**\n\n*   **`insert`**: Inserts `content` at a specific position.\n    *   Requires: `file_path`, `operation: \"insert\"`, `content`, `start`.\n    *   `start`: A `Position` object (`{line, column}` or `offset`) specifying where to insert.\n*   **`delete`**: Deletes a range of content.\n    *   Requires: `file_path`, `operation: \"delete\"`, `start`, `end`.\n    *   `start`, `end`: `Position` objects defining the range to delete.\n*   **`replace`**: Replaces a range of content with new `content`.\n    *   Requires: `file_path`, `operation: \"replace\"`, `content`, `start`, `end`.\n    *   `start`, `end`: `Position` objects defining the range to replace.\n*   **`replaceAll`**: Replaces all occurrences of a `pattern` with a `replacement`.\n    *   Requires: `file_path`, `operation: \"replaceAll\"`, `pattern` (regex), `replacement`.\n*   **`search`**: Searches for a `pattern` (regex) and returns match details.\n    *   Requires: `file_path`, `operation: \"search\"`, `pattern`.\n    *   Returns: A JSON array of `Match` objects, each with range and captured groups.\n*   **`read`**: Reads the entire file or a specific range.\n    *   Requires: `file_path`, `operation: \"read\"`.\n    *   Optional: `start`, `end` `Position` objects to read a specific range.\n\n**`Position` Object:**\nA position can be specified in two ways:\n1.  `{ \"offset\": <number> }`: A zero-based byte offset from the beginning of the file.\n2.  `{ \"line\": <number>, \"column\": <number> }`: A one-based line and column number.",
+	}, func(ctx context.Context, session *mcp.ServerSession, request *mcp.CallToolParamsFor[ScalpelParams]) (*mcp.CallToolResult, error) {
 		result, err := Execute(&request.Arguments)
 		if err != nil {
 			return nil, err
