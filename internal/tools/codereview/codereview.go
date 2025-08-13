@@ -106,7 +106,7 @@ func (h *CodeReviewHandler) CodeReviewTool(ctx context.Context, _ *mcp.ServerSes
 		return nil, fmt.Errorf("file_content cannot be empty")
 	}
 
-	modelName := "gemini-1.5-pro"
+	modelName := "gemini-2.5-pro"
 	if request.Arguments.ModelName != "" {
 		modelName = request.Arguments.ModelName
 	}
