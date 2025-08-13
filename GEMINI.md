@@ -46,6 +46,25 @@ Use the `gopretty` tool to format your Go code. This tool runs both `goimports` 
 The `gopretty` tool takes the following parameter:
 - `file_path` (string, required): The path of a Go file to format.
 
+## Tool: scribble
+
+### Description
+Writes content to a new Go source file and checks it for errors. This tool should be used whenever you are creating a new Go file.
+
+### When to Use
+
+Use the `scribble` tool to create new Go source files. This tool ensures that the file is created with the correct content and also checks for any initial errors.
+
+**Key Scenarios:**
+
+- **Creating a new Go file:** When you need to create a new Go file with some initial content.
+
+### How to Use
+
+The `scribble` tool takes the following parameters:
+- `file_path` (string, required): The path of the Go file to create.
+- `content` (string, required): The content of the Go file.
+
 ## Tool: code_review
 
 ### Description

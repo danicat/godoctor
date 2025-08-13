@@ -24,9 +24,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/danicat/godoctor/internal/tool/codereview"
-	"github.com/danicat/godoctor/internal/tool/godoc"
-	"github.com/danicat/godoctor/internal/tool/gopretty"
+	"github.com/danicat/godoctor/internal/tools/codereview"
+	"github.com/danicat/godoctor/internal/tools/godoc"
+	"github.com/danicat/godoctor/internal/tools/gopretty"
+	"github.com/danicat/godoctor/internal/tools/scribble"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -88,6 +89,7 @@ func addTools(server *mcp.Server, apiKeyEnv string) {
 	// Register the go-doc tool unconditionally.
 	godoc.Register(server)
 	gopretty.Register(server)
+	scribble.Register(server)
 
 	// Register the code_review tool only if an API key is available.
 	codereview.Register(server, os.Getenv(apiKeyEnv))

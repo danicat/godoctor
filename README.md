@@ -89,3 +89,25 @@ To run the test suite:
 ```bash
 make test
 ```
+
+### Manual Tests
+
+You can send the JSON-RPC payloads directly to the server process if it is running in stdio mode. Example:
+
+```sh
+(
+  echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}';
+  echo '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}';
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}';
+) | ./bin/godoctor
+```
+
+And for tool calls:
+
+```sh
+(
+  echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}';
+  echo '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}';
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"godoc", "arguments":{"package":"fmt"}}}';
+) | ./bin/godoctor
+```
