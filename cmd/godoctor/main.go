@@ -26,7 +26,7 @@ import (
 
 	"github.com/danicat/godoctor/internal/tools/codereview"
 	"github.com/danicat/godoctor/internal/tools/godoc"
-	"github.com/danicat/godoctor/internal/tools/gopretty"
+	"github.com/danicat/godoctor/internal/tools/scalpel"
 	"github.com/danicat/godoctor/internal/tools/scribble"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -50,13 +50,13 @@ func run(ctx context.Context, args []string) error {
 	apiKeyEnv := fs.String("api-key-env", "GEMINI_API_KEY", "environment variable for the Gemini API key")
 	versionFlag := fs.Bool("version", false, "print the version and exit")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., :8080)")
-	instructionsFlag := fs.Bool("instructions", false, "print instructions and exit")
+	agentsFlag := fs.Bool("agents", false, "print instructions for agents and exit")
 
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	if *instructionsFlag {
+	if *agentsFlag {
 		printInstructions()
 		return nil
 	}
@@ -88,8 +88,8 @@ func run(ctx context.Context, args []string) error {
 func addTools(server *mcp.Server, apiKeyEnv string) {
 	// Register the go-doc tool unconditionally.
 	godoc.Register(server)
-	gopretty.Register(server)
 	scribble.Register(server)
+	scalpel.Register(server)
 
 	// Register the code_review tool only if an API key is available.
 	codereview.Register(server, os.Getenv(apiKeyEnv))
@@ -117,20 +117,34 @@ Use the godoc tool whenever you need to understand a piece of Go code. This coul
 
 The godoc tool takes a package_path and an optional symbol_name. See the tool's description for detailed parameter information.
 
-## Tool: gopretty
+## Tool: scribble
 
 ### When to Use
 
-Use the gopretty tool to format your Go code. This tool runs both goimports and gofmt on a file to ensure it is correctly formatted and all necessary imports are present.
+Use the scribble tool to create new Go source files. This tool ensures that the file is created with the correct content and also checks for any initial errors.
 
 **Key Scenarios:**
 
-- **After Making Changes:** After you have modified a file, run gopretty on it to ensure it is correctly formatted.
-- **Before Committing:** Before you commit your changes, run gopretty on all the files you have changed to ensure they are all correctly formatted.
+- **Creating a new Go file:** When you need to create a new Go file with some initial content.
 
 ### How to Use
 
-The gopretty tool takes the path of a Go file as input. See the tool's description for detailed parameter information.
+The scribble tool takes the path of the Go file to create and the content of the file as input. See the tool's description for detailed parameter information.
+
+## Tool: scalpel
+
+### When to Use
+
+Use the scalpel tool to edit existing Go source files. This tool is useful for making small changes to a file, such as renaming a variable or changing a function signature.
+
+**Key Scenarios:**
+
+- **Refactoring:** When you are refactoring code, use the scalpel tool to make small, targeted changes.
+- **Fixing Bugs:** When you are fixing a bug, use the scalpel tool to apply a patch to a file.
+
+### How to Use
+
+The scalpel tool takes the path of the Go file to edit, the old string to replace, and the new string to replace it with. See the tool's description for detailed parameter information.
 
 ## Tool: code_review
 

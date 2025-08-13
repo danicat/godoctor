@@ -5,8 +5,7 @@
             "args": ["mcp"]
         },
         "godoctor": {
-            "command": "godoctor",
-            "args": ["--api-key-env=GODOCTOR_API_KEY"]
+            "command": "godoctor"
         }
     }
 }

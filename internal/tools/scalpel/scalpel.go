@@ -1,35 +1,51 @@
-package scribble
+package scalpel
 
 import (
 	"context"
 	"fmt"
-	"go/format"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/tools/imports"
 )
 
-// Register registers the scribble tool with the server.
+// Register registers the scalpel tool with the server.
 func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "scribble",
-		Description: "Writes content to a new Go source file and checks it for errors. This tool should be used whenever you are creating a new Go file.",
-	}, scribbleHandler)
+		Name:        "scalpel",
+		Description: "Edits an existing Go source file by replacing a fragment and checks it for errors.",
+	}, scalpelHandler)
 }
 
-// ScribbleParams defines the input parameters for the scribble tool.
-type ScribbleParams struct {
-	FilePath string `json:"file_path"`
-	Content  string `json:"content"`
+// ScalpelParams defines the input parameters for the scalpel tool.
+type ScalpelParams struct {
+	FilePath  string `json:"file_path"`
+	OldString string `json:"old_string"`
+	NewString string `json:"new_string"`
 }
 
-func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[ScribbleParams]) (*mcp.CallToolResult, error) {
+func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[ScalpelParams]) (*mcp.CallToolResult, error) {
 	path := request.Arguments.FilePath
-	content := request.Arguments.Content
-	byteContent := []byte(content)
+	oldString := request.Arguments.OldString
+	newString := request.Arguments.NewString
+
+	// Check if the file exists.
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return newErrorResult("file does not exist: %s", path), nil
+	} else if err != nil {
+		return newErrorResult("failed to check file status: %v", err), nil
+	}
+
+	originalContent, err := os.ReadFile(path)
+	if err != nil {
+		return newErrorResult("failed to read file: %v", err), nil
+	}
+
+	newContent := strings.Replace(string(originalContent), oldString, newString, 1)
+	byteContent := []byte(newContent)
 
 	if err := os.WriteFile(path, byteContent, 0644); err != nil {
 		return newErrorResult("failed to write file: %v", err), nil
@@ -38,7 +54,7 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 	if filepath.Ext(path) != ".go" {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: "File written successfully."},
+				&mcp.TextContent{Text: "File edited successfully."},
 			},
 		}, nil
 	}
@@ -66,7 +82,7 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: "File written successfully."},
+			&mcp.TextContent{Text: "File edited successfully."},
 		},
 	}, nil
 }
@@ -84,11 +100,7 @@ func goCheck(path string) (string, error) {
 }
 
 func formatGoSource(path string, content []byte) ([]byte, error) {
-	importedSrc, err := imports.Process(path, content, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process imports: %w", err)
-	}
-	return format.Source(importedSrc)
+	return imports.Process(path, content, nil)
 }
 
 func newErrorResult(format string, args ...any) *mcp.CallToolResult {

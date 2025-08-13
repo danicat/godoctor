@@ -10,7 +10,7 @@ This project was developed and refined through an iterative process of AI-driven
 
 *   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `code_review` tool analyzes your code for quality, clarity, and adherence to Go best practices.
 *   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `godoc` tool.
-*   **Code Formatting:** The `gopretty` tool formats your Go code using both `goimports` and `gofmt`.
+*   **Code Manipulation:** The `scribble` and `scalpel` tools allow you to create and edit Go source files.
 *   **Flexible Transports:** Communicate with the `godoctor` server via standard I/O or over the network with a new HTTP mode.
 *   **MCP Compliant:** Built on the Model Context Protocol for broad compatibility with modern development tools.
 
@@ -69,11 +69,11 @@ The `godoctor` binary is the MCP server. It can be run in two modes.
 
 #### Agent Instructions
 
-The `godoctor` server includes a special `-instructions` flag designed to help configure AI agents. When used, this flag prints a detailed guide on when and how to use the `godoc`, `gopretty`, and `code_review` tools and then exits. This output is ideal for inclusion in an agent's configuration file (e.g., `GEMINI.md`).
+The `godoctor` server includes a special `--agents` flag designed to help configure AI agents. When used, this flag prints a detailed guide on when and how to use the `godoc`, `scribble`, `scalpel`, and `code_review` tools and then exits. This output is ideal for inclusion in an agent's configuration file (e.g., `GEMINI.md`).
 
 ```bash
 # Print the agent instructions
-./bin/godoctor -instructions
+./bin/godoctor --agents
 ```
 This command takes precedence over all other flags.
 
@@ -82,7 +82,7 @@ This command takes precedence over all other flags.
 This project follows the standard Go project layout.
 
 *   `cmd/godoctor`: The source code for the MCP server.
-*   `internal/tool`: The implementation of the `code_review`, `godoc`, and `gopretty` tools.
+*   `internal/tool`: The implementation of the `code_review`, `godoc`, `scribble`, and `scalpel` tools.
 
 To run the test suite:
 

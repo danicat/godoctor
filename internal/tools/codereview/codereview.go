@@ -26,27 +26,26 @@ import (
 	"google.golang.org/api/option"
 )
 
-// Register registers the code_review tool with the server.
-func Register(server *mcp.Server, apiKey string) {
-	if apiKey != "" {
-		reviewHandler, err := NewCodeReviewHandler(apiKey)
-		if err != nil {
-			log.Printf("Disabling code_review tool: failed to create handler: %v", err)
-		} else {
-			mcp.AddTool(server, &mcp.Tool{
-				Name:        "code_review",
-				Description: "Provides an expert-level, AI-powered review of a given Go source file. This tool is useful for improving code quality before committing changes.",
-			}, reviewHandler.CodeReviewTool)
-		}
-	} else {
-		log.Printf("API key not set, disabling code_review tool.")
-	}
+// generativeModel is an interface that abstracts the generative model.
+type generativeModel interface {
+	GenerateContent(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error)
 }
 
-// GenerativeModel is an interface that abstracts the genai.GenerativeModel.
-// This allows for mocking in tests.
-type GenerativeModel interface {
-	GenerateContent(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error)
+// Register registers the code_review tool with the server.
+func Register(server *mcp.Server, apiKey string) {
+	if apiKey == "" {
+		log.Printf("API key not set, disabling code_review tool.")
+		return
+	}
+	reviewHandler, err := NewCodeReviewHandler(apiKey)
+	if err != nil {
+		log.Printf("Disabling code_review tool: failed to create handler: %v", err)
+		return
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "code_review",
+		Description: "Provides an expert-level, AI-powered review of a given Go source file. This tool is useful for improving code quality before committing changes.",
+	}, reviewHandler.CodeReviewTool)
 }
 
 // CodeReviewParams defines the input parameters for the code_review tool.
@@ -59,56 +58,69 @@ type CodeReviewParams struct {
 // ReviewSuggestion defines the structured output for a single review suggestion.
 type ReviewSuggestion struct {
 	LineNumber int    `json:"line_number"`
-	Principle  string `json:"principle"`
+	Finding    string `json:"finding"`
 	Comment    string `json:"comment"`
-	Suggestion string `json:"suggestion"`
 }
 
 // CodeReviewHandler holds the dependencies for the code review tool.
 type CodeReviewHandler struct {
-	defaultModel GenerativeModel
-	newClient    func(ctx context.Context, opts ...option.ClientOption) (*genai.Client, error)
-	apiKey       string
+	client       *genai.Client
+	defaultModel generativeModel
+}
+
+// Option is a function that configures a CodeReviewHandler.
+type Option func(*CodeReviewHandler)
+
+// WithClient sets the genai.Client for the CodeReviewHandler.
+func WithClient(client *genai.Client) Option {
+	return func(h *CodeReviewHandler) {
+		h.client = client
+	}
 }
 
 // NewCodeReviewHandler creates a new CodeReviewHandler.
-func NewCodeReviewHandler(apiKey string) (*CodeReviewHandler, error) {
+func NewCodeReviewHandler(apiKey string, opts ...Option) (*CodeReviewHandler, error) {
 	if apiKey == "" {
-		return nil, fmt.Errorf("GEMINI_API_KEY environment variable must be set")
+		return nil, fmt.Errorf("API key must not be empty")
 	}
-	handler := &CodeReviewHandler{
-		apiKey:    apiKey,
-		newClient: genai.NewClient,
+	handler := &CodeReviewHandler{}
+	for _, opt := range opts {
+		opt(handler)
 	}
-	// Initialize a default model to be used when no model is specified in the request.
-	client, err := handler.newClient(context.Background(), option.WithAPIKey(apiKey))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create genai client: %w", err)
+	if handler.client == nil {
+		client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create genai client: %w", err)
+		}
+		handler.client = client
 	}
-	handler.defaultModel = client.GenerativeModel("gemini-2.5-pro")
 	return handler, nil
 }
 
+var jsonMarkdownRegex = regexp.MustCompile("(?s)```json\\s*(.*?)```")
+
 // CodeReviewTool performs an AI-powered code review and returns structured data.
-func (h *CodeReviewHandler) CodeReviewTool(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[CodeReviewParams]) (*mcp.CallToolResult, error) {
+func (h *CodeReviewHandler) CodeReviewTool(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[CodeReviewParams]) (*mcp.CallToolResult, error) {
 	code := request.Arguments.FileContent
 	if code == "" {
 		return nil, fmt.Errorf("file_content cannot be empty")
 	}
 
-	model := h.defaultModel
+	modelName := "gemini-1.5-pro"
 	if request.Arguments.ModelName != "" {
-		// If a model name is provided, create a new client and model for this request.
-		client, err := h.newClient(ctx, option.WithAPIKey(h.apiKey))
-		if err != nil {
-			return nil, fmt.Errorf("failed to create genai client for model %s: %w", request.Arguments.ModelName, err)
-		}
-		model = client.GenerativeModel(request.Arguments.ModelName)
+		modelName = request.Arguments.ModelName
 	}
 
-	systemPrompt := `You are an expert Go code reviewer. Your sole purpose is to analyze Go code and provide feedback based on the principles outlined in the official Go community's "CodeReviewComments" wiki (https://github.com/golang/go/wiki/CodeReviewComments) and best practices from the go.dev blog.
+	var model generativeModel
+	if h.defaultModel != nil {
+		model = h.defaultModel
+	} else {
+		model = h.client.GenerativeModel(modelName)
+	}
 
-Analyze the following code. Identify any areas that violate these principles. For each issue, provide a JSON object with the following fields: "line_number", "principle", "comment", and "suggestion".
+	systemPrompt := `You are an expert Go code reviewer. Your sole purpose is to analyze Go code and provide feedback based on the best practices recognised as idiomatic by the Go community.
+
+Analyze the following code. Identify any areas that violate these principles. For each issue, provide a JSON object with the following fields: "line_number", "finding", and "comment".
 
 Your response MUST be a valid JSON array of these objects. Do not include any other text, explanations, or markdown. If you find no issues, you MUST return an empty array: [].
 
@@ -116,14 +128,13 @@ Example of a valid response:
 [
   {
     "line_number": 25,
-    "principle": "Clarity",
-    "comment": "The variable name 'h' is too short and doesn't convey its purpose.",
-    "suggestion": "Consider renaming 'h' to 'handler' for better readability."
+    "finding": "The variable name 'serverUrl' doesn't comply with Go naming standards.",
+    "comment": "Initialisms should have all upper or all lower case: use serverURL instead."
   }
 ]`
 
 	if request.Arguments.Hint != "" {
-		systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\". Interpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
+		systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
 	}
 
 	resp, err := model.GenerateContent(ctx, genai.Text(systemPrompt), genai.Text(code))
@@ -131,7 +142,7 @@ Example of a valid response:
 		return nil, fmt.Errorf("failed to generate content: %w", err)
 	}
 
-	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
 		return nil, fmt.Errorf("no response content from model. Check model parameters and API status")
 	}
 
@@ -141,7 +152,7 @@ Example of a valid response:
 	}
 
 	// Clean the response by trimming markdown and whitespace
-	cleanedJSON := regexp.MustCompile("(?s)```json\\s*(.*?)```").ReplaceAllString(string(textContent), "$1")
+	cleanedJSON := jsonMarkdownRegex.ReplaceAllString(string(textContent), "$1")
 
 	var suggestions []ReviewSuggestion
 	if err := json.Unmarshal([]byte(cleanedJSON), &suggestions); err != nil {

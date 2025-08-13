@@ -41,9 +41,6 @@ func newTestHandler(t *testing.T, mockResponse string) *CodeReviewHandler {
 	t.Helper()
 	generator := &mockGenerator{
 		GenerateContentFunc: func(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
-			// The actual response from the mock is what we pass in.
-			// It might be a valid JSON string, or just garbage text.
-			// It might also be an error.
 			if strings.Contains(mockResponse, "error") {
 				return nil, fmt.Errorf("%s", mockResponse)
 			}
@@ -66,15 +63,15 @@ func TestNewCodeReviewHandler_NoAPIKey(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when creating a handler with no API key, but got nil")
 	}
-	if !strings.Contains(err.Error(), "GEMINI_API_KEY") {
-		t.Errorf("expected error message to contain 'GEMINI_API_KEY', but got: %s", err.Error())
+	if !strings.Contains(err.Error(), "API key must not be empty") {
+		t.Errorf("expected error message to contain 'API key must not be empty', but got: %s", err.Error())
 	}
 }
 
 func TestCodeReviewTool_Success(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
-		{LineNumber: 1, Principle: "Testing", Comment: "This is a test", Suggestion: "Good job"},
+		{LineNumber: 1, Finding: "Testing", Comment: "This is a test"},
 	}
 	mockResponse, err := json.Marshal(expectedSuggestions)
 	if err != nil {
@@ -112,7 +109,7 @@ func TestCodeReviewTool_Success(t *testing.T) {
 func TestCodeReviewTool_Hint(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
-		{LineNumber: 1, Principle: "Hint", Comment: "This is a hint test", Suggestion: "Good job"},
+		{LineNumber: 1, Finding: "Hint", Comment: "This is a hint test"},
 	}
 	mockResponse, err := json.Marshal(expectedSuggestions)
 	if err != nil {
