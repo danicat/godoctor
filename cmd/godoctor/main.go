@@ -24,6 +24,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/danicat/godoctor/internal/prompts"
 	"github.com/danicat/godoctor/internal/tools/codereview"
 	"github.com/danicat/godoctor/internal/tools/godoc"
 	"github.com/danicat/godoctor/internal/tools/scalpel"
@@ -68,6 +69,7 @@ func run(ctx context.Context, args []string) error {
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "godoctor", Version: version}, nil)
 	addTools(server, *apiKeyEnv)
+	addPrompts(server)
 
 	if *listenAddr != "" {
 		httpServer := &http.Server{
@@ -93,6 +95,10 @@ func addTools(server *mcp.Server, apiKeyEnv string) {
 
 	// Register the code_review tool only if an API key is available.
 	codereview.Register(server, os.Getenv(apiKeyEnv))
+}
+
+func addPrompts(server *mcp.Server) {
+	server.AddPrompt(prompts.ImportThis(), prompts.ImportThisHandler)
 }
 
 func printInstructions() {

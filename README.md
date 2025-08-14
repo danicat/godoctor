@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="GoDoctor Logo" width="200"/>
+</p>
+
 This is not an officially supported Google product.
 
 # GoDoctor
