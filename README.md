@@ -1,10 +1,10 @@
-<p align="center">
-  <img src="logo.png" alt="GoDoctor Logo" width="200"/>
-</p>
-
 This is not an officially supported Google product.
 
 # GoDoctor
+
+<p align="center">
+  <img src="logo.png" alt="GoDoctor Logo" width="200"/>
+</p>
 
 GoDoctor is an intelligent, AI-powered companion for the modern Go developer. It integrates seamlessly with AI-powered IDEs and other development tools through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), providing a suite of powerful features to enhance your workflow.
 
