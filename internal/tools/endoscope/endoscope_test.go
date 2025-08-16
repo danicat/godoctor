@@ -1,24 +1,28 @@
 package endoscope
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestEndoscope(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var server *httptest.Server
+	var externalServer *httptest.Server
+
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
-			w.Write([]byte(`
+			fmt.Fprintf(w, `
 				<html>
 					<head><title>Test Page</title></head>
 					<body>
 						<h1>Welcome</h1>
 						<a href="/page2">Page 2</a>
-						<a href="http://example.com/external">External</a>
+						<a href="%s/external">External</a>
 					</body>
 				</html>
-			`))
+			`, externalServer.URL)
 		} else if r.URL.Path == "/page2" {
 			w.Write([]byte(`
 				<html>
@@ -32,6 +36,18 @@ func TestEndoscope(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+
+	externalServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`
+			<html>
+				<head><title>External</title></head>
+				<body>
+					<p>External page</p>
+				</body>
+			</html>
+		`))
+	}))
+	defer externalServer.Close()
 
 	t.Run("level 0", func(t *testing.T) {
 		e, err := New(server.URL, 0, false)
@@ -47,7 +63,7 @@ func TestEndoscope(t *testing.T) {
 		}
 	})
 
-	t.Run("level 1", func(t *testing.T) {
+	t.Run("level 1, external false", func(t *testing.T) {
 		e, err := New(server.URL, 1, false)
 		if err != nil {
 			t.Fatal(err)
@@ -59,27 +75,16 @@ func TestEndoscope(t *testing.T) {
 		if len(e.results) != 2 {
 			t.Errorf("expected 2 results, got %d", len(e.results))
 		}
-	})
-
-	t.Run("external false", func(t *testing.T) {
-		e, err := New(server.URL, 1, false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = e.Crawl()
-		if err != nil {
-			t.Fatal(err)
-		}
 		for _, res := range e.results {
 			for _, ref := range res.Refs {
-				if ref == "http://example.com/external" {
+				if ref == externalServer.URL+"/external" {
 					t.Error("should not have crawled external link")
 				}
 			}
 		}
 	})
 
-	t.Run("external true", func(t *testing.T) {
+	t.Run("level 1, external true", func(t *testing.T) {
 		e, err := New(server.URL, 1, true)
 		if err != nil {
 			t.Fatal(err)
@@ -88,18 +93,19 @@ func TestEndoscope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if len(e.results) != 3 {
+			t.Errorf("expected 3 results, got %d", len(e.results))
+		}
 		foundExternal := false
 		for _, res := range e.results {
 			for _, ref := range res.Refs {
-				if ref == "http://example.com/external" {
+				if ref == externalServer.URL+"/external" {
 					foundExternal = true
 				}
 			}
 		}
 		if !foundExternal {
-			// Note: this test doesn't actually crawl the external link,
-			// it just checks if it's included in the refs.
-			// A more complete test would mock the external server.
+			t.Error("should have found external link")
 		}
 	})
 }

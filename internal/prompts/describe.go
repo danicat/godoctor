@@ -79,8 +79,25 @@ Use the code_review tool after you have made changes to the code and before you 
 ### How to Use
 
 The code_review tool takes the content of a Go file as input. See the tool's description for detailed parameter information.
-`
 
+## Tool: endoscope
+
+Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for summarizing web pages, analyzing content, or answering questions about a website's content.
+
+### When to Use
+
+Use the endoscope tool when you need to retrieve the content of a website. This could be to summarize a long article, to analyze the content of a page, or to answer questions about a website's content.
+
+**Key Scenarios:**
+
+- **Summarizing Web Pages:** Use the endoscope tool to retrieve the content of a web page and then use a large language model to summarize it.
+- **Content Analysis:** The endoscope tool can be used to retrieve the content of a website for analysis. This could be to identify keywords, to extract data, or to perform sentiment analysis.
+- **Answering Questions:** The endoscope tool can be used to retrieve the content of a website to answer questions about it. For example, you could use it to find the contact information for a company or to get the latest news from a news website.
+
+### How to Use
+
+The endoscope tool takes a URL, a recursion level, and a boolean to indicate whether to crawl external sites. See the tool's description for detailed parameter information.
+`
 
 // Describe creates the definition for the 'describe' prompt.
 func Describe(namespace string) *mcp.Prompt {

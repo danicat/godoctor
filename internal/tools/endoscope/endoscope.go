@@ -27,7 +27,7 @@ func Register(server *mcp.Server, namespace string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        name,
 		Title:       "Crawl a website",
-		Description: "a webcrawler that returns the text-only content of each URL crawled",
+		Description: "Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for summarizing web pages, analyzing content, or answering questions about a website's content.",
 		InputSchema: schema,
 	}, endoscopeHandler)
 }
@@ -42,11 +42,11 @@ type EndoscopeParams struct {
 func endoscopeHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[EndoscopeParams]) (*mcp.CallToolResult, error) {
 	e, err := New(request.Arguments.URL, request.Arguments.Level, request.Arguments.External)
 	if err != nil {
-		return result.NewError("failed to create endoscope: %v", err), nil
+		return nil, fmt.Errorf("failed to create endoscope: %w", err)
 	}
 	s, err := e.Crawl()
 	if err != nil {
-		return result.NewError("failed to crawl: %v", err), nil
+		return nil, fmt.Errorf("failed to crawl: %w", err)
 	}
 	return result.NewText(s), nil
 }
@@ -103,26 +103,25 @@ func (e *Endoscope) Crawl() (string, error) {
 
 		resp, err := http.Get(current.url)
 		if err != nil {
-			fmt.Printf("failed to get URL %s: %v\n", current.url, err)
-			continue
+			return "", fmt.Errorf("failed to get URL %s: %w", current.url, err)
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			fmt.Printf("failed to get URL %s: status code %d\n", current.url, resp.StatusCode)
-			continue
+			return "", fmt.Errorf("failed to get URL %s: status code %d", current.url, resp.StatusCode)
 		}
 
 		doc, err := html.Parse(resp.Body)
 		if err != nil {
-			fmt.Printf("failed to parse HTML from %s: %v\n", current.url, err)
-			continue
+			return "", fmt.Errorf("failed to parse HTML from %s: %w", current.url, err)
 		}
 
 		result := &Result{
 			URL: current.url,
 		}
-		e.extractContent(doc, result)
+		var sb strings.Builder
+		e.extractContent(doc, result, &sb)
+		result.Content = sb.String()
 		e.results = append(e.results, result)
 
 		if current.level < e.MaxLevel {
@@ -145,39 +144,40 @@ func (e *Endoscope) Crawl() (string, error) {
 	return string(output), nil
 }
 
-func (e *Endoscope) extractContent(n *html.Node, result *Result) {
+func (e *Endoscope) extractContent(n *html.Node, result *Result, sb *strings.Builder) {
 	if n.Type == html.ElementNode && n.Data == "title" {
 		if n.FirstChild != nil {
 			result.Title = n.FirstChild.Data
 		}
 	}
 	if n.Type == html.ElementNode && n.Data == "body" {
-		var f func(*html.Node)
-		f = func(n *html.Node) {
-			if n.Type == html.TextNode {
-				result.Content += strings.TrimSpace(n.Data) + " "
-			}
-			if n.Type == html.ElementNode && n.Data == "a" {
-				for _, a := range n.Attr {
-					if a.Key == "href" {
-						link, err := e.resolveURL(a.Val)
-						if err != nil {
-							continue
-						}
-						if e.shouldCrawl(link) {
-							result.Refs = append(result.Refs, link.String())
-						}
-					}
-				}
-			}
-			for c := n.FirstChild; c != nil; c = c.NextSibling {
-				f(c)
-			}
-		}
-		f(n)
+		e.extractBodyContent(n, result, sb)
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		e.extractContent(c, result)
+		e.extractContent(c, result, sb)
+	}
+}
+
+func (e *Endoscope) extractBodyContent(n *html.Node, result *Result, sb *strings.Builder) {
+	if n.Type == html.TextNode {
+		sb.WriteString(strings.TrimSpace(n.Data))
+		sb.WriteString(" ")
+	}
+	if n.Type == html.ElementNode && n.Data == "a" {
+		for _, a := range n.Attr {
+			if a.Key == "href" {
+				link, err := e.resolveURL(a.Val)
+				if err != nil {
+					return
+				}
+				if e.shouldCrawl(link) {
+					result.Refs = append(result.Refs, link.String())
+				}
+			}
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		e.extractBodyContent(c, result, sb)
 	}
 }
 
@@ -193,5 +193,5 @@ func (e *Endoscope) shouldCrawl(u *url.URL) bool {
 	if e.External {
 		return true
 	}
-	return u.Hostname() == e.BaseURL.Hostname()
+	return u.Host == e.BaseURL.Host
 }
