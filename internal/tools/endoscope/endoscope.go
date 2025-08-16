@@ -8,7 +8,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/mcp/result"
 	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/net/html"
@@ -44,11 +43,32 @@ func endoscopeHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.Call
 	if err != nil {
 		return nil, fmt.Errorf("failed to create endoscope: %w", err)
 	}
-	s, err := e.Crawl()
+	crawlResult, err := e.Crawl()
 	if err != nil {
 		return nil, fmt.Errorf("failed to crawl: %w", err)
 	}
-	return result.NewText(s), nil
+	b, err := json.Marshal(crawlResult)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal crawl result: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: string(b)},
+		},
+	}, nil
+}
+
+// CrawlResult represents the overall result of a crawl, including successful
+// results and any errors that occurred.
+type CrawlResult struct {
+	Results []*Result     `json:"results"`
+	Errors  []*CrawlError `json:"errors"`
+}
+
+// CrawlError represents an error that occurred while crawling a single URL.
+type CrawlError struct {
+	URL   string `json:"url"`
+	Error string `json:"error"`
 }
 
 // Result represents the crawled data for a single URL.
@@ -56,7 +76,7 @@ type Result struct {
 	URL     string   `json:"url"`
 	Title   string   `json:"title"`
 	Content string   `json:"content"`
-	Refs    []string `json:"refs"`
+	Refs    []string `json:"-"`
 }
 
 // Endoscope is the main struct for the web crawler.
@@ -66,6 +86,7 @@ type Endoscope struct {
 	MaxLevel int
 	visited  map[string]bool
 	results  []*Result
+	errors   []*CrawlError
 }
 
 // New creates a new Endoscope instance.
@@ -80,11 +101,12 @@ func New(baseURL string, level int, external bool) (*Endoscope, error) {
 		MaxLevel: level,
 		visited:  make(map[string]bool),
 		results:  []*Result{},
+		errors:   []*CrawlError{},
 	}, nil
 }
 
 // Crawl starts the crawling process.
-func (e *Endoscope) Crawl() (string, error) {
+func (e *Endoscope) Crawl() (*CrawlResult, error) {
 	queue := []struct {
 		url   string
 		level int
@@ -103,17 +125,24 @@ func (e *Endoscope) Crawl() (string, error) {
 
 		resp, err := http.Get(current.url)
 		if err != nil {
-			return "", fmt.Errorf("failed to get URL %s: %w", current.url, err)
+			e.errors = append(e.errors, &CrawlError{URL: current.url, Error: err.Error()})
+			continue
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {
-			return "", fmt.Errorf("failed to get URL %s: status code %d", current.url, resp.StatusCode)
+			e.errors = append(e.errors, &CrawlError{URL: current.url, Error: fmt.Sprintf("status code %d", resp.StatusCode)})
+			continue
+		}
+
+		if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
+			continue
 		}
 
 		doc, err := html.Parse(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("failed to parse HTML from %s: %w", current.url, err)
+			e.errors = append(e.errors, &CrawlError{URL: current.url, Error: fmt.Sprintf("failed to parse HTML: %v", err)})
+			continue
 		}
 
 		result := &Result{
@@ -137,11 +166,7 @@ func (e *Endoscope) Crawl() (string, error) {
 		}
 	}
 
-	output, err := json.MarshalIndent(e.results, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
+	return &CrawlResult{Results: e.results, Errors: e.errors}, nil
 }
 
 func (e *Endoscope) extractContent(n *html.Node, result *Result, sb *strings.Builder) {
@@ -159,10 +184,22 @@ func (e *Endoscope) extractContent(n *html.Node, result *Result, sb *strings.Bui
 }
 
 func (e *Endoscope) extractBodyContent(n *html.Node, result *Result, sb *strings.Builder) {
-	if n.Type == html.TextNode {
-		sb.WriteString(strings.TrimSpace(n.Data))
-		sb.WriteString(" ")
+	allowedParents := map[string]bool{
+		"p": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
+		"li": true, "td": true, "th": true, "a": true, "blockquote": true, "span": true,
+		"strong": true, "em": true, "b": true, "i": true, "code": true, "pre": true,
 	}
+
+	if n.Type == html.TextNode {
+		if n.Parent != nil && allowedParents[n.Parent.Data] {
+			trimmed := strings.TrimSpace(n.Data)
+			if trimmed != "" {
+				sb.WriteString(trimmed)
+				sb.WriteString(" ")
+			}
+		}
+	}
+
 	if n.Type == html.ElementNode && n.Data == "a" {
 		for _, a := range n.Attr {
 			if a.Key == "href" {
@@ -176,6 +213,7 @@ func (e *Endoscope) extractBodyContent(n *html.Node, result *Result, sb *strings
 			}
 		}
 	}
+
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		e.extractBodyContent(c, result, sb)
 	}
@@ -190,6 +228,9 @@ func (e *Endoscope) resolveURL(href string) (*url.URL, error) {
 }
 
 func (e *Endoscope) shouldCrawl(u *url.URL) bool {
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
 	if e.External {
 		return true
 	}
