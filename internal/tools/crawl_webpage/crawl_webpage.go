@@ -1,4 +1,4 @@
-package fetch_webpage
+package crawl_webpage
 
 import (
 	"context"
@@ -13,35 +13,32 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Register registers the fetch_webpage tool with the server.
-func Register(server *mcp.Server, namespace string) {
-	name := "fetch_webpage"
-	if namespace != "" {
-		name = namespace + ":" + name
-	}
-	schema, err := jsonschema.For[FetchWebpageParams]()
+// Register registers the crawl_webpage tool with the server.
+func Register(server *mcp.Server) {
+	name := "crawl_webpage"
+	schema, err := jsonschema.For[CrawlWebpageParams]()
 	if err != nil {
 		panic(err)
 	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        name,
 		Title:       "Crawl a website",
-		Description: "Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for summarizing web pages, analyzing content, or answering questions about a website's content.",
+		Description: "Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for extracting documentation from websites.",
 		InputSchema: schema,
-	}, fetchWebpageHandler)
+	}, crawlWebpageHandler)
 }
 
-// FetchWebpageParams defines the input parameters for the fetch_webpage tool.
-type FetchWebpageParams struct {
+// CrawlWebpageParams defines the input parameters for the crawl_webpage tool.
+type CrawlWebpageParams struct {
 	URL      string `json:"url"`
 	Level    int    `json:"level"`
 	External bool   `json:"external"`
 }
 
-func fetchWebpageHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[FetchWebpageParams]) (*mcp.CallToolResult, error) {
+func crawlWebpageHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[CrawlWebpageParams]) (*mcp.CallToolResult, error) {
 	e, err := New(request.Arguments.URL, request.Arguments.Level, request.Arguments.External)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create fetch_webpage: %w", err)
+		return nil, fmt.Errorf("failed to create crawl_webpage: %w", err)
 	}
 	crawlResult, err := e.Crawl(ctx)
 	if err != nil {
@@ -79,8 +76,8 @@ type Result struct {
 	Refs    []string `json:"-"`
 }
 
-// FetchWebpage is the main struct for the web crawler.
-type FetchWebpage struct {
+// CrawlWebpage is the main struct for the web crawler.
+type CrawlWebpage struct {
 	BaseURL  *url.URL
 	External bool
 	MaxLevel int
@@ -89,13 +86,13 @@ type FetchWebpage struct {
 	errors   []*CrawlError
 }
 
-// New creates a new FetchWebpage instance.
-func New(baseURL string, level int, external bool) (*FetchWebpage, error) {
+// New creates a new CrawlWebpage instance.
+func New(baseURL string, level int, external bool) (*CrawlWebpage, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, err
 	}
-	return &FetchWebpage{
+	return &CrawlWebpage{
 		BaseURL:  u,
 		External: external,
 		MaxLevel: level,
@@ -106,7 +103,7 @@ func New(baseURL string, level int, external bool) (*FetchWebpage, error) {
 }
 
 // Crawl starts the crawling process.
-func (e *FetchWebpage) Crawl(ctx context.Context) (*CrawlResult, error) {
+func (e *CrawlWebpage) Crawl(ctx context.Context) (*CrawlResult, error) {
 	queue := []struct {
 		url   string
 		level int
@@ -181,7 +178,7 @@ func (e *FetchWebpage) Crawl(ctx context.Context) (*CrawlResult, error) {
 	return &CrawlResult{Results: e.results, Errors: e.errors}, nil
 }
 
-func (e *FetchWebpage) extractContent(n *html.Node, result *Result, sb *strings.Builder) {
+func (e *CrawlWebpage) extractContent(n *html.Node, result *Result, sb *strings.Builder) {
 	if n.Type == html.ElementNode && n.Data == "title" {
 		if n.FirstChild != nil {
 			result.Title = n.FirstChild.Data
@@ -195,7 +192,7 @@ func (e *FetchWebpage) extractContent(n *html.Node, result *Result, sb *strings.
 	}
 }
 
-func (e *FetchWebpage) extractBodyContent(n *html.Node, result *Result, sb *strings.Builder) {
+func (e *CrawlWebpage) extractBodyContent(n *html.Node, result *Result, sb *strings.Builder) {
 	allowedParents := map[string]bool{
 		"p": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 		"li": true, "td": true, "th": true, "a": true, "blockquote": true, "span": true,
@@ -231,7 +228,7 @@ func (e *FetchWebpage) extractBodyContent(n *html.Node, result *Result, sb *stri
 	}
 }
 
-func (e *FetchWebpage) resolveURL(href string) (*url.URL, error) {
+func (e *CrawlWebpage) resolveURL(href string) (*url.URL, error) {
 	rel, err := url.Parse(href)
 	if err != nil {
 		return nil, err
@@ -239,7 +236,7 @@ func (e *FetchWebpage) resolveURL(href string) (*url.URL, error) {
 	return e.BaseURL.ResolveReference(rel), nil
 }
 
-func (e *FetchWebpage) shouldCrawl(u *url.URL) bool {
+func (e *CrawlWebpage) shouldCrawl(u *url.URL) bool {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}

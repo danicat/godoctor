@@ -15,11 +15,8 @@ import (
 )
 
 // Register registers the edit_code tool with the server.
-func Register(server *mcp.Server, namespace string) {
+func Register(server *mcp.Server) {
 	name := "edit_code"
-	if namespace != "" {
-		name = namespace + ":" + name
-	}
 	schema, err := jsonschema.For[EditCodeParams]()
 	if err != nil {
 		panic(err)

@@ -83,15 +83,14 @@ func run(ctx context.Context, args []string) error {
 }
 
 func addTools(server *mcp.Server, apiKeyEnv string) {
-	const namespace = "doc"
 	// Register the go-doc tool unconditionally.
-	get_documentation.Register(server, namespace)
-	write_code.Register(server, namespace)
-	edit_code.Register(server, namespace)
-	fetch_webpage.Register(server, namespace)
+	get_documentation.Register(server, "")
+	write_code.Register(server, "")
+	edit_code.Register(server, "")
+	crawl_webpage.Register(server, "")
 
 	// Register the code_review tool only if an API key is available.
-	review_code.Register(server, os.Getenv(apiKeyEnv), namespace)
+	review_code.Register(server, os.Getenv(apiKeyEnv), "")
 }
 
 func addPrompts(server *mcp.Server) {

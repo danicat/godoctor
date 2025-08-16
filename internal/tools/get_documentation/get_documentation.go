@@ -26,11 +26,8 @@ import (
 )
 
 // Register registers the get_documentation tool with the server.
-func Register(server *mcp.Server, namespace string) {
+func Register(server *mcp.Server) {
 	name := "get_documentation"
-	if namespace != "" {
-		name = namespace + ":" + name
-	}
 	schema, err := jsonschema.For[GetDocumentationParams]()
 	if err != nil {
 		panic(err)

@@ -1,4 +1,4 @@
-package fetch_webpage
+package crawl_webpage
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestFetchWebpage(t *testing.T) {
+func TestCrawlWebpage(t *testing.T) {
 	var server *httptest.Server
 	var externalServer *httptest.Server
 

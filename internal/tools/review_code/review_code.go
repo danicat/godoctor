@@ -34,7 +34,7 @@ type generativeModel interface {
 }
 
 // Register registers the review_code tool with the server.
-func Register(server *mcp.Server, apiKey, namespace string) {
+func Register(server *mcp.Server, apiKey string) {
 	if apiKey == "" {
 		log.Printf("API key not set, disabling review_code tool.")
 		return
@@ -45,9 +45,6 @@ func Register(server *mcp.Server, apiKey, namespace string) {
 		return
 	}
 	name := "review_code"
-	if namespace != "" {
-		name = namespace + ":" + name
-	}
 	schema, err := jsonschema.For[ReviewCodeParams]()
 	if err != nil {
 		panic(err)

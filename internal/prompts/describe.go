@@ -82,23 +82,23 @@ Use the review_code tool after you have made changes to the code and before you 
 
 The review_code tool takes the content of a Go file as input. See the tool's description for detailed parameter information.
 
-## Tool: fetch_webpage
+## Tool: crawl_webpage
 
-Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for summarizing web pages, analyzing content, or answering questions about a website's content.
+Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for extracting documentation from websites.
 
 ### When to Use
 
-Use the fetch_webpage tool when you need to retrieve the content of a website. This could be to summarize a long article, to analyze the content of a page, or to answer questions about a website's content.
+Use the crawl_webpage tool when you need to retrieve the content of a website. This could be to extract documentation, to analyze the content of a page, or to answer questions about a website's content.
 
 **Key Scenarios:**
 
-- **Summarizing Web Pages:** Use the fetch_webpage tool to retrieve the content of a web page and then use a large language model to summarize it.
-- **Content Analysis:** The fetch_webpage tool can be used to retrieve the content of a website for analysis. This could be to identify keywords, to extract data, or to perform sentiment analysis.
-- **Answering Questions:** The fetch_webpage tool can be used to retrieve the content of a website to answer questions about it. For example, you could use it to find the contact information for a company or to get the latest news from a news website.
+- **Extracting Documentation:** Use the crawl_webpage tool to retrieve the content of a web page and then use a large language model to extract documentation.
+- **Content Analysis:** The crawl_webpage tool can be used to retrieve the content of a website for analysis. This could be to identify keywords, to extract data, or to perform sentiment analysis.
+- **Answering Questions:** The crawl_webpage tool can be used to retrieve the content of a website to answer questions about it. For example, you could use it to find the contact information for a company or to get the latest news from a news website.
 
 ### How to Use
 
-The fetch_webpage tool takes a URL, a recursion level, and a boolean to indicate whether to crawl external sites. See the tool's description for detailed parameter information.
+The crawl_webpage tool takes a URL, a recursion level, and a boolean to indicate whether to crawl external sites. See the tool's description for detailed parameter information.
 `
 
 // Describe creates the definition for the 'describe' prompt.
