@@ -23,10 +23,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/danicat/godoctor/internal/prompts"
+	"github.com/danicat/godoctor/internal/tools/crawl_webpage"
 	"github.com/danicat/godoctor/internal/tools/edit_code"
-	"github.com/danicat/godoctor/internal/tools/fetch_webpage"
 	"github.com/danicat/godoctor/internal/tools/get_documentation"
 	"github.com/danicat/godoctor/internal/tools/review_code"
 	"github.com/danicat/godoctor/internal/tools/write_code"
@@ -49,7 +50,7 @@ func main() {
 
 func run(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("godoctor", flag.ContinueOnError)
-	apiKeyEnv := fs.String("api-key-env", "GEMINI_API_KEY", "environment variable for the Gemini API key")
+	apiKeyEnvVar := fs.String("api-key-env", "GEMINI_API_KEY", "environment variable for the Gemini API key")
 	versionFlag := fs.Bool("version", false, "print the version and exit")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., :8080)")
 
@@ -63,7 +64,7 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	server := mcp.NewServer(&mcp.Implementation{Name: "godoctor", Version: version}, nil)
-	addTools(server, *apiKeyEnv)
+	addTools(server, *apiKeyEnvVar)
 	addPrompts(server)
 
 	if *listenAddr != "" {
@@ -73,24 +74,31 @@ func run(ctx context.Context, args []string) error {
 		}
 		go func() {
 			<-ctx.Done()
-			_ = httpServer.Shutdown(context.Background()) // best effort shutdown
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = httpServer.Shutdown(shutdownCtx) // best effort shutdown
 		}()
 		log.Printf("godoctor listening on %s", *listenAddr)
-		return httpServer.ListenAndServe()
+		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
+			return err
+		}
+		return nil
 	}
 
 	return server.Run(ctx, mcp.NewStdioTransport())
 }
 
-func addTools(server *mcp.Server, apiKeyEnv string) {
+func addTools(server *mcp.Server, apiKeyEnvVar string) {
 	// Register the go-doc tool unconditionally.
-	get_documentation.Register(server, "")
-	write_code.Register(server, "")
-	edit_code.Register(server, "")
-	crawl_webpage.Register(server, "")
+	get_documentation.Register(server)
+	write_code.Register(server)
+	edit_code.Register(server)
+	crawl_webpage.Register(server)
 
 	// Register the code_review tool only if an API key is available.
-	review_code.Register(server, os.Getenv(apiKeyEnv), "")
+	if apiKey := os.Getenv(apiKeyEnvVar); apiKey != "" {
+		review_code.Register(server, apiKey)
+	}
 }
 
 func addPrompts(server *mcp.Server) {

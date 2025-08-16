@@ -1,3 +1,4 @@
+
 ## General Workflow
 
 Before executing the first task the user asks, you should read the README.md file at least once.
@@ -72,3 +73,21 @@ Use the review_code tool after you have made changes to the code and before you 
 ### How to Use
 
 The review_code tool takes the content of a Go file as input. See the tool's description for detailed parameter information.
+
+## Tool: crawl_webpage
+
+Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for extracting documentation from websites.
+
+### When to Use
+
+Use the crawl_webpage tool when you need to retrieve the content of a website. This could be to extract documentation, to analyze the content of a page, or to answer questions about a website's content.
+
+**Key Scenarios:**
+
+- **Extracting Documentation:** Use the crawl_webpage tool to retrieve the content of a web page and then use a large language model to extract documentation.
+- **Content Analysis:** The crawl_webpage tool can be used to retrieve the content of a website for analysis. This could be to identify keywords, to extract data, or to perform sentiment analysis.
+- **Answering Questions:** The crawl_webpage tool can be used to retrieve the content of a website to answer questions about it. For example, you could use it to find the contact information for a company or to get the latest news from a news website.
+
+### How to Use
+
+The crawl_webpage tool takes a URL, a recursion level, and a boolean to indicate whether to crawl external sites. See the tool's description for detailed parameter information.

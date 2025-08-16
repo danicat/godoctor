@@ -17,8 +17,6 @@ https://go-proverbs.github.io/
 https://grafana.com/blog/2024/02/09/how-i-write-http-services-in-go-after-13-years/
 
 And produce a comprehensive set of instructions for LLMs to code Go in an idiomatic, maintainable, testable and easy to read way.
-
-You also should include instructions on how to use the MCP tools you have available (e.g. godoctor, gopls) to achieve the goals above.
 %s`
 
 // ImportThis creates the definition for the 'import_this' prompt.

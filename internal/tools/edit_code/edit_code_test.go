@@ -29,9 +29,13 @@ func TestEditCode_InvalidGoEdit(t *testing.T) {
 
 	params := &mcp.CallToolParamsFor[EditCodeParams]{
 		Arguments: EditCodeParams{
-			FilePath:  file,
-			OldString: "fmt.Println(\"hello world\")",
-			NewString: "fmt.Undefined(\"hello world\")",
+			FilePath: file,
+			Edits: []Edit{
+				{
+					OldString: "fmt.Println(\"hello world\")",
+					NewString: "fmt.Undefined(\"hello world\")",
+				},
+			},
 		},
 	}
 
@@ -84,9 +88,13 @@ func TestEditCode_UnformattedGoEdit(t *testing.T) {
 
 	params := &mcp.CallToolParamsFor[EditCodeParams]{
 		Arguments: EditCodeParams{
-			FilePath:  file,
-			OldString: "world",
-			NewString: "gopher",
+			FilePath: file,
+			Edits: []Edit{
+				{
+					OldString: "world",
+					NewString: "gopher",
+				},
+			},
 		},
 	}
 
@@ -120,9 +128,13 @@ func TestEditCode_EditsExistingFile(t *testing.T) {
 
 	params := &mcp.CallToolParamsFor[EditCodeParams]{
 		Arguments: EditCodeParams{
-			FilePath:  file,
-			OldString: "world",
-			NewString: "gopher",
+			FilePath: file,
+			Edits: []Edit{
+				{
+					OldString: "world",
+					NewString: "gopher",
+				},
+			},
 		},
 	}
 
@@ -152,9 +164,13 @@ func TestEditCode_FailsIfNotExist(t *testing.T) {
 
 	params := &mcp.CallToolParamsFor[EditCodeParams]{
 		Arguments: EditCodeParams{
-			FilePath:  file,
-			OldString: "world",
-			NewString: "gopher",
+			FilePath: file,
+			Edits: []Edit{
+				{
+					OldString: "world",
+					NewString: "gopher",
+				},
+			},
 		},
 	}
 
@@ -174,5 +190,59 @@ func TestEditCode_FailsIfNotExist(t *testing.T) {
 
 	if !strings.Contains(textContent.Text, "file does not exist") {
 		t.Errorf("unexpected error message: got %q", textContent.Text)
+	}
+}
+
+func TestEditCode_FuzzyMatchSuggestions(t *testing.T) {
+	dir, err := os.MkdirTemp("", "test")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(dir)
+
+	file := filepath.Join(dir, "test.txt")
+	initialContent := "This is a test file.\nAnother line of text.\nAnd one more line.\n"
+	if err := os.WriteFile(file, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("failed to create initial file: %v", err)
+	}
+
+	params := &mcp.CallToolParamsFor[EditCodeParams]{
+		Arguments: EditCodeParams{
+			FilePath: file,
+			Edits: []Edit{
+				{
+					OldString: "tst file", // Fuzzy match for "test file"
+					NewString: "new content",
+				},
+			},
+		},
+	}
+
+	result, err := editCodeHandler(context.Background(), nil, params)
+	if err != nil {
+		t.Fatalf("editCodeHandler returned an unexpected error: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatal("expected an error result, but got a successful one")
+	}
+
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatal("expected text content")
+	}
+
+	expectedErrorPart := "old_string not found in file. No changes were made.\n\nDid you mean:\n  - This is a test file. (line 1)"
+	if !strings.Contains(textContent.Text, expectedErrorPart) {
+		t.Errorf("expected error message to contain %q, got %q", expectedErrorPart, textContent.Text)
+	}
+
+	// Ensure the file content remains unchanged
+	fileContent, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatalf("failed to read file: %v", err)
+	}
+	if string(fileContent) != initialContent {
+		t.Errorf("file content was unexpectedly changed: got %q, want %q", string(fileContent), initialContent)
 	}
 }
