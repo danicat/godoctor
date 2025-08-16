@@ -4,7 +4,7 @@ This document provides instructions for an AI agent on how to effectively use th
 
 ## General Workflow
 
-When working with a Go codebase, a typical workflow involves understanding the code, making changes, and then reviewing those changes. The godoctor tools are designed to assist with each of these stages.
+When working with a Go codebase, a typical workflow involves understanding the code, making changes, and then reviewing those changes. The godoodoctor tools are designed to assist with each of these stages.
 
 ## Tool: godoc
 
@@ -26,25 +26,6 @@ Use the `godoc` tool whenever you need to understand a piece of Go code. This co
 The `godoc` tool takes the following parameters:
 - `package_path` (string, required): The full import path of the Go package (e.g., "fmt", "github.com/spf13/cobra").
 - `symbol_name` (string, optional): The name of a specific symbol within the package (e.g., "Println", "Command").
-
-## Tool: gopretty
-
-### Description
-Formats a Go source file using goimports and gofmt. This tool is useful for ensuring that your code adheres to Go's formatting standards.
-
-### When to Use
-
-Use the `gopretty` tool to format your Go code. This tool runs both `goimports` and `gofmt` on a file to ensure it is correctly formatted and all necessary imports are present.
-
-**Key Scenarios:**
-
-- **After Making Changes:** After you have modified a file, run `gopretty` on it to ensure it is correctly formatted.
-- **Before Committing:** Before you commit your changes, run `gopretty` on all the files you have changed to ensure they are all correctly formatted.
-
-### How to Use
-
-The `gopretty` tool takes the following parameter:
-- `file_path` (string, required): The path of a Go file to format.
 
 ## Tool: scribble
 

@@ -22,13 +22,24 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 )
 
 // Register registers the go-doc tool with the server.
-func Register(server *mcp.Server) {
+func Register(server *mcp.Server, namespace string) {
+	name := "godoc"
+	if namespace != "" {
+		name = namespace + ":" + name
+	}
+	schema, err := jsonschema.For[GetDocParams]()
+	if err != nil {
+		panic(err)
+	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "godoc",
-		Description: "Retrieves Go documentation for a specified package and, optionally, a specific symbol within that package. This tool is useful for understanding the functionality of a Go package or a specific symbol (function, type, etc.) within it.",
+		Name:        name,
+		Title:       "Go Documentation",
+		Description: "Retrieves documentation for a specified Go package or a specific symbol (like a function or type). This is the primary tool for code comprehension and exploration. Use it to understand a package's public API, function signatures, and purpose before attempting to use or modify it.",
+		InputSchema: schema,
 	}, getDocHandler)
 }
 
@@ -57,11 +68,23 @@ func getDocHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallT
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
-	if err := cmd.Run(); err != nil {
-		return newErrorResult("`go doc` failed for package %q, symbol %q: %s", pkgPath, symbolName, out.String()), nil
-	}
+	err := cmd.Run()
 
 	docString := strings.TrimSpace(out.String())
+	if err != nil {
+		// If the command fails, it might be because the package doesn't exist.
+		// This is a valid result from the tool, not a tool execution error.
+		if strings.Contains(docString, "no required module provides package") {
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: docString},
+				},
+			}, nil
+		}
+		// For other errors, we'll consider it a tool execution error.
+		return newErrorResult("`go doc` failed for package %q, symbol %q: %s", pkgPath, symbolName, docString), nil
+	}
+
 	if docString == "" {
 		docString = "documentation not found"
 	}

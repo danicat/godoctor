@@ -5,7 +5,10 @@
             "args": ["mcp"]
         },
         "godoctor": {
-            "command": "godoctor"
+            "command": "godoctor",
+            "args": [
+                "--namespace", "doc"
+            ]
         }
     }
 }

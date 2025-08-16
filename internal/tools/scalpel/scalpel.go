@@ -8,15 +8,26 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/tools/imports"
 )
 
 // Register registers the scalpel tool with the server.
-func Register(server *mcp.Server) {
+func Register(server *mcp.Server, namespace string) {
+	name := "scalpel"
+	if namespace != "" {
+		name = namespace + ":" + name
+	}
+	schema, err := jsonschema.For[ScalpelParams]()
+	if err != nil {
+		panic(err)
+	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "scalpel",
-		Description: "Edits an existing Go source file by replacing a fragment and checks it for errors.",
+		Name:        name,
+		Title:       "Edit Go File",
+		Description: "Edits a Go source file by replacing the first occurrence of a specified 'old_string' with a 'new_string'. Use this for surgical edits like adding, deleting, or renaming code when the changes affect less than 25% of the file. To ensure precision, the 'old_string' must be a unique anchor string that includes enough context to target only the desired location.",
+		InputSchema: schema,
 	}, scalpelHandler)
 }
 

@@ -8,15 +8,26 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/tools/imports"
 )
 
 // Register registers the scribble tool with the server.
-func Register(server *mcp.Server) {
+func Register(server *mcp.Server, namespace string) {
+	name := "scribble"
+	if namespace != "" {
+		name = namespace + ":" + name
+	}
+	schema, err := jsonschema.For[ScribbleParams]()
+	if err != nil {
+		panic(err)
+	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "scribble",
-		Description: "Writes content to a new Go source file and checks it for errors. This tool should be used whenever you are creating a new Go file.",
+		Name:        name,
+		Title:       "Create Go File",
+		Description: "Creates or replaces an entire Go source file with the provided content. Use this tool when the extent of edits to a file is substantial, affecting more than 25% of the file's content. It automatically formats the code and manages imports.",
+		InputSchema: schema,
 	}, scribbleHandler)
 }
 

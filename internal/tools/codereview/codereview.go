@@ -22,6 +22,7 @@ import (
 	"regexp"
 
 	"github.com/google/generative-ai-go/genai"
+	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/api/option"
 )
@@ -32,7 +33,7 @@ type generativeModel interface {
 }
 
 // Register registers the code_review tool with the server.
-func Register(server *mcp.Server, apiKey string) {
+func Register(server *mcp.Server, apiKey, namespace string) {
 	if apiKey == "" {
 		log.Printf("API key not set, disabling code_review tool.")
 		return
@@ -42,9 +43,19 @@ func Register(server *mcp.Server, apiKey string) {
 		log.Printf("Disabling code_review tool: failed to create handler: %v", err)
 		return
 	}
+	name := "code_review"
+	if namespace != "" {
+		name = namespace + ":" + name
+	}
+	schema, err := jsonschema.For[CodeReviewParams]()
+	if err != nil {
+		panic(err)
+	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "code_review",
-		Description: "Provides an expert-level, AI-powered review of a given Go source file. This tool is useful for improving code quality before committing changes.",
+		Name:        name,
+		Title:       "Go Code Review",
+		Description: "Performs an expert code review of Go source code. The tool returns a JSON array of suggestions, each containing a 'line_number', a 'finding' describing the issue, and a 'comment' with a recommendation. Use this tool to verify the quality of your changes before finalizing your work.",
+		InputSchema: schema,
 	}, reviewHandler.CodeReviewTool)
 }
 
