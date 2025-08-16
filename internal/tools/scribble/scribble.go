@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/danicat/godoctor/internal/mcp/result"
 	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/tools/imports"
@@ -43,43 +44,31 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 	byteContent := []byte(content)
 
 	if err := os.WriteFile(path, byteContent, 0644); err != nil {
-		return newErrorResult("failed to write file: %v", err), nil
+		return result.NewError("failed to write file: %v", err), nil
 	}
 
 	if filepath.Ext(path) != ".go" {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "File written successfully."},
-			},
-		}, nil
+		return result.NewText("File written successfully."), nil
 	}
 
 	check, err := goCheck(path)
 	if err != nil {
-		return newErrorResult("go check failed: %v", err), nil
+		return result.NewError("go check failed: %v", err), nil
 	}
 	if check != "" {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: check},
-			},
-		}, nil
+		return result.NewText(check), nil
 	}
 
 	formattedSrc, err := formatGoSource(path, byteContent)
 	if err != nil {
-		return newErrorResult("formatting failed: %v", err), nil
+		return result.NewError("formatting failed: %v", err), nil
 	}
 
 	if err := os.WriteFile(path, formattedSrc, 0644); err != nil {
-		return newErrorResult("failed to write formatted file: %v", err), nil
+		return result.NewError("failed to write formatted file: %v", err), nil
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: "File written successfully."},
-		},
-	}, nil
+	return result.NewText("File written successfully."), nil
 }
 
 func goCheck(path string) (string, error) {
@@ -100,13 +89,4 @@ func formatGoSource(path string, content []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to process imports: %w", err)
 	}
 	return format.Source(importedSrc)
-}
-
-func newErrorResult(format string, args ...any) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf(format, args...)},
-		},
-	}
 }

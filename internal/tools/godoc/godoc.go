@@ -17,12 +17,12 @@ package godoc
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"os/exec"
 	"strings"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/danicat/godoctor/internal/mcp/result"
 	"github.com/modelcontextprotocol/go-sdk/jsonschema"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Register registers the go-doc tool with the server.
@@ -54,7 +54,7 @@ func getDocHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallT
 	symbolName := request.Arguments.SymbolName
 
 	if pkgPath == "" {
-		return newErrorResult("package_path cannot be empty"), nil
+		return result.NewError("package_path cannot be empty"), nil
 	}
 
 	args := []string{"doc"}
@@ -75,32 +75,15 @@ func getDocHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallT
 		// If the command fails, it might be because the package doesn't exist.
 		// This is a valid result from the tool, not a tool execution error.
 		if strings.Contains(docString, "no required module provides package") {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					&mcp.TextContent{Text: docString},
-				},
-			}, nil
+			return result.NewText(docString), nil
 		}
 		// For other errors, we'll consider it a tool execution error.
-		return newErrorResult("`go doc` failed for package %q, symbol %q: %s", pkgPath, symbolName, docString), nil
+		return result.NewError("`go doc` failed for package %q, symbol %q: %s", pkgPath, symbolName, docString), nil
 	}
 
 	if docString == "" {
 		docString = "documentation not found"
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: docString},
-		},
-	}, nil
-}
-
-func newErrorResult(format string, a ...any) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf(format, a...)},
-		},
-	}
+	return result.NewText(docString), nil
 }

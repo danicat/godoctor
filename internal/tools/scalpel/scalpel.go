@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/mcp/result"
 	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/tools/imports"
@@ -45,57 +46,45 @@ func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallTo
 
 	// Check if the file exists.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return newErrorResult("file does not exist: %s", path), nil
+		return result.NewText(fmt.Sprintf("file does not exist: %s", path)), nil
 	} else if err != nil {
-		return newErrorResult("failed to check file status: %v", err), nil
+		return result.NewError("failed to check file status: %v", err), nil
 	}
 
 	originalContent, err := os.ReadFile(path)
 	if err != nil {
-		return newErrorResult("failed to read file: %v", err), nil
+		return result.NewError("failed to read file: %v", err), nil
 	}
 
 	newContent := strings.Replace(string(originalContent), oldString, newString, 1)
 	byteContent := []byte(newContent)
 
 	if err := os.WriteFile(path, byteContent, 0644); err != nil {
-		return newErrorResult("failed to write file: %v", err), nil
+		return result.NewError("failed to write file: %v", err), nil
 	}
 
 	if filepath.Ext(path) != ".go" {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "File edited successfully."},
-			},
-		}, nil
+		return result.NewText("File edited successfully."), nil
 	}
 
 	check, err := goCheck(path)
 	if err != nil {
-		return newErrorResult("go check failed: %v", err), nil
+		return result.NewError("go check failed: %v", err), nil
 	}
 	if check != "" {
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: check},
-			},
-		}, nil
+		return result.NewText(check), nil
 	}
 
 	formattedSrc, err := formatGoSource(path, byteContent)
 	if err != nil {
-		return newErrorResult("formatting failed: %v", err), nil
+		return result.NewError("formatting failed: %v", err), nil
 	}
 
 	if err := os.WriteFile(path, formattedSrc, 0644); err != nil {
-		return newErrorResult("failed to write formatted file: %v", err), nil
+		return result.NewError("failed to write formatted file: %v", err), nil
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: "File edited successfully."},
-		},
-	}, nil
+	return result.NewText("File edited successfully."), nil
 }
 
 func goCheck(path string) (string, error) {
@@ -112,13 +101,4 @@ func goCheck(path string) (string, error) {
 
 func formatGoSource(path string, content []byte) ([]byte, error) {
 	return imports.Process(path, content, nil)
-}
-
-func newErrorResult(format string, args ...any) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf(format, args...)},
-		},
-	}
 }

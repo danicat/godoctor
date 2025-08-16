@@ -21,6 +21,7 @@ import (
 	"log"
 	"regexp"
 
+	"github.com/danicat/godoctor/internal/mcp/result"
 	"github.com/google/generative-ai-go/genai"
 	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -114,10 +115,10 @@ var jsonMarkdownRegex = regexp.MustCompile("(?s)```json\\s*(.*?)```")
 func (h *CodeReviewHandler) CodeReviewTool(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[CodeReviewParams]) (*mcp.CallToolResult, error) {
 	code := request.Arguments.FileContent
 	if code == "" {
-		return nil, fmt.Errorf("file_content cannot be empty")
+		return result.NewError("file_content cannot be empty"), nil
 	}
 
-	modelName := "gemini-2.5-pro"
+	modelName := "gemini-1.5-pro-latest"
 	if request.Arguments.ModelName != "" {
 		modelName = request.Arguments.ModelName
 	}
@@ -145,21 +146,21 @@ Example of a valid response:
 ]`
 
 	if request.Arguments.Hint != "" {
-		systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
-	}
+			systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
+		}
 
 	resp, err := model.GenerateContent(ctx, genai.Text(systemPrompt), genai.Text(code))
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate content: %w", err)
+		return result.NewError("failed to generate content: %v", err), nil
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
-		return nil, fmt.Errorf("no response content from model. Check model parameters and API status")
+		return result.NewError("no response content from model. Check model parameters and API status"), nil
 	}
 
 	textContent, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
 	if !ok {
-		return nil, fmt.Errorf("unexpected response format from model, expected genai.Text")
+		return result.NewError("unexpected response format from model, expected genai.Text"), nil
 	}
 
 	// Clean the response by trimming markdown and whitespace
@@ -167,12 +168,11 @@ Example of a valid response:
 
 	var suggestions []ReviewSuggestion
 	if err := json.Unmarshal([]byte(cleanedJSON), &suggestions); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal suggestions from model response: %w", err)
+		return result.NewError("failed to unmarshal suggestions from model response: %v", err), nil
 	}
 
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: cleanedJSON},
-		},
-	}, nil
+	return result.NewText(cleanedJSON), nil
 }
+
+
+
