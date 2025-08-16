@@ -1,13 +1,14 @@
-package endoscope
+package fetch_webpage
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-func TestEndoscope(t *testing.T) {
+func TestFetchWebpage(t *testing.T) {
 	var server *httptest.Server
 	var externalServer *httptest.Server
 
@@ -54,7 +55,7 @@ func TestEndoscope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = e.Crawl()
+		_, err = e.Crawl(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,7 +69,7 @@ func TestEndoscope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = e.Crawl()
+		_, err = e.Crawl(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,7 +90,7 @@ func TestEndoscope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = e.Crawl()
+		_, err = e.Crawl(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

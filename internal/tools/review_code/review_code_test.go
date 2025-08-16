@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package codereview
+package review_code
 
 import (
 	"context"
@@ -37,7 +37,7 @@ func (m *mockGenerator) GenerateContent(ctx context.Context, parts ...genai.Part
 	return nil, fmt.Errorf("mockGenerator.GenerateContent: GenerateContentFunc not implemented")
 }
 
-func newTestHandler(t *testing.T, mockResponse string) *CodeReviewHandler {
+func newTestHandler(t *testing.T, mockResponse string) *ReviewCodeHandler {
 	t.Helper()
 	generator := &mockGenerator{
 		GenerateContentFunc: func(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
@@ -55,11 +55,11 @@ func newTestHandler(t *testing.T, mockResponse string) *CodeReviewHandler {
 			}, nil
 		},
 	}
-	return &CodeReviewHandler{defaultModel: generator}
+	return &ReviewCodeHandler{defaultModel: generator}
 }
 
-func TestNewCodeReviewHandler_NoAPIKey(t *testing.T) {
-	_, err := NewCodeReviewHandler("")
+func TestNewReviewCodeHandler_NoAPIKey(t *testing.T) {
+	_, err := NewReviewCodeHandler(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected an error when creating a handler with no API key, but got nil")
 	}
@@ -68,7 +68,7 @@ func TestNewCodeReviewHandler_NoAPIKey(t *testing.T) {
 	}
 }
 
-func TestCodeReviewTool_Success(t *testing.T) {
+func TestReviewCodeTool_Success(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
 		{LineNumber: 1, Finding: "Testing", Comment: "This is a test"},
@@ -80,12 +80,12 @@ func TestCodeReviewTool_Success(t *testing.T) {
 	handler := newTestHandler(t, string(mockResponse))
 
 	// 2. Act
-	params := &mcp.CallToolParamsFor[CodeReviewParams]{
-		Arguments: CodeReviewParams{FileContent: "package main"},
+	params := &mcp.CallToolParamsFor[ReviewCodeParams]{
+		Arguments: ReviewCodeParams{FileContent: "package main"},
 	}
-	result, err := handler.CodeReviewTool(context.Background(), nil, params)
+	result, err := handler.ReviewCodeTool(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("CodeReviewTool failed: %v", err)
+		t.Fatalf("ReviewCodeTool failed: %v", err)
 	}
 
 	// 3. Assert
@@ -106,7 +106,7 @@ func TestCodeReviewTool_Success(t *testing.T) {
 	}
 }
 
-func TestCodeReviewTool_Hint(t *testing.T) {
+func TestReviewCodeTool_Hint(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
 		{LineNumber: 1, Finding: "Hint", Comment: "This is a hint test"},
@@ -118,15 +118,15 @@ func TestCodeReviewTool_Hint(t *testing.T) {
 	handler := newTestHandler(t, string(mockResponse))
 
 	// 2. Act
-	params := &mcp.CallToolParamsFor[CodeReviewParams]{
-		Arguments: CodeReviewParams{
+	params := &mcp.CallToolParamsFor[ReviewCodeParams]{
+		Arguments: ReviewCodeParams{
 			FileContent: "package main",
 			Hint:        "focus on hints",
 		},
 	}
-	result, err := handler.CodeReviewTool(context.Background(), nil, params)
+	result, err := handler.ReviewCodeTool(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("CodeReviewTool failed: %v", err)
+		t.Fatalf("ReviewCodeTool failed: %v", err)
 	}
 
 	// 3. Assert
@@ -147,17 +147,17 @@ func TestCodeReviewTool_Hint(t *testing.T) {
 	}
 }
 
-func TestCodeReviewTool_InvalidJSON(t *testing.T) {
+func TestReviewCodeTool_InvalidJSON(t *testing.T) {
 	// 1. Setup
 	handler := newTestHandler(t, "this is not json")
 
 	// 2. Act
-	params := &mcp.CallToolParamsFor[CodeReviewParams]{
-		Arguments: CodeReviewParams{FileContent: "package main"},
+	params := &mcp.CallToolParamsFor[ReviewCodeParams]{
+		Arguments: ReviewCodeParams{FileContent: "package main"},
 	}
-	result, err := handler.CodeReviewTool(context.Background(), nil, params)
+	result, err := handler.ReviewCodeTool(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("CodeReviewTool returned an unexpected error: %v", err)
+		t.Fatalf("ReviewCodeTool returned an unexpected error: %v", err)
 	}
 
 	// 3. Assert

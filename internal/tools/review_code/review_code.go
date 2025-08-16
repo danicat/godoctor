@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package codereview
+package review_code
 
 import (
 	"context"
@@ -33,22 +33,22 @@ type generativeModel interface {
 	GenerateContent(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error)
 }
 
-// Register registers the code_review tool with the server.
+// Register registers the review_code tool with the server.
 func Register(server *mcp.Server, apiKey, namespace string) {
 	if apiKey == "" {
-		log.Printf("API key not set, disabling code_review tool.")
+		log.Printf("API key not set, disabling review_code tool.")
 		return
 	}
-	reviewHandler, err := NewCodeReviewHandler(apiKey)
+	reviewHandler, err := NewReviewCodeHandler(context.Background(), apiKey)
 	if err != nil {
-		log.Printf("Disabling code_review tool: failed to create handler: %v", err)
+		log.Printf("Disabling review_code tool: failed to create handler: %v", err)
 		return
 	}
-	name := "code_review"
+	name := "review_code"
 	if namespace != "" {
 		name = namespace + ":" + name
 	}
-	schema, err := jsonschema.For[CodeReviewParams]()
+	schema, err := jsonschema.For[ReviewCodeParams]()
 	if err != nil {
 		panic(err)
 	}
@@ -57,11 +57,11 @@ func Register(server *mcp.Server, apiKey, namespace string) {
 		Title:       "Go Code Review",
 		Description: "Performs an expert code review of Go source code. The tool returns a JSON array of suggestions, each containing a 'line_number', a 'finding' describing the issue, and a 'comment' with a recommendation. Use this tool to verify the quality of your changes before finalizing your work.",
 		InputSchema: schema,
-	}, reviewHandler.CodeReviewTool)
+	}, reviewHandler.ReviewCodeTool)
 }
 
-// CodeReviewParams defines the input parameters for the code_review tool.
-type CodeReviewParams struct {
+// ReviewCodeParams defines the input parameters for the review_code tool.
+type ReviewCodeParams struct {
 	FileContent string `json:"file_content"`
 	ModelName   string `json:"model_name,omitempty"`
 	Hint        string `json:"hint,omitempty"`
@@ -74,33 +74,33 @@ type ReviewSuggestion struct {
 	Comment    string `json:"comment"`
 }
 
-// CodeReviewHandler holds the dependencies for the code review tool.
-type CodeReviewHandler struct {
+// ReviewCodeHandler holds the dependencies for the review code tool.
+type ReviewCodeHandler struct {
 	client       *genai.Client
 	defaultModel generativeModel
 }
 
-// Option is a function that configures a CodeReviewHandler.
-type Option func(*CodeReviewHandler)
+// Option is a function that configures a ReviewCodeHandler.
+type Option func(*ReviewCodeHandler)
 
-// WithClient sets the genai.Client for the CodeReviewHandler.
+// WithClient sets the genai.Client for the ReviewCodeHandler.
 func WithClient(client *genai.Client) Option {
-	return func(h *CodeReviewHandler) {
+	return func(h *ReviewCodeHandler) {
 		h.client = client
 	}
 }
 
-// NewCodeReviewHandler creates a new CodeReviewHandler.
-func NewCodeReviewHandler(apiKey string, opts ...Option) (*CodeReviewHandler, error) {
+// NewReviewCodeHandler creates a new ReviewCodeHandler.
+func NewReviewCodeHandler(ctx context.Context, apiKey string, opts ...Option) (*ReviewCodeHandler, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key must not be empty")
 	}
-	handler := &CodeReviewHandler{}
+	handler := &ReviewCodeHandler{}
 	for _, opt := range opts {
 		opt(handler)
 	}
 	if handler.client == nil {
-		client, err := genai.NewClient(context.Background(), option.WithAPIKey(apiKey))
+		client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
 		if err != nil {
 			return nil, fmt.Errorf("failed to create genai client: %w", err)
 		}
@@ -111,14 +111,14 @@ func NewCodeReviewHandler(apiKey string, opts ...Option) (*CodeReviewHandler, er
 
 var jsonMarkdownRegex = regexp.MustCompile("(?s)```json\\s*(.*?)```")
 
-// CodeReviewTool performs an AI-powered code review and returns structured data.
-func (h *CodeReviewHandler) CodeReviewTool(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[CodeReviewParams]) (*mcp.CallToolResult, error) {
+// ReviewCodeTool performs an AI-powered code review and returns structured data.
+func (h *ReviewCodeHandler) ReviewCodeTool(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[ReviewCodeParams]) (*mcp.CallToolResult, error) {
 	code := request.Arguments.FileContent
 	if code == "" {
 		return result.NewError("file_content cannot be empty"), nil
 	}
 
-	modelName := "gemini-1.5-pro-latest"
+	modelName := "gemini-2.5-pro"
 	if request.Arguments.ModelName != "" {
 		modelName = request.Arguments.ModelName
 	}
@@ -146,8 +146,8 @@ Example of a valid response:
 ]`
 
 	if request.Arguments.Hint != "" {
-			systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
-		}
+		systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
+	}
 
 	resp, err := model.GenerateContent(ctx, genai.Text(systemPrompt), genai.Text(code))
 	if err != nil {
@@ -173,6 +173,3 @@ Example of a valid response:
 
 	return result.NewText(cleanedJSON), nil
 }
-
-
-

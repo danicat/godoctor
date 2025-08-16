@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package godoc
+package get_documentation
 
 import (
 	"context"
@@ -27,20 +27,20 @@ type MockServerSession struct {
 	// Define any fields needed for your mock session, e.g., to control behavior.
 }
 
-func TestGetDocHandler(t *testing.T) {
+func TestGetDocumentationHandler(t *testing.T) {
 	ctx := context.Background()
 	mockSession := &mcp.ServerSession{} // Adjust as needed for your mock implementation.
 
 	testCases := []struct {
 		name        string
-		params      *mcp.CallToolParamsFor[GetDocParams]
+		params      *mcp.CallToolParamsFor[GetDocumentationParams]
 		wantErr     bool
 		wantContent string
 	}{
 		{
 			name: "Standard Library Function",
-			params: &mcp.CallToolParamsFor[GetDocParams]{
-				Arguments: GetDocParams{
+			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
+				Arguments: GetDocumentationParams{
 					PackagePath: "fmt",
 					SymbolName:  "Println",
 				},
@@ -50,8 +50,8 @@ func TestGetDocHandler(t *testing.T) {
 		},
 		{
 			name: "Package-Level Documentation",
-			params: &mcp.CallToolParamsFor[GetDocParams]{
-				Arguments: GetDocParams{
+			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
+				Arguments: GetDocumentationParams{
 					PackagePath: "os",
 				},
 			},
@@ -60,8 +60,8 @@ func TestGetDocHandler(t *testing.T) {
 		},
 		{
 			name: "Symbol Not Found",
-			params: &mcp.CallToolParamsFor[GetDocParams]{
-				Arguments: GetDocParams{
+			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
+				Arguments: GetDocumentationParams{
 					PackagePath: "fmt",
 					SymbolName:  "NonExistentSymbol",
 				},
@@ -71,8 +71,8 @@ func TestGetDocHandler(t *testing.T) {
 		},
 		{
 			name: "Package Not Found",
-			params: &mcp.CallToolParamsFor[GetDocParams]{
-				Arguments: GetDocParams{
+			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
+				Arguments: GetDocumentationParams{
 					PackagePath: "non/existent/package",
 				},
 			},
@@ -81,8 +81,8 @@ func TestGetDocHandler(t *testing.T) {
 		},
 		{
 			name: "Empty Package Path",
-			params: &mcp.CallToolParamsFor[GetDocParams]{
-				Arguments: GetDocParams{
+			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
+				Arguments: GetDocumentationParams{
 					PackagePath: "",
 				},
 			},
@@ -93,9 +93,9 @@ func TestGetDocHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := getDocHandler(ctx, mockSession, tc.params)
+			result, err := getDocumentationHandler(ctx, mockSession, tc.params)
 			if err != nil {
-				t.Fatalf("getDocHandler returned an unexpected error: %v", err)
+				t.Fatalf("getDocumentationHandler returned an unexpected error: %v", err)
 			}
 
 			if tc.wantErr {

@@ -1,4 +1,4 @@
-package scribble
+package write_code
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestScribble_InvalidGo(t *testing.T) {
+func TestWriteCode_InvalidGo(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -25,16 +25,16 @@ func TestScribble_InvalidGo(t *testing.T) {
 	// This content is invalid because fmt is not imported.
 	content := "package main\n\nfunc main() {\n\tfmt.Println(\"hello world\")\n}\n"
 
-	params := &mcp.CallToolParamsFor[ScribbleParams]{
-		Arguments: ScribbleParams{
+	params := &mcp.CallToolParamsFor[WriteCodeParams]{
+		Arguments: WriteCodeParams{
 			FilePath: file,
 			Content:  content,
 		},
 	}
 
-	result, err := scribbleHandler(context.Background(), nil, params)
+	result, err := writeCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scribbleHandler returned an unexpected error: %v", err)
+		t.Fatalf("writeCodeHandler returned an unexpected error: %v", err)
 	}
 
 	if !result.IsError {
@@ -46,7 +46,7 @@ func TestScribble_InvalidGo(t *testing.T) {
 		t.Fatal("expected text content")
 	}
 
-	if !strings.Contains(textContent.Text, "Scribble write resulted in invalid Go code") {
+	if !strings.Contains(textContent.Text, "Write code resulted in invalid Go code") {
 		t.Errorf("unexpected error message: got %q", textContent.Text)
 	}
 
@@ -55,7 +55,7 @@ func TestScribble_InvalidGo(t *testing.T) {
 	}
 }
 
-func TestScribble_UnformattedGo(t *testing.T) {
+func TestWriteCode_UnformattedGo(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -70,16 +70,16 @@ func TestScribble_UnformattedGo(t *testing.T) {
 	unformattedContent := "package main\nimport \"fmt\"\nfunc main() {fmt.Println(\"hello world\")}"
 	expectedContent := "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"hello world\") }\n"
 
-	params := &mcp.CallToolParamsFor[ScribbleParams]{
-		Arguments: ScribbleParams{
+	params := &mcp.CallToolParamsFor[WriteCodeParams]{
+		Arguments: WriteCodeParams{
 			FilePath: file,
 			Content:  unformattedContent,
 		},
 	}
 
-	_, err = scribbleHandler(context.Background(), nil, params)
+	_, err = writeCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scribbleHandler returned an unexpected error: %v", err)
+		t.Fatalf("writeCodeHandler returned an unexpected error: %v", err)
 	}
 
 	fileContent, err := os.ReadFile(file)
@@ -92,7 +92,7 @@ func TestScribble_UnformattedGo(t *testing.T) {
 	}
 }
 
-func TestScribble_CreatesNewFile(t *testing.T) {
+func TestWriteCode_CreatesNewFile(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -102,16 +102,16 @@ func TestScribble_CreatesNewFile(t *testing.T) {
 	file := filepath.Join(dir, "test.txt")
 	content := "hello world"
 
-	params := &mcp.CallToolParamsFor[ScribbleParams]{
-		Arguments: ScribbleParams{
+	params := &mcp.CallToolParamsFor[WriteCodeParams]{
+		Arguments: WriteCodeParams{
 			FilePath: file,
 			Content:  content,
 		},
 	}
 
-	_, err = scribbleHandler(context.Background(), nil, params)
+	_, err = writeCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scribbleHandler returned an unexpected error: %v", err)
+		t.Fatalf("writeCodeHandler returned an unexpected error: %v", err)
 	}
 
 	fileContent, err := os.ReadFile(file)

@@ -1,4 +1,4 @@
-package endoscope
+package fetch_webpage
 
 import (
 	"context"
@@ -13,13 +13,13 @@ import (
 	"golang.org/x/net/html"
 )
 
-// Register registers the endoscope tool with the server.
+// Register registers the fetch_webpage tool with the server.
 func Register(server *mcp.Server, namespace string) {
-	name := "endoscope"
+	name := "fetch_webpage"
 	if namespace != "" {
 		name = namespace + ":" + name
 	}
-	schema, err := jsonschema.For[EndoscopeParams]()
+	schema, err := jsonschema.For[FetchWebpageParams]()
 	if err != nil {
 		panic(err)
 	}
@@ -28,22 +28,22 @@ func Register(server *mcp.Server, namespace string) {
 		Title:       "Crawl a website",
 		Description: "Crawls a website to a specified depth, returning the text-only content of each page. This tool is useful for summarizing web pages, analyzing content, or answering questions about a website's content.",
 		InputSchema: schema,
-	}, endoscopeHandler)
+	}, fetchWebpageHandler)
 }
 
-// EndoscopeParams defines the input parameters for the endoscope tool.
-type EndoscopeParams struct {
+// FetchWebpageParams defines the input parameters for the fetch_webpage tool.
+type FetchWebpageParams struct {
 	URL      string `json:"url"`
 	Level    int    `json:"level"`
 	External bool   `json:"external"`
 }
 
-func endoscopeHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[EndoscopeParams]) (*mcp.CallToolResult, error) {
+func fetchWebpageHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[FetchWebpageParams]) (*mcp.CallToolResult, error) {
 	e, err := New(request.Arguments.URL, request.Arguments.Level, request.Arguments.External)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create endoscope: %w", err)
+		return nil, fmt.Errorf("failed to create fetch_webpage: %w", err)
 	}
-	crawlResult, err := e.Crawl()
+	crawlResult, err := e.Crawl(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to crawl: %w", err)
 	}
@@ -79,8 +79,8 @@ type Result struct {
 	Refs    []string `json:"-"`
 }
 
-// Endoscope is the main struct for the web crawler.
-type Endoscope struct {
+// FetchWebpage is the main struct for the web crawler.
+type FetchWebpage struct {
 	BaseURL  *url.URL
 	External bool
 	MaxLevel int
@@ -89,13 +89,13 @@ type Endoscope struct {
 	errors   []*CrawlError
 }
 
-// New creates a new Endoscope instance.
-func New(baseURL string, level int, external bool) (*Endoscope, error) {
+// New creates a new FetchWebpage instance.
+func New(baseURL string, level int, external bool) (*FetchWebpage, error) {
 	u, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, err
 	}
-	return &Endoscope{
+	return &FetchWebpage{
 		BaseURL:  u,
 		External: external,
 		MaxLevel: level,
@@ -106,7 +106,7 @@ func New(baseURL string, level int, external bool) (*Endoscope, error) {
 }
 
 // Crawl starts the crawling process.
-func (e *Endoscope) Crawl() (*CrawlResult, error) {
+func (e *FetchWebpage) Crawl(ctx context.Context) (*CrawlResult, error) {
 	queue := []struct {
 		url   string
 		level int
@@ -116,6 +116,12 @@ func (e *Endoscope) Crawl() (*CrawlResult, error) {
 	e.visited[e.BaseURL.String()] = true
 
 	for len(queue) > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
 		current := queue[0]
 		queue = queue[1:]
 
@@ -123,7 +129,13 @@ func (e *Endoscope) Crawl() (*CrawlResult, error) {
 			continue
 		}
 
-		resp, err := http.Get(current.url)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, current.url, nil)
+		if err != nil {
+			e.errors = append(e.errors, &CrawlError{URL: current.url, Error: err.Error()})
+			continue
+		}
+
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			e.errors = append(e.errors, &CrawlError{URL: current.url, Error: err.Error()})
 			continue
@@ -169,7 +181,7 @@ func (e *Endoscope) Crawl() (*CrawlResult, error) {
 	return &CrawlResult{Results: e.results, Errors: e.errors}, nil
 }
 
-func (e *Endoscope) extractContent(n *html.Node, result *Result, sb *strings.Builder) {
+func (e *FetchWebpage) extractContent(n *html.Node, result *Result, sb *strings.Builder) {
 	if n.Type == html.ElementNode && n.Data == "title" {
 		if n.FirstChild != nil {
 			result.Title = n.FirstChild.Data
@@ -183,7 +195,7 @@ func (e *Endoscope) extractContent(n *html.Node, result *Result, sb *strings.Bui
 	}
 }
 
-func (e *Endoscope) extractBodyContent(n *html.Node, result *Result, sb *strings.Builder) {
+func (e *FetchWebpage) extractBodyContent(n *html.Node, result *Result, sb *strings.Builder) {
 	allowedParents := map[string]bool{
 		"p": true, "h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 		"li": true, "td": true, "th": true, "a": true, "blockquote": true, "span": true,
@@ -219,7 +231,7 @@ func (e *Endoscope) extractBodyContent(n *html.Node, result *Result, sb *strings
 	}
 }
 
-func (e *Endoscope) resolveURL(href string) (*url.URL, error) {
+func (e *FetchWebpage) resolveURL(href string) (*url.URL, error) {
 	rel, err := url.Parse(href)
 	if err != nil {
 		return nil, err
@@ -227,7 +239,7 @@ func (e *Endoscope) resolveURL(href string) (*url.URL, error) {
 	return e.BaseURL.ResolveReference(rel), nil
 }
 
-func (e *Endoscope) shouldCrawl(u *url.URL) bool {
+func (e *FetchWebpage) shouldCrawl(u *url.URL) bool {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return false
 	}

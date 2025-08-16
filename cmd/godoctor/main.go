@@ -25,11 +25,11 @@ import (
 	"syscall"
 
 	"github.com/danicat/godoctor/internal/prompts"
-	"github.com/danicat/godoctor/internal/tools/codereview"
-	"github.com/danicat/godoctor/internal/tools/endoscope"
-	"github.com/danicat/godoctor/internal/tools/godoc"
-	"github.com/danicat/godoctor/internal/tools/scalpel"
-	"github.com/danicat/godoctor/internal/tools/scribble"
+	"github.com/danicat/godoctor/internal/tools/edit_code"
+	"github.com/danicat/godoctor/internal/tools/fetch_webpage"
+	"github.com/danicat/godoctor/internal/tools/get_documentation"
+	"github.com/danicat/godoctor/internal/tools/review_code"
+	"github.com/danicat/godoctor/internal/tools/write_code"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -85,13 +85,13 @@ func run(ctx context.Context, args []string) error {
 func addTools(server *mcp.Server, apiKeyEnv string) {
 	const namespace = "doc"
 	// Register the go-doc tool unconditionally.
-	godoc.Register(server, namespace)
-	scribble.Register(server, namespace)
-	scalpel.Register(server, namespace)
-	endoscope.Register(server, namespace)
+	get_documentation.Register(server, namespace)
+	write_code.Register(server, namespace)
+	edit_code.Register(server, namespace)
+	fetch_webpage.Register(server, namespace)
 
 	// Register the code_review tool only if an API key is available.
-	codereview.Register(server, os.Getenv(apiKeyEnv), namespace)
+	review_code.Register(server, os.Getenv(apiKeyEnv), namespace)
 }
 
 func addPrompts(server *mcp.Server) {

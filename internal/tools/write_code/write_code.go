@@ -1,4 +1,4 @@
-package scribble
+package write_code
 
 import (
 	"context"
@@ -14,13 +14,13 @@ import (
 	"golang.org/x/tools/imports"
 )
 
-// Register registers the scribble tool with the server.
+// Register registers the write_code tool with the server.
 func Register(server *mcp.Server, namespace string) {
-	name := "scribble"
+	name := "write_code"
 	if namespace != "" {
 		name = namespace + ":" + name
 	}
-	schema, err := jsonschema.For[ScribbleParams]()
+	schema, err := jsonschema.For[WriteCodeParams]()
 	if err != nil {
 		panic(err)
 	}
@@ -29,19 +29,26 @@ func Register(server *mcp.Server, namespace string) {
 		Title:       "Create Go File",
 		Description: "Creates or replaces an entire Go source file with the provided content. Use this tool when the extent of edits to a file is substantial, affecting more than 25% of the file's content. It automatically formats the code and manages imports.",
 		InputSchema: schema,
-	}, scribbleHandler)
+	}, writeCodeHandler)
 }
 
-// ScribbleParams defines the input parameters for the scribble tool.
-type ScribbleParams struct {
+// WriteCodeParams defines the input parameters for the write_code tool.
+type WriteCodeParams struct {
 	FilePath string `json:"file_path"`
 	Content  string `json:"content"`
 }
 
-func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[ScribbleParams]) (*mcp.CallToolResult, error) {
+func writeCodeHandler(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[WriteCodeParams]) (*mcp.CallToolResult, error) {
 	path := request.Arguments.FilePath
 	content := request.Arguments.Content
 	byteContent := []byte(content)
+
+	dir := filepath.Dir(path)
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return result.NewError("failed to create directory: %v", err), nil
+		}
+	}
 
 	if err := os.WriteFile(path, byteContent, 0644); err != nil {
 		return result.NewError("failed to write file: %v", err), nil
@@ -51,7 +58,7 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 		return result.NewText("File written successfully."), nil
 	}
 
-	check, err := goCheck(path)
+	check, err := goCheck(ctx, path)
 	if err != nil {
 		return result.NewError("go check failed: %v", err), nil
 	}
@@ -60,7 +67,7 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 		if err := os.Remove(path); err != nil {
 			return result.NewError("failed to remove invalid file: %v\n\nOriginal error:\n%s", err, check), nil
 		}
-		return result.NewError("Scribble write resulted in invalid Go code. The file has been deleted. You MUST fix the Go code in your `content` parameter before trying again. Compiler error:\n%s", check), nil
+		return result.NewError("Write code resulted in invalid Go code. The file has been deleted. You MUST fix the Go code in your `content` parameter before trying again. Compiler error:\n%s", check), nil
 	}
 
 	formattedSrc, err := formatGoSource(path, byteContent)
@@ -75,8 +82,8 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 	return result.NewText("File written successfully."), nil
 }
 
-func goCheck(path string) (string, error) {
-	cmd := exec.Command("gopls", "check", path)
+func goCheck(ctx context.Context, path string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gopls", "check", path)
 	cmd.Dir = filepath.Dir(path)
 	output, err := cmd.Output()
 	if err != nil {

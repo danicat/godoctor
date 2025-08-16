@@ -1,4 +1,4 @@
-package scalpel
+package edit_code
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestScalpel_InvalidGoEdit(t *testing.T) {
+func TestEditCode_InvalidGoEdit(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -27,17 +27,17 @@ func TestScalpel_InvalidGoEdit(t *testing.T) {
 		t.Fatalf("failed to create initial file: %v", err)
 	}
 
-	params := &mcp.CallToolParamsFor[ScalpelParams]{
-		Arguments: ScalpelParams{
+	params := &mcp.CallToolParamsFor[EditCodeParams]{
+		Arguments: EditCodeParams{
 			FilePath:  file,
 			OldString: "fmt.Println(\"hello world\")",
 			NewString: "fmt.Undefined(\"hello world\")",
 		},
 	}
 
-	result, err := scalpelHandler(context.Background(), nil, params)
+	result, err := editCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scalpelHandler returned an unexpected error: %v", err)
+		t.Fatalf("editCodeHandler returned an unexpected error: %v", err)
 	}
 
 	if !result.IsError {
@@ -49,7 +49,7 @@ func TestScalpel_InvalidGoEdit(t *testing.T) {
 		t.Fatal("expected text content")
 	}
 
-	if !strings.Contains(textContent.Text, "Scalpel replacement resulted in invalid Go code") {
+	if !strings.Contains(textContent.Text, "Edit code replacement resulted in invalid Go code") {
 		t.Errorf("unexpected error message: got %q", textContent.Text)
 	}
 
@@ -63,7 +63,7 @@ func TestScalpel_InvalidGoEdit(t *testing.T) {
 	}
 }
 
-func TestScalpel_UnformattedGoEdit(t *testing.T) {
+func TestEditCode_UnformattedGoEdit(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -82,17 +82,17 @@ func TestScalpel_UnformattedGoEdit(t *testing.T) {
 
 	expectedContent := "package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"hello gopher\") }\n"
 
-	params := &mcp.CallToolParamsFor[ScalpelParams]{
-		Arguments: ScalpelParams{
+	params := &mcp.CallToolParamsFor[EditCodeParams]{
+		Arguments: EditCodeParams{
 			FilePath:  file,
 			OldString: "world",
 			NewString: "gopher",
 		},
 	}
 
-	_, err = scalpelHandler(context.Background(), nil, params)
+	_, err = editCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scalpelHandler returned an unexpected error: %v", err)
+		t.Fatalf("editCodeHandler returned an unexpected error: %v", err)
 	}
 
 	fileContent, err := os.ReadFile(file)
@@ -105,7 +105,7 @@ func TestScalpel_UnformattedGoEdit(t *testing.T) {
 	}
 }
 
-func TestScalpel_EditsExistingFile(t *testing.T) {
+func TestEditCode_EditsExistingFile(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -118,17 +118,17 @@ func TestScalpel_EditsExistingFile(t *testing.T) {
 		t.Fatalf("failed to create initial file: %v", err)
 	}
 
-	params := &mcp.CallToolParamsFor[ScalpelParams]{
-		Arguments: ScalpelParams{
+	params := &mcp.CallToolParamsFor[EditCodeParams]{
+		Arguments: EditCodeParams{
 			FilePath:  file,
 			OldString: "world",
 			NewString: "gopher",
 		},
 	}
 
-	_, err = scalpelHandler(context.Background(), nil, params)
+	_, err = editCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scalpelHandler returned an unexpected error: %v", err)
+		t.Fatalf("editCodeHandler returned an unexpected error: %v", err)
 	}
 
 	fileContent, err := os.ReadFile(file)
@@ -141,7 +141,7 @@ func TestScalpel_EditsExistingFile(t *testing.T) {
 	}
 }
 
-func TestScalpel_FailsIfNotExist(t *testing.T) {
+func TestEditCode_FailsIfNotExist(t *testing.T) {
 	dir, err := os.MkdirTemp("", "test")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
@@ -150,17 +150,17 @@ func TestScalpel_FailsIfNotExist(t *testing.T) {
 
 	file := filepath.Join(dir, "test.txt")
 
-	params := &mcp.CallToolParamsFor[ScalpelParams]{
-		Arguments: ScalpelParams{
+	params := &mcp.CallToolParamsFor[EditCodeParams]{
+		Arguments: EditCodeParams{
 			FilePath:  file,
 			OldString: "world",
 			NewString: "gopher",
 		},
 	}
 
-	result, err := scalpelHandler(context.Background(), nil, params)
+	result, err := editCodeHandler(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("scalpelHandler returned an unexpected error: %v", err)
+		t.Fatalf("editCodeHandler returned an unexpected error: %v", err)
 	}
 
 	if !result.IsError {

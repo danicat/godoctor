@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package godoc
+package get_documentation
 
 import (
 	"bytes"
@@ -25,13 +25,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Register registers the go-doc tool with the server.
+// Register registers the get_documentation tool with the server.
 func Register(server *mcp.Server, namespace string) {
-	name := "godoc"
+	name := "get_documentation"
 	if namespace != "" {
 		name = namespace + ":" + name
 	}
-	schema, err := jsonschema.For[GetDocParams]()
+	schema, err := jsonschema.For[GetDocumentationParams]()
 	if err != nil {
 		panic(err)
 	}
@@ -40,16 +40,16 @@ func Register(server *mcp.Server, namespace string) {
 		Title:       "Go Documentation",
 		Description: "Retrieves documentation for a specified Go package or a specific symbol (like a function or type). This is the primary tool for code comprehension and exploration. Use it to understand a package's public API, function signatures, and purpose before attempting to use or modify it.",
 		InputSchema: schema,
-	}, getDocHandler)
+	}, getDocumentationHandler)
 }
 
-// GetDocParams defines the input parameters for the go-doc tool.
-type GetDocParams struct {
+// GetDocumentationParams defines the input parameters for the get_documentation tool.
+type GetDocumentationParams struct {
 	PackagePath string `json:"package_path"`
 	SymbolName  string `json:"symbol_name,omitempty"`
 }
 
-func getDocHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[GetDocParams]) (*mcp.CallToolResult, error) {
+func getDocumentationHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[GetDocumentationParams]) (*mcp.CallToolResult, error) {
 	pkgPath := request.Arguments.PackagePath
 	symbolName := request.Arguments.SymbolName
 

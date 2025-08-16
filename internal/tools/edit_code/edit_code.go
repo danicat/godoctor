@@ -1,4 +1,4 @@
-package scalpel
+package edit_code
 
 import (
 	"context"
@@ -14,13 +14,13 @@ import (
 	"golang.org/x/tools/imports"
 )
 
-// Register registers the scalpel tool with the server.
+// Register registers the edit_code tool with the server.
 func Register(server *mcp.Server, namespace string) {
-	name := "scalpel"
+	name := "edit_code"
 	if namespace != "" {
 		name = namespace + ":" + name
 	}
-	schema, err := jsonschema.For[ScalpelParams]()
+	schema, err := jsonschema.For[EditCodeParams]()
 	if err != nil {
 		panic(err)
 	}
@@ -29,17 +29,17 @@ func Register(server *mcp.Server, namespace string) {
 		Title:       "Edit Go File",
 		Description: "Edits a Go source file by replacing the first occurrence of a specified 'old_string' with a 'new_string'. Use this for surgical edits like adding, deleting, or renaming code when the changes affect less than 25% of the file. To ensure precision, the 'old_string' must be a unique anchor string that includes enough context to target only the desired location.",
 		InputSchema: schema,
-	}, scalpelHandler)
+	}, editCodeHandler)
 }
 
-// ScalpelParams defines the input parameters for the scalpel tool.
-type ScalpelParams struct {
+// EditCodeParams defines the input parameters for the edit_code tool.
+type EditCodeParams struct {
 	FilePath  string `json:"file_path"`
 	OldString string `json:"old_string"`
 	NewString string `json:"new_string"`
 }
 
-func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[ScalpelParams]) (*mcp.CallToolResult, error) {
+func editCodeHandler(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[EditCodeParams]) (*mcp.CallToolResult, error) {
 	path := request.Arguments.FilePath
 	oldString := request.Arguments.OldString
 	newString := request.Arguments.NewString
@@ -67,7 +67,7 @@ func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallTo
 		return result.NewText("File edited successfully."), nil
 	}
 
-	check, err := goCheck(path)
+	check, err := goCheck(ctx, path)
 	if err != nil {
 		return result.NewError("go check failed: %v", err), nil
 	}
@@ -76,7 +76,7 @@ func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallTo
 		if err := os.WriteFile(path, originalContent, 0644); err != nil {
 			return result.NewError("failed to revert file: %v\n\nOriginal error:\n%s", err, check), nil
 		}
-		return result.NewError("Scalpel replacement resulted in invalid Go code. The file has been reverted. You MUST fix the Go code in your `new_string` parameter before trying again. Compiler error:\n%s", check), nil
+		return result.NewError("Edit code replacement resulted in invalid Go code. The file has been reverted. You MUST fix the Go code in your `new_string` parameter before trying again. Compiler error:\n%s", check), nil
 	}
 
 	formattedSrc, err := formatGoSource(path, byteContent)
@@ -91,8 +91,8 @@ func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallTo
 	return result.NewText("File edited successfully."), nil
 }
 
-func goCheck(path string) (string, error) {
-	cmd := exec.Command("gopls", "check", path)
+func goCheck(ctx context.Context, path string) (string, error) {
+	cmd := exec.CommandContext(ctx, "gopls", "check", path)
 	cmd.Dir = filepath.Dir(path)
 	output, err := cmd.Output()
 	if err != nil {
