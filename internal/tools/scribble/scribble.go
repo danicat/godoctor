@@ -56,7 +56,11 @@ func scribbleHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallT
 		return result.NewError("go check failed: %v", err), nil
 	}
 	if check != "" {
-		return result.NewText(check), nil
+		// Remove the invalid file before returning the error.
+		if err := os.Remove(path); err != nil {
+			return result.NewError("failed to remove invalid file: %v\n\nOriginal error:\n%s", err, check), nil
+		}
+		return result.NewError("Scribble write resulted in invalid Go code. The file has been deleted. You MUST fix the Go code in your `content` parameter before trying again. Compiler error:\n%s", check), nil
 	}
 
 	formattedSrc, err := formatGoSource(path, byteContent)

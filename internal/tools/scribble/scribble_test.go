@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -21,6 +22,7 @@ func TestScribble_InvalidGo(t *testing.T) {
 	}
 
 	file := filepath.Join(dir, "test.go")
+	// This content is invalid because fmt is not imported.
 	content := "package main\n\nfunc main() {\n\tfmt.Println(\"hello world\")\n}\n"
 
 	params := &mcp.CallToolParamsFor[ScribbleParams]{
@@ -30,18 +32,26 @@ func TestScribble_InvalidGo(t *testing.T) {
 		},
 	}
 
-	_, err = scribbleHandler(context.Background(), nil, params)
+	result, err := scribbleHandler(context.Background(), nil, params)
 	if err != nil {
 		t.Fatalf("scribbleHandler returned an unexpected error: %v", err)
 	}
 
-	fileContent, err := os.ReadFile(file)
-	if err != nil {
-		t.Fatalf("failed to read file: %v", err)
+	if !result.IsError {
+		t.Fatal("expected an error result, but got a successful one")
 	}
 
-	if string(fileContent) != content {
-		t.Errorf("file content mismatch: got %q, want %q", string(fileContent), content)
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatal("expected text content")
+	}
+
+	if !strings.Contains(textContent.Text, "Scribble write resulted in invalid Go code") {
+		t.Errorf("unexpected error message: got %q", textContent.Text)
+	}
+
+	if _, err := os.Stat(file); !os.IsNotExist(err) {
+		t.Errorf("expected file to be deleted, but it still exists")
 	}
 }
 
