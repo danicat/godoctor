@@ -155,13 +155,20 @@ func TestCodeReviewTool_InvalidJSON(t *testing.T) {
 	params := &mcp.CallToolParamsFor[CodeReviewParams]{
 		Arguments: CodeReviewParams{FileContent: "package main"},
 	}
-	_, err := handler.CodeReviewTool(context.Background(), nil, params)
+	result, err := handler.CodeReviewTool(context.Background(), nil, params)
+	if err != nil {
+		t.Fatalf("CodeReviewTool returned an unexpected error: %v", err)
+	}
 
 	// 3. Assert
-	if err == nil {
+	if !result.IsError {
 		t.Fatal("Expected an error result, but got a successful one")
 	}
-	if !strings.Contains(err.Error(), "failed to unmarshal suggestions") {
-		t.Errorf("Expected a JSON unmarshal error, but got: %s", err.Error())
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatalf("Expected TextContent, but got %T", result.Content[0])
+	}
+	if !strings.Contains(textContent.Text, "failed to unmarshal suggestions") {
+		t.Errorf("Expected a JSON unmarshal error, but got: %s", textContent.Text)
 	}
 }

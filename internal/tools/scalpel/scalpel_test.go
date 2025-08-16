@@ -35,9 +35,22 @@ func TestScalpel_InvalidGoEdit(t *testing.T) {
 		},
 	}
 
-	_, err = scalpelHandler(context.Background(), nil, params)
+	result, err := scalpelHandler(context.Background(), nil, params)
 	if err != nil {
 		t.Fatalf("scalpelHandler returned an unexpected error: %v", err)
+	}
+
+	if !result.IsError {
+		t.Fatal("expected an error result, but got a successful one")
+	}
+
+	textContent, ok := result.Content[0].(*mcp.TextContent)
+	if !ok {
+		t.Fatal("expected text content")
+	}
+
+	if !strings.Contains(textContent.Text, "Scalpel replacement resulted in invalid Go code") {
+		t.Errorf("unexpected error message: got %q", textContent.Text)
 	}
 
 	fileContent, err := os.ReadFile(file)
@@ -45,8 +58,8 @@ func TestScalpel_InvalidGoEdit(t *testing.T) {
 		t.Fatalf("failed to read file: %v", err)
 	}
 
-	if !strings.Contains(string(fileContent), "fmt.Undefined(\"hello world\")") {
-		t.Errorf("file content mismatch: got %q", string(fileContent))
+	if string(fileContent) != initialContent {
+		t.Errorf("file content was not reverted: got %q", string(fileContent))
 	}
 }
 

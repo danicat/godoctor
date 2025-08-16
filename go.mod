@@ -5,6 +5,7 @@ go 1.24.2
 require (
 	github.com/google/generative-ai-go v0.20.1
 	github.com/modelcontextprotocol/go-sdk v0.2.0
+	golang.org/x/net v0.42.0
 	golang.org/x/tools v0.35.0
 	google.golang.org/api v0.242.0
 )
@@ -32,7 +33,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.36.0 // indirect
 	golang.org/x/crypto v0.40.0 // indirect
 	golang.org/x/mod v0.26.0 // indirect
-	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect

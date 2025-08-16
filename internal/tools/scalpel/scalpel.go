@@ -46,7 +46,7 @@ func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallTo
 
 	// Check if the file exists.
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return result.NewText(fmt.Sprintf("file does not exist: %s", path)), nil
+		return result.NewError("file does not exist: %s", path), nil
 	} else if err != nil {
 		return result.NewError("failed to check file status: %v", err), nil
 	}
@@ -72,7 +72,11 @@ func scalpelHandler(_ context.Context, _ *mcp.ServerSession, request *mcp.CallTo
 		return result.NewError("go check failed: %v", err), nil
 	}
 	if check != "" {
-		return result.NewText(check), nil
+		// Revert the file to its original content before returning the error.
+		if err := os.WriteFile(path, originalContent, 0644); err != nil {
+			return result.NewError("failed to revert file: %v\n\nOriginal error:\n%s", err, check), nil
+		}
+		return result.NewError("Scalpel replacement resulted in invalid Go code. The file has been reverted. You MUST fix the Go code in your `new_string` parameter before trying again. Compiler error:\n%s", check), nil
 	}
 
 	formattedSrc, err := formatGoSource(path, byteContent)

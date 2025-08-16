@@ -26,6 +26,7 @@ import (
 
 	"github.com/danicat/godoctor/internal/prompts"
 	"github.com/danicat/godoctor/internal/tools/codereview"
+	"github.com/danicat/godoctor/internal/tools/endoscope"
 	"github.com/danicat/godoctor/internal/tools/godoc"
 	"github.com/danicat/godoctor/internal/tools/scalpel"
 	"github.com/danicat/godoctor/internal/tools/scribble"
@@ -87,6 +88,7 @@ func addTools(server *mcp.Server, apiKeyEnv string) {
 	godoc.Register(server, namespace)
 	scribble.Register(server, namespace)
 	scalpel.Register(server, namespace)
+	endoscope.Register(server, namespace)
 
 	// Register the code_review tool only if an API key is available.
 	codereview.Register(server, os.Getenv(apiKeyEnv), namespace)
