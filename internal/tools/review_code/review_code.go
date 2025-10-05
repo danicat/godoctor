@@ -108,7 +108,7 @@ func (h *ReviewCodeHandler) ReviewCodeTool(ctx context.Context, request *mcp.Cal
 		return result.NewError("file_content cannot be empty"), nil, nil
 	}
 
-	modelName := "gemini-1.5-pro-latest"
+	modelName := "gemini-2.5-pro"
 	if args.ModelName != "" {
 		modelName = args.ModelName
 	}
