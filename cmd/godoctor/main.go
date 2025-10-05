@@ -26,11 +26,9 @@ import (
 	"time"
 
 	"github.com/danicat/godoctor/internal/prompts"
-	"github.com/danicat/godoctor/internal/tools/crawl_webpage"
-	"github.com/danicat/godoctor/internal/tools/edit_code"
 	"github.com/danicat/godoctor/internal/tools/get_documentation"
 	"github.com/danicat/godoctor/internal/tools/review_code"
-	"github.com/danicat/godoctor/internal/tools/write_code"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -91,9 +89,6 @@ func run(ctx context.Context, args []string) error {
 func addTools(server *mcp.Server, apiKeyEnvVar string) {
 	// Register the go-doc tool unconditionally.
 	get_documentation.Register(server)
-	write_code.Register(server)
-	edit_code.Register(server)
-	crawl_webpage.Register(server)
 
 	// Register the code_review tool only if an API key is available.
 	if apiKey := os.Getenv(apiKeyEnvVar); apiKey != "" {
@@ -104,5 +99,4 @@ func addTools(server *mcp.Server, apiKeyEnvVar string) {
 func addPrompts(server *mcp.Server) {
 	const namespace = "doc"
 	server.AddPrompt(prompts.ImportThis(namespace), prompts.ImportThisHandler)
-	server.AddPrompt(prompts.Describe(namespace), prompts.DescribeHandler)
 }

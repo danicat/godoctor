@@ -14,7 +14,6 @@ This project was developed and refined through an iterative process of AI-driven
 
 *   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `review_code` tool analyzes your code for quality, clarity, and adherence to Go best practices.
 *   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `get_documentation` tool.
-*   **Code Manipulation:** The `write_code` and `edit_code` tools allow you to create and edit Go source files.
 *   **Flexible Transports:** Communicate with the `godoctor` server via standard I/O or over the network with a new HTTP mode.
 *   **MCP Compliant:** Built on the Model Context Protocol for broad compatibility with modern development tools.
 
@@ -78,7 +77,7 @@ The `godoctor` binary is the MCP server. It can be run in two modes.
 This project follows the standard Go project layout.
 
 *   `cmd/godoctor`: The source code for the MCP server.
-*   `internal/tool`: The implementation of the `review_code`, `get_documentation`, `write_code`, and `edit_code` tools.
+*   `internal/tool`: The implementation of the `review_code` and `get_documentation` tools.
 
 To run the test suite:
 
