@@ -4,7 +4,8 @@ go 1.24.2
 
 require (
 	github.com/google/generative-ai-go v0.20.1
-	github.com/modelcontextprotocol/go-sdk v0.2.0
+	github.com/google/jsonschema-go v0.3.0
+	github.com/modelcontextprotocol/go-sdk v1.0.0
 	google.golang.org/api v0.242.0
 )
 

@@ -21,22 +21,15 @@ import (
 	"strings"
 
 	"github.com/danicat/godoctor/internal/mcp/result"
-	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Register registers the get_documentation tool with the server.
 func Register(server *mcp.Server) {
-	name := "get_documentation"
-	schema, err := jsonschema.For[GetDocumentationParams]()
-	if err != nil {
-		panic(err)
-	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        name,
+		Name:        "get_documentation",
 		Title:       "Go Documentation",
 		Description: "Retrieves documentation for a specified Go package or a specific symbol (like a function or type). This is the primary tool for code comprehension and exploration. Use it to understand a package's public API, function signatures, and purpose before attempting to use or modify it.",
-		InputSchema: schema,
 	}, getDocumentationHandler)
 }
 
@@ -46,22 +39,22 @@ type GetDocumentationParams struct {
 	SymbolName  string `json:"symbol_name,omitempty"`
 }
 
-func getDocumentationHandler(ctx context.Context, s *mcp.ServerSession, request *mcp.CallToolParamsFor[GetDocumentationParams]) (*mcp.CallToolResult, error) {
-	pkgPath := request.Arguments.PackagePath
-	symbolName := request.Arguments.SymbolName
+func getDocumentationHandler(ctx context.Context, request *mcp.CallToolRequest, args GetDocumentationParams) (*mcp.CallToolResult, any, error) {
+	pkgPath := args.PackagePath
+	symbolName := args.SymbolName
 
 	if pkgPath == "" {
-		return result.NewError("package_path cannot be empty"), nil
+		return result.NewError("package_path cannot be empty"), nil, nil
 	}
 
-	args := []string{"doc"}
+	cmdArgs := []string{"doc"}
 	if symbolName == "" {
-		args = append(args, pkgPath)
+		cmdArgs = append(cmdArgs, pkgPath)
 	} else {
-		args = append(args, "-short", pkgPath, symbolName)
+		cmdArgs = append(cmdArgs, "-short", pkgPath, symbolName)
 	}
 
-	cmd := exec.CommandContext(ctx, "go", args...)
+	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -72,15 +65,15 @@ func getDocumentationHandler(ctx context.Context, s *mcp.ServerSession, request 
 		// If the command fails, it might be because the package doesn't exist.
 		// This is a valid result from the tool, not a tool execution error.
 		if strings.Contains(docString, "no required module provides package") {
-			return result.NewText(docString), nil
+			return result.NewText(docString), nil, nil
 		}
 		// For other errors, we'll consider it a tool execution error.
-		return result.NewError("`go doc` failed for package %q, symbol %q: %s", pkgPath, symbolName, docString), nil
+		return result.NewError("`go doc` failed for package %q, symbol %q: %s", pkgPath, symbolName, docString), nil, nil
 	}
 
 	if docString == "" {
 		docString = "documentation not found"
 	}
 
-	return result.NewText(docString), nil
+	return result.NewText(docString), nil, nil
 }

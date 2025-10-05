@@ -23,7 +23,6 @@ import (
 
 	"github.com/danicat/godoctor/internal/mcp/result"
 	"github.com/google/generative-ai-go/genai"
-	"github.com/modelcontextprotocol/go-sdk/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/api/option"
 )
@@ -44,16 +43,10 @@ func Register(server *mcp.Server, apiKey string) {
 		log.Printf("Disabling review_code tool: failed to create handler: %v", err)
 		return
 	}
-	name := "review_code"
-	schema, err := jsonschema.For[ReviewCodeParams]()
-	if err != nil {
-		panic(err)
-	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        name,
+		Name:        "review_code",
 		Title:       "Go Code Review",
 		Description: "Performs an expert code review of Go source code. The tool returns a JSON array of suggestions, each containing a 'line_number', a 'finding' describing the issue, and a 'comment' with a recommendation. Use this tool to verify the quality of your changes before finalizing your work.",
-		InputSchema: schema,
 	}, reviewHandler.ReviewCodeTool)
 }
 
@@ -109,15 +102,15 @@ func NewReviewCodeHandler(ctx context.Context, apiKey string, opts ...Option) (*
 var jsonMarkdownRegex = regexp.MustCompile("(?s)```json\\s*(.*?)```")
 
 // ReviewCodeTool performs an AI-powered code review and returns structured data.
-func (h *ReviewCodeHandler) ReviewCodeTool(ctx context.Context, _ *mcp.ServerSession, request *mcp.CallToolParamsFor[ReviewCodeParams]) (*mcp.CallToolResult, error) {
-	code := request.Arguments.FileContent
+func (h *ReviewCodeHandler) ReviewCodeTool(ctx context.Context, request *mcp.CallToolRequest, args ReviewCodeParams) (*mcp.CallToolResult, any, error) {
+	code := args.FileContent
 	if code == "" {
-		return result.NewError("file_content cannot be empty"), nil
+		return result.NewError("file_content cannot be empty"), nil, nil
 	}
 
-	modelName := "gemini-2.5-pro"
-	if request.Arguments.ModelName != "" {
-		modelName = request.Arguments.ModelName
+	modelName := "gemini-1.5-pro-latest"
+	if args.ModelName != "" {
+		modelName = args.ModelName
 	}
 
 	var model generativeModel
@@ -165,22 +158,22 @@ Example of a valid response:
   }
 ]`
 
-	if request.Arguments.Hint != "" {
-		systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", request.Arguments.Hint, systemPrompt)
+	if args.Hint != "" {
+		systemPrompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\nInterpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) and use it to guide your analysis.\n\n%s", args.Hint, systemPrompt)
 	}
 
 	resp, err := model.GenerateContent(ctx, genai.Text(systemPrompt), genai.Text(code))
 	if err != nil {
-		return result.NewError("failed to generate content: %v", err), nil
+		return result.NewError("failed to generate content: %v", err), nil, nil
 	}
 
 	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil || len(resp.Candidates[0].Content.Parts) == 0 {
-		return result.NewError("no response content from model. Check model parameters and API status"), nil
+		return result.NewError("no response content from model. Check model parameters and API status"), nil, nil
 	}
 
 	textContent, ok := resp.Candidates[0].Content.Parts[0].(genai.Text)
 	if !ok {
-		return result.NewError("unexpected response format from model, expected genai.Text"), nil
+		return result.NewError("unexpected response format from model, expected genai.Text"), nil, nil
 	}
 
 	// Clean the response by trimming markdown and whitespace
@@ -188,8 +181,8 @@ Example of a valid response:
 
 	var suggestions []ReviewSuggestion
 	if err := json.Unmarshal([]byte(cleanedJSON), &suggestions); err != nil {
-		return result.NewError("failed to unmarshal suggestions from model response: %v", err), nil
+		return result.NewError("failed to unmarshal suggestions from model response: %v", err), nil, nil
 	}
 
-	return result.NewText(cleanedJSON), nil
+	return result.NewText(cleanedJSON), nil, nil
 }

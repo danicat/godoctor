@@ -80,10 +80,8 @@ func TestReviewCodeTool_Success(t *testing.T) {
 	handler := newTestHandler(t, string(mockResponse))
 
 	// 2. Act
-	params := &mcp.CallToolParamsFor[ReviewCodeParams]{
-		Arguments: ReviewCodeParams{FileContent: "package main"},
-	}
-	result, err := handler.ReviewCodeTool(context.Background(), nil, params)
+	params := ReviewCodeParams{FileContent: "package main"}
+	result, _, err := handler.ReviewCodeTool(context.Background(), nil, params)
 	if err != nil {
 		t.Fatalf("ReviewCodeTool failed: %v", err)
 	}
@@ -118,13 +116,11 @@ func TestReviewCodeTool_Hint(t *testing.T) {
 	handler := newTestHandler(t, string(mockResponse))
 
 	// 2. Act
-	params := &mcp.CallToolParamsFor[ReviewCodeParams]{
-		Arguments: ReviewCodeParams{
-			FileContent: "package main",
-			Hint:        "focus on hints",
-		},
+	params := ReviewCodeParams{
+		FileContent: "package main",
+		Hint:        "focus on hints",
 	}
-	result, err := handler.ReviewCodeTool(context.Background(), nil, params)
+	result, _, err := handler.ReviewCodeTool(context.Background(), nil, params)
 	if err != nil {
 		t.Fatalf("ReviewCodeTool failed: %v", err)
 	}
@@ -152,10 +148,8 @@ func TestReviewCodeTool_InvalidJSON(t *testing.T) {
 	handler := newTestHandler(t, "this is not json")
 
 	// 2. Act
-	params := &mcp.CallToolParamsFor[ReviewCodeParams]{
-		Arguments: ReviewCodeParams{FileContent: "package main"},
-	}
-	result, err := handler.ReviewCodeTool(context.Background(), nil, params)
+	params := ReviewCodeParams{FileContent: "package main"}
+	result, _, err := handler.ReviewCodeTool(context.Background(), nil, params)
 	if err != nil {
 		t.Fatalf("ReviewCodeTool returned an unexpected error: %v", err)
 	}

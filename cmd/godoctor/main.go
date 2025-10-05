@@ -83,7 +83,7 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	return server.Run(ctx, mcp.NewStdioTransport())
+	return server.Run(ctx, &mcp.StdioTransport{})
 }
 
 func addTools(server *mcp.Server, apiKeyEnvVar string) {

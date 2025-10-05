@@ -29,62 +29,51 @@ type MockServerSession struct {
 
 func TestGetDocumentationHandler(t *testing.T) {
 	ctx := context.Background()
-	mockSession := &mcp.ServerSession{} // Adjust as needed for your mock implementation.
 
 	testCases := []struct {
 		name        string
-		params      *mcp.CallToolParamsFor[GetDocumentationParams]
+		params      GetDocumentationParams
 		wantErr     bool
 		wantContent string
 	}{
 		{
 			name: "Standard Library Function",
-			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
-				Arguments: GetDocumentationParams{
-					PackagePath: "fmt",
-					SymbolName:  "Println",
-				},
+			params: GetDocumentationParams{
+				PackagePath: "fmt",
+				SymbolName:  "Println",
 			},
 			wantErr:     false,
 			wantContent: "func Println(a ...any) (n int, err error)",
 		},
 		{
 			name: "Package-Level Documentation",
-			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
-				Arguments: GetDocumentationParams{
-					PackagePath: "os",
-				},
+			params: GetDocumentationParams{
+				PackagePath: "os",
 			},
 			wantErr:     false,
 			wantContent: "package os",
 		},
 		{
 			name: "Symbol Not Found",
-			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
-				Arguments: GetDocumentationParams{
-					PackagePath: "fmt",
-					SymbolName:  "NonExistentSymbol",
-				},
+			params: GetDocumentationParams{
+				PackagePath: "fmt",
+				SymbolName:  "NonExistentSymbol",
 			},
 			wantErr:     true, // Expect an error because the symbol doesn't exist.
 			wantContent: "no symbol NonExistentSymbol",
 		},
 		{
 			name: "Package Not Found",
-			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
-				Arguments: GetDocumentationParams{
-					PackagePath: "non/existent/package",
-				},
+			params: GetDocumentationParams{
+				PackagePath: "non/existent/package",
 			},
 			wantErr:     true, // Expect an error because the package doesn't exist.
 			wantContent: "is not in std",
 		},
 		{
 			name: "Empty Package Path",
-			params: &mcp.CallToolParamsFor[GetDocumentationParams]{
-				Arguments: GetDocumentationParams{
-					PackagePath: "",
-				},
+			params: GetDocumentationParams{
+				PackagePath: "",
 			},
 			wantErr:     true,
 			wantContent: "package_path cannot be empty",
@@ -93,7 +82,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := getDocumentationHandler(ctx, mockSession, tc.params)
+			result, _, err := getDocumentationHandler(ctx, nil, tc.params)
 			if err != nil {
 				t.Fatalf("getDocumentationHandler returned an unexpected error: %v", err)
 			}
