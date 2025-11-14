@@ -12,17 +12,17 @@ This project was developed and refined through an iterative process of AI-driven
 
 ## Features
 
-*   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `review_code` tool analyzes your code for quality, clarity, and adherence to Go best practices.
-*   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `get_documentation` tool.
+*   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `code_review` tool analyzes your code for quality, clarity, and adherence to Go best practices.
+*   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `get_docs` tool.
 *   **Flexible Transports:** Communicate with the `godoctor` server via standard I/O or over the network with a new HTTP mode.
 *   **MCP Compliant:** Built on the Model Context Protocol for broad compatibility with modern development tools.
 
 ## Installation
 
 1.  **Prerequisites:**
-    *   Go 1.18 or later
+    *   Go 1.24 or later
     *   `make`
-    *   A Gemini API Key (for the code review tool).
+    *   A Gemini API Key (for the code review tool) OR Google Cloud Vertex AI credentials.
 
 2.  **Clone and Build:**
     ```bash
@@ -34,50 +34,52 @@ This project was developed and refined through an iterative process of AI-driven
 
 ## Usage
 
-### API Key Configuration
+### Authentication
 
-The `code_review` tool requires a Gemini API Key to function. The server can be configured to find this key in two ways:
+The `code_review` tool uses the Google Gen AI SDK. You can authenticate in one of two ways:
 
-1.  **Default Environment Variable (Recommended)**: By default, the `godoctor` server will look for the API key in an environment variable named `GEMINI_API_KEY`.
-
+1.  **Gemini API (Recommended for Personal Use):**
+    Set the `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) environment variable.
     ```bash
-    # Set the default environment variable
-    export GEMINI_API_KEY="your-api-key"
-
-    # Run the server (it will find the key automatically)
-    ./bin/godoctor --listen :8080
+    export GOOGLE_API_KEY="your-api-key"
     ```
 
-2.  **Custom Environment Variable (Override)**: You can tell the server to look for the key in a different environment variable by using the `--api-key-env` flag. This is useful for environments where you might have multiple keys or need to avoid naming conflicts.
-
+2.  **Vertex AI (Recommended for Enterprise):**
+    Set `GOOGLE_GENAI_USE_VERTEXAI=true` and provide your Google Cloud Project ID and Location. The SDK will then use Application Default Credentials (ADC) for authentication.
     ```bash
-    # Set a custom environment variable
-    export MY_APP_API_KEY="your-api-key"
-
-    # Tell the server to use the custom variable
-    ./bin/godoctor --listen :8080 --api-key-env MY_APP_API_KEY
+    export GOOGLE_GENAI_USE_VERTEXAI=true
+    export GOOGLE_CLOUD_PROJECT="your-project-id"
+    export GOOGLE_CLOUD_LOCATION="us-central1"
+    gcloud auth application-default login
     ```
 
-### Server (`godoctor`)
+### Configuration
 
-The `godoctor` binary is the MCP server. It can be run in two modes.
+You can configure the server using command-line flags:
 
-*   **Standard I/O (default):** The server communicates over `stdin` and `stdout`.
-*   **HTTP Mode:** The server can listen for connections on a network port.
+*   `--listen`: Address to listen on for HTTP transport (e.g., `:8080`). If omitted, uses Standard I/O.
+*   `--model`: Default Gemini model to use (default: `gemini-2.5-pro`).
 
+### Running the Server
+
+**Standard I/O (Default):**
 ```bash
-# Run the server in HTTP mode, listening on port 8080
-./bin/godoctor --listen :8080
+export GOOGLE_API_KEY="your-api-key"
+./bin/godoctor
 ```
 
-
+**HTTP Mode:**
+```bash
+export GOOGLE_API_KEY="your-api-key"
+./bin/godoctor --listen :8080
+```
 
 ## Development
 
 This project follows the standard Go project layout.
 
 *   `cmd/godoctor`: The source code for the MCP server.
-*   `internal/tool`: The implementation of the `review_code` and `get_documentation` tools.
+*   `internal/tools`: The implementation of the `code_review` and `get_docs` tools.
 
 To run the test suite:
 
@@ -103,6 +105,6 @@ And for tool calls:
 (
   echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}';
   echo '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}';
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_documentation", "arguments":{"package":"fmt"}}}';
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_docs", "arguments":{"package_path":"fmt"}}}';
 ) | ./bin/godoctor
 ```

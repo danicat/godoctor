@@ -18,21 +18,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
-	"github.com/google/generative-ai-go/genai"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"google.golang.org/genai"
 )
 
-// mockGenerator is a mock implementation of the GenerativeModel interface.
+// mockGenerator is a mock implementation of the ContentGenerator interface.
 type mockGenerator struct {
-	GenerateContentFunc func(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error)
+	GenerateContentFunc func(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error)
 }
 
-func (m *mockGenerator) GenerateContent(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
+func (m *mockGenerator) GenerateContent(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
 	if m.GenerateContentFunc != nil {
-		return m.GenerateContentFunc(ctx, parts...)
+		return m.GenerateContentFunc(ctx, model, contents, config)
 	}
 	return nil, fmt.Errorf("mockGenerator.GenerateContent: GenerateContentFunc not implemented")
 }
@@ -40,7 +41,7 @@ func (m *mockGenerator) GenerateContent(ctx context.Context, parts ...genai.Part
 func newTestHandler(t *testing.T, mockResponse string) *ReviewCodeHandler {
 	t.Helper()
 	generator := &mockGenerator{
-		GenerateContentFunc: func(ctx context.Context, parts ...genai.Part) (*genai.GenerateContentResponse, error) {
+		GenerateContentFunc: func(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
 			if strings.Contains(mockResponse, "error") {
 				return nil, fmt.Errorf("%s", mockResponse)
 			}
@@ -48,23 +49,54 @@ func newTestHandler(t *testing.T, mockResponse string) *ReviewCodeHandler {
 				Candidates: []*genai.Candidate{
 					{
 						Content: &genai.Content{
-							Parts: []genai.Part{genai.Text(mockResponse)},
+							Parts: []*genai.Part{
+								{Text: mockResponse},
+							},
 						},
 					},
 				},
 			}, nil
 		},
 	}
-	return &ReviewCodeHandler{defaultModel: generator}
+	
+	// We use WithGenerator to bypass the real client creation
+	handler, err := NewReviewCodeHandler(context.Background(), "gemini-2.5-pro", WithGenerator(generator))
+	if err != nil {
+		t.Fatalf("failed to create test handler: %v", err)
+	}
+	return handler
 }
 
-func TestNewReviewCodeHandler_NoAPIKey(t *testing.T) {
-	_, err := NewReviewCodeHandler(context.Background(), "")
+func TestNewReviewCodeHandler_NoAuth(t *testing.T) {
+	// Ensure no auth env vars are set for this test
+	os.Unsetenv("GOOGLE_API_KEY")
+	os.Unsetenv("GEMINI_API_KEY")
+	os.Unsetenv("GOOGLE_GENAI_USE_VERTEXAI")
+	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
+	os.Unsetenv("GOOGLE_CLOUD_LOCATION")
+
+	_, err := NewReviewCodeHandler(context.Background(), "gemini-2.5-pro")
 	if err == nil {
-		t.Fatal("expected an error when creating a handler with no API key, but got nil")
+		t.Fatal("expected an error when creating a handler with no auth, but got nil")
 	}
-	if !strings.Contains(err.Error(), "API key must not be empty") {
-		t.Errorf("expected error message to contain 'API key must not be empty', but got: %s", err.Error())
+	if !strings.Contains(err.Error(), "authentication failed") {
+		t.Errorf("expected error message to contain 'authentication failed', but got: %s", err.Error())
+	}
+}
+
+func TestNewReviewCodeHandler_VertexAI_MissingConfig(t *testing.T) {
+	// Set Vertex AI flag but unset config
+	os.Setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
+	os.Unsetenv("GOOGLE_CLOUD_LOCATION")
+	defer os.Unsetenv("GOOGLE_GENAI_USE_VERTEXAI")
+
+	_, err := NewReviewCodeHandler(context.Background(), "gemini-2.5-pro")
+	if err == nil {
+		t.Fatal("expected an error when creating a handler with Vertex AI enabled but missing config, but got nil")
+	}
+	if !strings.Contains(err.Error(), "Vertex AI enabled but missing configuration") {
+		t.Errorf("expected error message to contain 'Vertex AI enabled but missing configuration', but got: %s", err.Error())
 	}
 }
 

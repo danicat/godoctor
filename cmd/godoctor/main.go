@@ -16,20 +16,13 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
-	"github.com/danicat/godoctor/internal/prompts"
-	"github.com/danicat/godoctor/internal/tools/get_documentation"
-	"github.com/danicat/godoctor/internal/tools/review_code"
-
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/danicat/godoctor/internal/config"
+	"github.com/danicat/godoctor/internal/server"
 )
 
 var (
@@ -47,56 +40,18 @@ func main() {
 }
 
 func run(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("godoctor", flag.ContinueOnError)
-	apiKeyEnvVar := fs.String("api-key-env", "GEMINI_API_KEY", "environment variable for the Gemini API key")
-	versionFlag := fs.Bool("version", false, "print the version and exit")
-	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., :8080)")
-
-	if err := fs.Parse(args); err != nil {
+	cfg, err := config.Load(args)
+	if err != nil {
 		return err
 	}
 
-	if *versionFlag {
+	if cfg.Version {
 		fmt.Println(version)
 		return nil
 	}
 
-	server := mcp.NewServer(&mcp.Implementation{Name: "godoctor", Version: version}, nil)
-	addTools(server, *apiKeyEnvVar)
-	addPrompts(server)
+	srv := server.New(cfg, version)
+	srv.RegisterHandlers()
 
-	if *listenAddr != "" {
-		httpServer := &http.Server{
-			Addr:    *listenAddr,
-			Handler: mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return server }, nil),
-		}
-		go func() {
-			<-ctx.Done()
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = httpServer.Shutdown(shutdownCtx) // best effort shutdown
-		}()
-		log.Printf("godoctor listening on %s", *listenAddr)
-		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
-			return err
-		}
-		return nil
-	}
-
-	return server.Run(ctx, &mcp.StdioTransport{})
-}
-
-func addTools(server *mcp.Server, apiKeyEnvVar string) {
-	// Register the go-doc tool unconditionally.
-	get_documentation.Register(server)
-
-	// Register the code_review tool only if an API key is available.
-	if apiKey := os.Getenv(apiKeyEnvVar); apiKey != "" {
-		review_code.Register(server, apiKey)
-	}
-}
-
-func addPrompts(server *mcp.Server) {
-	const namespace = "doc"
-	server.AddPrompt(prompts.ImportThis(namespace), prompts.ImportThisHandler)
+	return srv.Run(ctx)
 }
