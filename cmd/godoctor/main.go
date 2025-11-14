@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package main is the entry point for the godoctor MCP server.
 package main
 
 import (
@@ -30,13 +31,19 @@ var (
 )
 
 func main() {
+	os.Exit(runMain())
+}
+
+func runMain() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, os.Args[1:]); err != nil {
+	err := run(ctx, os.Args[1:])
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func run(ctx context.Context, args []string) error {

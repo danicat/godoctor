@@ -1,15 +1,18 @@
+// Package config handles configuration loading for the application.
 package config
 
 import (
 	"flag"
 )
 
+// Config holds the application configuration.
 type Config struct {
 	ListenAddr   string
 	Version      bool
 	DefaultModel string
 }
 
+// Load parses command-line arguments and returns a Config struct.
 func Load(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("godoctor", flag.ContinueOnError)
 	versionFlag := fs.Bool("version", false, "print the version and exit")

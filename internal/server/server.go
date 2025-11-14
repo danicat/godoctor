@@ -1,3 +1,4 @@
+// Package server implements the main MCP server logic.
 package server
 
 import (
@@ -8,16 +9,18 @@ import (
 
 	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/prompts"
-	"github.com/danicat/godoctor/internal/tools/get_documentation"
-	"github.com/danicat/godoctor/internal/tools/review_code"
+	"github.com/danicat/godoctor/internal/tools/codereview"
+	"github.com/danicat/godoctor/internal/tools/getdocs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// Server encapsulates the MCP server and its configuration.
 type Server struct {
 	mcpServer *mcp.Server
 	cfg       *config.Config
 }
 
+// New creates a new Server instance.
 func New(cfg *config.Config, version string) *Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "godoctor",
@@ -30,15 +33,17 @@ func New(cfg *config.Config, version string) *Server {
 	}
 }
 
+// RegisterHandlers registers all available tools and prompts with the server.
 func (s *Server) RegisterHandlers() {
 	// Register tools
-	get_documentation.Register(s.mcpServer)
-	review_code.Register(s.mcpServer, s.cfg.DefaultModel)
+	getdocs.Register(s.mcpServer)
+	codereview.Register(s.mcpServer, s.cfg.DefaultModel)
 
 	// Register prompts
 	s.mcpServer.AddPrompt(prompts.ImportThis("doc"), prompts.ImportThisHandler)
 }
 
+// Run starts the server, listening on either Stdio or HTTP based on configuration.
 func (s *Server) Run(ctx context.Context) error {
 	if s.cfg.ListenAddr != "" {
 		return s.runHTTP(ctx)
@@ -48,8 +53,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 func (s *Server) runHTTP(ctx context.Context) error {
 	httpServer := &http.Server{
-		Addr:    s.cfg.ListenAddr,
-		Handler: mcp.NewStreamableHTTPHandler(func(r *http.Request) *mcp.Server { return s.mcpServer }, nil),
+		Addr:              s.cfg.ListenAddr,
+		Handler:           mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server { return s.mcpServer }, nil),
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	go func() {

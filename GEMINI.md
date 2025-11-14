@@ -3,7 +3,7 @@
 ## Project Overview
 **GoDoctor** is an intelligent, AI-powered Model Context Protocol (MCP) server designed to assist Go developers. It integrates with AI-powered IDEs to provide context-aware code reviews and on-demand documentation.
 
-*   **Version:** 0.6.0
+*   **Version:** 0.7.0
 *   **Language:** Go 1.24+
 *   **License:** Apache 2.0 (implied by headers)
 

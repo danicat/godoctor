@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package get_documentation
+package getdocs
 
 import (
 	"context"
@@ -22,23 +22,18 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// MockServerSession provides a mock implementation of the mcp.ServerSession for testing.
-type MockServerSession struct {
-	// Define any fields needed for your mock session, e.g., to control behavior.
-}
-
-func TestGetDocumentationHandler(t *testing.T) {
+func TestHandler(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
 		name        string
-		params      GetDocumentationParams
+		params      Params
 		wantErr     bool
 		wantContent string
 	}{
 		{
 			name: "Standard Library Function",
-			params: GetDocumentationParams{
+			params: Params{
 				PackagePath: "fmt",
 				SymbolName:  "Println",
 			},
@@ -47,7 +42,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Package-Level Documentation",
-			params: GetDocumentationParams{
+			params: Params{
 				PackagePath: "os",
 			},
 			wantErr:     false,
@@ -55,7 +50,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Symbol Not Found",
-			params: GetDocumentationParams{
+			params: Params{
 				PackagePath: "fmt",
 				SymbolName:  "NonExistentSymbol",
 			},
@@ -64,7 +59,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Package Not Found",
-			params: GetDocumentationParams{
+			params: Params{
 				PackagePath: "non/existent/package",
 			},
 			wantErr:     true, // Expect an error because the package doesn't exist.
@@ -72,7 +67,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Empty Package Path",
-			params: GetDocumentationParams{
+			params: Params{
 				PackagePath: "",
 			},
 			wantErr:     true,
@@ -82,45 +77,44 @@ func TestGetDocumentationHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, _, err := getDocumentationHandler(ctx, nil, tc.params)
+			result, _, err := Handler(ctx, nil, tc.params)
 			if err != nil {
-				t.Fatalf("getDocumentationHandler returned an unexpected error: %v", err)
+				t.Fatalf("Handler returned an unexpected error: %v", err)
 			}
-
-			if tc.wantErr {
-				if !result.IsError {
-					t.Errorf("Expected an error, but got none.")
-				}
-				if len(result.Content) == 0 {
-					t.Fatal("Expected error content, but got none.")
-				}
-				textContent, ok := result.Content[0].(*mcp.TextContent)
-				if !ok {
-					t.Fatal("Expected TextContent, but got a different type.")
-				}
-				if !contains(textContent.Text, tc.wantContent) {
-					t.Errorf("Expected error content to contain %q, but got %q", tc.wantContent, textContent.Text)
-				}
-			} else {
-				if result.IsError {
-					t.Errorf("Did not expect an error, but got one: %v", result.Content)
-				}
-				if len(result.Content) == 0 {
-					t.Fatal("Expected content, but got none.")
-				}
-				textContent, ok := result.Content[0].(*mcp.TextContent)
-				if !ok {
-					t.Fatal("Expected TextContent, but got a different type.")
-				}
-				if !contains(textContent.Text, tc.wantContent) {
-					t.Errorf("Expected content to contain %q, but got %q", tc.wantContent, textContent.Text)
-				}
-			}
+			verifyResult(t, result, tc.wantErr, tc.wantContent)
 		})
 	}
 }
 
-// contains is a helper function to check if a string contains a substring.
-func contains(s, substr string) bool {
-	return strings.Contains(s, substr)
+func verifyResult(t *testing.T, result *mcp.CallToolResult, wantErr bool, wantContent string) {
+	t.Helper()
+	if wantErr {
+		if !result.IsError {
+			t.Errorf("Expected an error, but got none.")
+		}
+		if len(result.Content) == 0 {
+			t.Fatal("Expected error content, but got none.")
+		}
+		textContent, ok := result.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("Expected TextContent, but got a different type.")
+		}
+		if !strings.Contains(textContent.Text, wantContent) {
+			t.Errorf("Expected error content to contain %q, but got %q", wantContent, textContent.Text)
+		}
+	} else {
+		if result.IsError {
+			t.Errorf("Did not expect an error, but got one: %v", result.Content)
+		}
+		if len(result.Content) == 0 {
+			t.Fatal("Expected content, but got none.")
+		}
+		textContent, ok := result.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatal("Expected TextContent, but got a different type.")
+		}
+		if !strings.Contains(textContent.Text, wantContent) {
+			t.Errorf("Expected content to contain %q, but got %q", wantContent, textContent.Text)
+		}
+	}
 }
