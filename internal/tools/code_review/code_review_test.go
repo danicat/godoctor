@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package review_code
+package code_review
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func (m *mockGenerator) GenerateContent(ctx context.Context, model string, conte
 	return nil, fmt.Errorf("mockGenerator.GenerateContent: GenerateContentFunc not implemented")
 }
 
-func newTestHandler(t *testing.T, mockResponse string) *ReviewCodeHandler {
+func newTestHandler(t *testing.T, mockResponse string) *CodeReviewHandler {
 	t.Helper()
 	generator := &mockGenerator{
 		GenerateContentFunc: func(ctx context.Context, model string, contents []*genai.Content, config *genai.GenerateContentConfig) (*genai.GenerateContentResponse, error) {
@@ -60,14 +60,14 @@ func newTestHandler(t *testing.T, mockResponse string) *ReviewCodeHandler {
 	}
 	
 	// We use WithGenerator to bypass the real client creation
-	handler, err := NewReviewCodeHandler(context.Background(), "gemini-2.5-pro", WithGenerator(generator))
+	handler, err := NewCodeReviewHandler(context.Background(), "gemini-2.5-pro", WithGenerator(generator))
 	if err != nil {
 		t.Fatalf("failed to create test handler: %v", err)
 	}
 	return handler
 }
 
-func TestNewReviewCodeHandler_NoAuth(t *testing.T) {
+func TestNewCodeReviewHandler_NoAuth(t *testing.T) {
 	// Ensure no auth env vars are set for this test
 	os.Unsetenv("GOOGLE_API_KEY")
 	os.Unsetenv("GEMINI_API_KEY")
@@ -75,7 +75,7 @@ func TestNewReviewCodeHandler_NoAuth(t *testing.T) {
 	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
 	os.Unsetenv("GOOGLE_CLOUD_LOCATION")
 
-	_, err := NewReviewCodeHandler(context.Background(), "gemini-2.5-pro")
+	_, err := NewCodeReviewHandler(context.Background(), "gemini-2.5-pro")
 	if err == nil {
 		t.Fatal("expected an error when creating a handler with no auth, but got nil")
 	}
@@ -84,14 +84,14 @@ func TestNewReviewCodeHandler_NoAuth(t *testing.T) {
 	}
 }
 
-func TestNewReviewCodeHandler_VertexAI_MissingConfig(t *testing.T) {
+func TestNewCodeReviewHandler_VertexAI_MissingConfig(t *testing.T) {
 	// Set Vertex AI flag but unset config
 	os.Setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
 	os.Unsetenv("GOOGLE_CLOUD_PROJECT")
 	os.Unsetenv("GOOGLE_CLOUD_LOCATION")
 	defer os.Unsetenv("GOOGLE_GENAI_USE_VERTEXAI")
 
-	_, err := NewReviewCodeHandler(context.Background(), "gemini-2.5-pro")
+	_, err := NewCodeReviewHandler(context.Background(), "gemini-2.5-pro")
 	if err == nil {
 		t.Fatal("expected an error when creating a handler with Vertex AI enabled but missing config, but got nil")
 	}
@@ -100,7 +100,7 @@ func TestNewReviewCodeHandler_VertexAI_MissingConfig(t *testing.T) {
 	}
 }
 
-func TestReviewCodeTool_Success(t *testing.T) {
+func TestCodeReviewTool_Success(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
 		{LineNumber: 1, Finding: "Testing", Comment: "This is a test"},
@@ -112,16 +112,25 @@ func TestReviewCodeTool_Success(t *testing.T) {
 	handler := newTestHandler(t, string(mockResponse))
 
 	// 2. Act
-	params := ReviewCodeParams{FileContent: "package main"}
-	result, _, err := handler.ReviewCodeTool(context.Background(), nil, params)
+	params := CodeReviewParams{FileContent: "package main"}
+	result, reviewResult, err := handler.CodeReviewTool(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("ReviewCodeTool failed: %v", err)
+		t.Fatalf("CodeReviewTool failed: %v", err)
 	}
 
 	// 3. Assert
 	if result.IsError {
 		t.Fatalf("Expected a successful result, but got an error: %v", result.Content)
 	}
+	
+	// Verify structured output
+	if reviewResult == nil {
+		t.Fatal("Expected non-nil ReviewResult")
+	}
+	if len(reviewResult.Suggestions) != 1 || reviewResult.Suggestions[0].Comment != "This is a test" {
+		t.Errorf("Unexpected suggestions in ReviewResult: %+v", reviewResult.Suggestions)
+	}
+
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
 		t.Fatalf("Expected TextContent, but got %T", result.Content[0])
@@ -136,7 +145,7 @@ func TestReviewCodeTool_Success(t *testing.T) {
 	}
 }
 
-func TestReviewCodeTool_Hint(t *testing.T) {
+func TestCodeReviewTool_Hint(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
 		{LineNumber: 1, Finding: "Hint", Comment: "This is a hint test"},
@@ -148,19 +157,28 @@ func TestReviewCodeTool_Hint(t *testing.T) {
 	handler := newTestHandler(t, string(mockResponse))
 
 	// 2. Act
-	params := ReviewCodeParams{
+	params := CodeReviewParams{
 		FileContent: "package main",
 		Hint:        "focus on hints",
 	}
-	result, _, err := handler.ReviewCodeTool(context.Background(), nil, params)
+	result, reviewResult, err := handler.CodeReviewTool(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("ReviewCodeTool failed: %v", err)
+		t.Fatalf("CodeReviewTool failed: %v", err)
 	}
 
 	// 3. Assert
 	if result.IsError {
 		t.Fatalf("Expected a successful result, but got an error: %v", result.Content)
 	}
+
+	// Verify structured output
+	if reviewResult == nil {
+		t.Fatal("Expected non-nil ReviewResult")
+	}
+	if len(reviewResult.Suggestions) != 1 || reviewResult.Suggestions[0].Comment != "This is a hint test" {
+		t.Errorf("Unexpected suggestions in ReviewResult: %+v", reviewResult.Suggestions)
+	}
+
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
 		t.Fatalf("Expected TextContent, but got %T", result.Content[0])
@@ -175,15 +193,15 @@ func TestReviewCodeTool_Hint(t *testing.T) {
 	}
 }
 
-func TestReviewCodeTool_InvalidJSON(t *testing.T) {
+func TestCodeReviewTool_InvalidJSON(t *testing.T) {
 	// 1. Setup
 	handler := newTestHandler(t, "this is not json")
 
 	// 2. Act
-	params := ReviewCodeParams{FileContent: "package main"}
-	result, _, err := handler.ReviewCodeTool(context.Background(), nil, params)
+	params := CodeReviewParams{FileContent: "package main"}
+	result, _, err := handler.CodeReviewTool(context.Background(), nil, params)
 	if err != nil {
-		t.Fatalf("ReviewCodeTool returned an unexpected error: %v", err)
+		t.Fatalf("CodeReviewTool returned an unexpected error: %v", err)
 	}
 
 	// 3. Assert

@@ -1,7 +1,10 @@
 {
     "mcpServers": {
         "godoctor": {
-            "command": "godoctor"
+            "command": "godoctor",
+            "env": {
+                "GOOGLE_GENAI_USE_VERTEXAI": "true"
+            }
         }
     }
 }

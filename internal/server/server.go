@@ -8,8 +8,8 @@ import (
 
 	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/prompts"
-	"github.com/danicat/godoctor/internal/tools/get_documentation"
-	"github.com/danicat/godoctor/internal/tools/review_code"
+	"github.com/danicat/godoctor/internal/tools/get_docs"
+	"github.com/danicat/godoctor/internal/tools/code_review"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -32,8 +32,8 @@ func New(cfg *config.Config, version string) *Server {
 
 func (s *Server) RegisterHandlers() {
 	// Register tools
-	get_documentation.Register(s.mcpServer)
-	review_code.Register(s.mcpServer, s.cfg.DefaultModel)
+	get_docs.Register(s.mcpServer)
+	code_review.Register(s.mcpServer, s.cfg.DefaultModel)
 
 	// Register prompts
 	s.mcpServer.AddPrompt(prompts.ImportThis("doc"), prompts.ImportThisHandler)

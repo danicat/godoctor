@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package get_documentation
+package get_docs
 
 import (
 	"context"
@@ -27,18 +27,18 @@ type MockServerSession struct {
 	// Define any fields needed for your mock session, e.g., to control behavior.
 }
 
-func TestGetDocumentationHandler(t *testing.T) {
+func TestGetDocsHandler(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
 		name        string
-		params      GetDocumentationParams
+		params      GetDocsParams
 		wantErr     bool
 		wantContent string
 	}{
 		{
 			name: "Standard Library Function",
-			params: GetDocumentationParams{
+			params: GetDocsParams{
 				PackagePath: "fmt",
 				SymbolName:  "Println",
 			},
@@ -47,7 +47,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Package-Level Documentation",
-			params: GetDocumentationParams{
+			params: GetDocsParams{
 				PackagePath: "os",
 			},
 			wantErr:     false,
@@ -55,7 +55,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Symbol Not Found",
-			params: GetDocumentationParams{
+			params: GetDocsParams{
 				PackagePath: "fmt",
 				SymbolName:  "NonExistentSymbol",
 			},
@@ -64,7 +64,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Package Not Found",
-			params: GetDocumentationParams{
+			params: GetDocsParams{
 				PackagePath: "non/existent/package",
 			},
 			wantErr:     true, // Expect an error because the package doesn't exist.
@@ -72,7 +72,7 @@ func TestGetDocumentationHandler(t *testing.T) {
 		},
 		{
 			name: "Empty Package Path",
-			params: GetDocumentationParams{
+			params: GetDocsParams{
 				PackagePath: "",
 			},
 			wantErr:     true,
@@ -82,9 +82,9 @@ func TestGetDocumentationHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, _, err := getDocumentationHandler(ctx, nil, tc.params)
+			result, _, err := getDocsHandler(ctx, nil, tc.params)
 			if err != nil {
-				t.Fatalf("getDocumentationHandler returned an unexpected error: %v", err)
+				t.Fatalf("getDocsHandler returned an unexpected error: %v", err)
 			}
 
 			if tc.wantErr {

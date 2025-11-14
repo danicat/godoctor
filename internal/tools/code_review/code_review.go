@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package review_code
+package code_review
 
 import (
 	"context"
@@ -26,22 +26,22 @@ import (
 	"google.golang.org/genai"
 )
 
-// Register registers the review_code tool with the server.
+// Register registers the code_review tool with the server.
 func Register(server *mcp.Server, defaultModel string) {
-	reviewHandler, err := NewReviewCodeHandler(context.Background(), defaultModel)
+	reviewHandler, err := NewCodeReviewHandler(context.Background(), defaultModel)
 	if err != nil {
-		log.Printf("Disabling review_code tool: failed to create handler: %v", err)
+		log.Printf("Disabling code_review tool: failed to create handler: %v", err)
 		return
 	}
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "code_review",
 		Title:       "Go Code Review",
 		Description: "Analyzes Go code for style, correctness, and idioms. Returns structured suggestions with line numbers and recommendations to improve quality.",
-	}, reviewHandler.ReviewCodeTool)
+	}, reviewHandler.CodeReviewTool)
 }
 
-// ReviewCodeParams defines the input parameters for the review_code tool.
-type ReviewCodeParams struct {
+// CodeReviewParams defines the input parameters for the code_review tool.
+type CodeReviewParams struct {
 	FileContent string `json:"file_content"`
 	ModelName   string `json:"model_name,omitempty"`
 	Hint        string `json:"hint,omitempty"`
@@ -52,6 +52,11 @@ type ReviewSuggestion struct {
 	LineNumber int    `json:"line_number"`
 	Finding    string `json:"finding"`
 	Comment    string `json:"comment"`
+}
+
+// ReviewResult defines the structured output for the code_review tool.
+type ReviewResult struct {
+	Suggestions []ReviewSuggestion `json:"suggestions"`
 }
 
 // ContentGenerator abstracts the generative model for testing.
@@ -68,25 +73,25 @@ func (r *RealGenerator) GenerateContent(ctx context.Context, model string, conte
 	return r.client.Models.GenerateContent(ctx, model, contents, config)
 }
 
-// ReviewCodeHandler holds the dependencies for the review code tool.
-type ReviewCodeHandler struct {
+// CodeReviewHandler holds the dependencies for the review code tool.
+type CodeReviewHandler struct {
 	generator    ContentGenerator
 	defaultModel string
 }
 
-// Option is a function that configures a ReviewCodeHandler.
-type Option func(*ReviewCodeHandler)
+// Option is a function that configures a CodeReviewHandler.
+type Option func(*CodeReviewHandler)
 
-// WithGenerator sets the ContentGenerator for the ReviewCodeHandler.
+// WithGenerator sets the ContentGenerator for the CodeReviewHandler.
 func WithGenerator(generator ContentGenerator) Option {
-	return func(h *ReviewCodeHandler) {
+	return func(h *CodeReviewHandler) {
 		h.generator = generator
 	}
 }
 
-// NewReviewCodeHandler creates a new ReviewCodeHandler.
-func NewReviewCodeHandler(ctx context.Context, defaultModel string, opts ...Option) (*ReviewCodeHandler, error) {
-	handler := &ReviewCodeHandler{
+// NewCodeReviewHandler creates a new CodeReviewHandler.
+func NewCodeReviewHandler(ctx context.Context, defaultModel string, opts ...Option) (*CodeReviewHandler, error) {
+	handler := &CodeReviewHandler{
 		defaultModel: defaultModel,
 	}
 	for _, opt := range opts {
@@ -139,8 +144,8 @@ func NewReviewCodeHandler(ctx context.Context, defaultModel string, opts ...Opti
 
 var jsonMarkdownRegex = regexp.MustCompile("(?s)```json\\s*(.*?)```")
 
-// ReviewCodeTool performs an AI-powered code review and returns structured data.
-func (h *ReviewCodeHandler) ReviewCodeTool(ctx context.Context, request *mcp.CallToolRequest, args ReviewCodeParams) (*mcp.CallToolResult, []ReviewSuggestion, error) {
+// CodeReviewTool performs an AI-powered code review and returns structured data.
+func (h *CodeReviewHandler) CodeReviewTool(ctx context.Context, request *mcp.CallToolRequest, args CodeReviewParams) (*mcp.CallToolResult, *ReviewResult, error) {
 	code := args.FileContent
 	if code == "" {
 		return &mcp.CallToolResult{
@@ -256,5 +261,5 @@ Example of a valid response:
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: cleanedJSON},
 		},
-	}, suggestions, nil
+	}, &ReviewResult{Suggestions: suggestions}, nil
 }

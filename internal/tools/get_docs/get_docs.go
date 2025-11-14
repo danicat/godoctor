@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package get_documentation
+package get_docs
 
 import (
 	"bytes"
@@ -25,22 +25,22 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Register registers the get_documentation tool with the server.
+// Register registers the get_docs tool with the server.
 func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_docs",
 		Title:       "Go Documentation",
 		Description: "Retrieves Go package or symbol documentation. Use this to understand APIs and function signatures before coding.",
-	}, getDocumentationHandler)
+	}, getDocsHandler)
 }
 
-// GetDocumentationParams defines the input parameters for the get_documentation tool.
-type GetDocumentationParams struct {
+// GetDocsParams defines the input parameters for the get_docs tool.
+type GetDocsParams struct {
 	PackagePath string `json:"package_path"`
 	SymbolName  string `json:"symbol_name,omitempty"`
 }
 
-func getDocumentationHandler(ctx context.Context, request *mcp.CallToolRequest, args GetDocumentationParams) (*mcp.CallToolResult, any, error) {
+func getDocsHandler(ctx context.Context, request *mcp.CallToolRequest, args GetDocsParams) (*mcp.CallToolResult, any, error) {
 	pkgPath := args.PackagePath
 	symbolName := args.SymbolName
 
