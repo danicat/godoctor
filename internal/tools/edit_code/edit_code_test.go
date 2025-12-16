@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func TestEditCode(t *testing.T) {
@@ -75,9 +77,16 @@ func TestEditCode(t *testing.T) {
 			Strategy:      "single_match",
 			Threshold:     0.8, // Allow some fuzziness
 		}
-		_, _, err := editCodeHandler(ctx, nil, params)
+		result, _, err := editCodeHandler(ctx, nil, params)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.IsError {
+			content := ""
+			if len(result.Content) > 0 {
+				content = result.Content[0].(*mcp.TextContent).Text
+			}
+			t.Fatalf("tool returned error: %s", content)
 		}
 		got := readFile()
 		if !strings.Contains(got, "func new() {}") {
@@ -100,6 +109,52 @@ func TestEditCode(t *testing.T) {
 		got := readFile()
 		if strings.Contains(got, "((((") {
 			t.Error("file was modified despite syntax error")
+		}
+	})
+
+	t.Run("Replace All", func(t *testing.T) {
+		writeFile("package main\nimport \"fmt\"\nfunc main() {\n\tfmt.Println(\"foo\")\n\tfmt.Println(\"foo\")\n}\n")
+		params := EditCodeParams{
+			FilePath:      filePath,
+			SearchContext: "fmt.Println(\"foo\")",
+			NewContent:    "fmt.Println(\"bar\")",
+			Strategy:      "replace_all",
+		}
+		result, _, err := editCodeHandler(ctx, nil, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.IsError {
+			t.Fatalf("tool returned error: %s", result.Content[0].(*mcp.TextContent).Text)
+		}
+		got := readFile()
+		if strings.Count(got, "fmt.Println(\"bar\")") != 2 {
+			t.Errorf("replace_all failed, expected 2 occurrences, got content:\n%q", got)
+		}
+	})
+
+	t.Run("Feedback Best Match", func(t *testing.T) {
+		writeFile("package main\n\nfunc correct() {\n\tprintln(\"hello\")\n}\n")
+		// Major typo/garbage in search context
+		params := EditCodeParams{
+			FilePath:      filePath,
+			SearchContext: "func correct() {\n  xxxxxx(\"hello\")\n}",
+			NewContent:    "func new() {}",
+			Strategy:      "single_match",
+		}
+		result, _, err := editCodeHandler(ctx, nil, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.IsError {
+			t.Fatal("expected error for mismatch")
+		}
+		text := result.Content[0].(*mcp.TextContent).Text
+		if !strings.Contains(text, "Best candidate found at line 3") {
+			t.Errorf("expected best match feedback, got: %s", text)
+		}
+		if !strings.Contains(text, "Diff:") {
+			t.Errorf("expected diff in feedback, got: %s", text)
 		}
 	})
 }

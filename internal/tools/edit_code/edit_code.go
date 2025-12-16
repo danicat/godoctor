@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -43,7 +44,7 @@ func editCodeHandler(ctx context.Context, request *mcp.CallToolRequest, args Edi
 		args.Strategy = "single_match"
 	}
 	if args.Threshold == 0 {
-		args.Threshold = 0.9
+		args.Threshold = 0.85 // Lowered slightly default to accommodate fuzzy matches
 	}
 
 	// 1. Read File
@@ -68,61 +69,84 @@ func editCodeHandler(ctx context.Context, request *mcp.CallToolRequest, args Edi
 		}
 
 		// Sliding Window Fuzzy Match
-		candidates := findMatches(originalContent, args.SearchContext, args.Threshold)
+		candidates := findMatches(originalContent, args.SearchContext, 0.0) // Get all candidates with >0 score
 
-		        if len(candidates) == 0 {
-		            // TODO: Find "Best Match" for feedback
-		            bestMatchMsg := ""
-		            // Simple feedback for now:
-		            msg := fmt.Sprintf("No match found for search_context.\n\nOriginal Content Size: %d bytes\nSearch Context Size: %d bytes\nThreshold: %.2f%s", 
-		                len(originalContent), len(args.SearchContext), args.Threshold, bestMatchMsg)
-		            return errorResult(msg), nil, nil
-		        }
-		if args.Strategy == "single_match" && len(candidates) > 1 {
-			msg := fmt.Sprintf("Ambiguous match: found %d occurrences. Please provide more context.\nMatches at lines: ", len(candidates))
-			for _, c := range candidates {
-				msg += fmt.Sprintf("%d, ", c.StartLine)
+		// Filter by threshold
+		var validCandidates []Match
+		for _, c := range candidates {
+			if c.Score >= args.Threshold {
+				validCandidates = append(validCandidates, c)
 			}
+		}
+
+		if len(validCandidates) == 0 {
+			// Find "Best Match" for feedback
+			var bestMatchMsg string
+			if len(candidates) > 0 {
+				// candidates are sorted by findMatches
+				best := candidates[0]
+				bestContext := originalContent[best.StartIndex:best.EndIndex]
+				bestMatchMsg = fmt.Sprintf(`
+
+Best candidate found at line %d (Score: %.2f%%):
+<<<
+%s
+>>>
+
+Diff:
+%s`,
+					best.StartLine, best.Score*100, bestContext, generateDiff(bestContext, args.SearchContext))
+			}
+
+			msg := fmt.Sprintf("No match found for search_context with score >= %.2f.%s",
+				args.Threshold, bestMatchMsg)
 			return errorResult(msg), nil, nil
 		}
 
-		// Apply Edits (Reverse order to preserve indices)
-		// For single_match, we only take candidates[0] (but checking ambiguity above implies we sort or select)
-		// Actually, if strategy is replace_all, we use all.
-		// If single_match, we checked len > 1.
-		
-		// Sort candidates by start index descending
-		// (Assuming findMatches returns them in order, simply reversing or iterating backwards works)
-		// But let's be safe and apply one by one on the string.
-		
-		// Wait, if we have multiple candidates, we need to be careful about overlaps.
-		// For the prototype, let's assume non-overlapping or just handle the first one for single_match.
-		
-		match := candidates[0]
-		newContentStr = originalContent[:match.StartIndex] + args.NewContent + originalContent[match.EndIndex:]
+		if args.Strategy == "single_match" {
+			if len(validCandidates) > 1 {
+				// Check if they are identical (overlapping or repeats).
+				// For now, simple ambiguity check.
+				msg := fmt.Sprintf("Ambiguous match: found %d occurrences. Please provide more context.\nMatches at lines: ", len(validCandidates))
+				for _, c := range validCandidates {
+					msg += fmt.Sprintf("%d, ", c.StartLine)
+				}
+				return errorResult(msg), nil, nil
+			}
+			match := validCandidates[0]
+			newContentStr = originalContent[:match.StartIndex] + args.NewContent + originalContent[match.EndIndex:]
+		} else if args.Strategy == "replace_all" {
+			// Apply edits from bottom to top to avoid index shifts
+			// Sort by StartIndex descending
+			sort.Slice(validCandidates, func(i, j int) bool {
+				return validCandidates[i].StartIndex > validCandidates[j].StartIndex
+			})
+
+			currentContent := originalContent
+			for _, match := range validCandidates {
+				currentContent = currentContent[:match.StartIndex] + args.NewContent + currentContent[match.EndIndex:]
+			}
+			newContentStr = currentContent
+		} else {
+			return errorResult(fmt.Sprintf("unknown strategy: %s", args.Strategy)), nil, nil
+		}
 	}
 
-	// 3. Validation & Auto-Correction (In-Memory) 
-	
+	// 3. Validation & Auto-Correction (In-Memory)
+
 	// A. Auto-Format (goimports)
-	// This fixes imports and formatting *before* we check syntax, 
-	// because a missing import is a syntax error in some parsers? No, just a scope error.
-	// But `goimports` requires parseable code to work best.
-	
 	formattedBytes, err := imports.Process(args.FilePath, []byte(newContentStr), nil)
 	if err != nil {
-		// If goimports fails, it might be a syntax error.
-		// Let's try to parse it specifically to get a better error message.
+		// If goimports fails, try to parse specifically
 		fset := token.NewFileSet()
 		_, parseErr := parser.ParseFile(fset, "", newContentStr, parser.AllErrors)
 		if parseErr != nil {
 			return errorResult(fmt.Sprintf("Syntax Error (Pre-commit): %v", parseErr)), nil, nil
 		}
-		// If parse passed but goimports failed, it's weird, but let's report it.
 		return errorResult(fmt.Sprintf("goimports failed: %v", err)), nil, nil
 	}
-	
-	// B. Strict Syntax Check (Double check on formatted code)
+
+	// B. Strict Syntax Check
 	fset := token.NewFileSet()
 	if _, err := parser.ParseFile(fset, "", formattedBytes, parser.AllErrors); err != nil {
 		return errorResult(fmt.Sprintf("Syntax Error (Post-format): %v", err)), nil, nil
@@ -138,16 +162,15 @@ func editCodeHandler(ctx context.Context, request *mcp.CallToolRequest, args Edi
 		// Running `go build <tmpFile>` works for simple files, but for package files it might fail due to missing dependencies if not in the right dir.
 		// For the prototype, let's skip the complex `go build` integration and trust `gopls` or the user to run tests.
 		// Or we can run `go vet` on it?
-		
+
 		// Let's just return a warning if we can't verify deeply.
 	}
 
 	// 5. Commit (Write to Disk)
-	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(args.FilePath), 0755); err != nil {
 		return errorResult(fmt.Sprintf("failed to create directory: %v", err)), nil, nil
 	}
-	
+
 	if err := os.WriteFile(args.FilePath, formattedBytes, 0644); err != nil {
 		return errorResult(fmt.Sprintf("failed to write file: %v", err)), nil, nil
 	}
@@ -176,63 +199,55 @@ type Match struct {
 	Score      float64
 }
 
-func findMatches(content, context string, threshold float64) []Match {
-	// Normalize (Very basic normalization for now)
-	// In a real implementation, we'd tokenize.
-	
-	// Exact match shortcut
-	if idx := strings.Index(content, context); idx != -1 {
-		return []Match{{
-			StartIndex: idx, 
-			EndIndex: idx + len(context),
-			StartLine: strings.Count(content[:idx], "\n") + 1,
-			Score: 1.0,
-		}}
-	}
+func findMatches(content, context string, minScore float64) []Match {
+	// Normalize line endings
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	context = strings.ReplaceAll(context, "\r\n", "\n")
 
-	// Line-based matching
 	contentLines := strings.Split(content, "\n")
 	contextLines := strings.Split(context, "\n")
-	
+
 	if len(contextLines) == 0 {
 		return nil
 	}
 
 	var matches []Match
-	
-	// Clean context lines (trim space) for loose matching
-	var cleanContext []string
-	for _, l := range contextLines {
-		cleanContext = append(cleanContext, strings.TrimSpace(l))
-	}
 
-	for i := 0; i <= len(contentLines)-len(contextLines); i++ {
-		score := 0.0
-		matchCount := 0
-		
-		// Compare window
-		for j := 0; j < len(contextLines); j++ {
-			lineContent := strings.TrimSpace(contentLines[i+j])
-			lineContext := cleanContext[j]
-			
-			if lineContent == lineContext {
-				matchCount++
-			} else {
-				// Levenshtein on lines?
-				// For prototype, just use simple equality or containment
-				if strings.Contains(lineContent, lineContext) {
-					matchCount++ // Weak match
-				}
-			}
+	// We want to compare the search_context (as a block) to every window of lines in the content.
+	// Since fuzzy.LevenshteinDistance works on strings, we join the window lines.
+	// NOTE: Whitespace sensitivity. The user might have different indentation.
+	// We should probably strip whitespace from both for the comparison to be robust against indentation changes.
+
+	normalizedContext := normalizeBlock(context)
+	contextLen := len(contextLines)
+
+	for i := 0; i <= len(contentLines)-contextLen; i++ {
+		// Construct window
+		windowLines := contentLines[i : i+contextLen]
+		windowBlock := strings.Join(windowLines, "\n")
+		normalizedWindow := normalizeBlock(windowBlock)
+
+		// Calculate similarity
+		distance := levenshteinDistance(normalizedContext, normalizedWindow)
+		maxLen := max(len(normalizedContext), len(normalizedWindow))
+
+		var score float64
+		if maxLen == 0 {
+			score = 1.0
+		} else {
+			score = 1.0 - (float64(distance) / float64(maxLen))
 		}
-		
-		score = float64(matchCount) / float64(len(contextLines))
-		
-		if score >= threshold {
-			// Calculate byte offsets
+
+		if score >= minScore {
 			startIdx := lineIndexToByteIndex(content, i)
-			endIdx := lineIndexToByteIndex(content, i+len(contextLines))
-			
+			endIdx := lineIndexToByteIndex(content, i+contextLen)
+
+			// Adjust EndIndex to exclude the trailing newline of the last line
+			// so that we don't consume the newline and merge lines unexpectedly.
+			if endIdx > startIdx && endIdx <= len(content) && content[endIdx-1] == '\n' {
+				endIdx--
+			}
+
 			matches = append(matches, Match{
 				StartIndex: startIdx,
 				EndIndex:   endIdx,
@@ -242,12 +257,39 @@ func findMatches(content, context string, threshold float64) []Match {
 		}
 	}
 
-	return matches
+	// Sort matches by score descending
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Score > matches[j].Score
+	})
+
+	// Filter overlapping matches (Greedy NMS)
+	var uniqueMatches []Match
+	for _, m := range matches {
+		overlaps := false
+		for _, u := range uniqueMatches {
+			// Check overlap
+			// [Start, End)
+			if m.StartIndex < u.EndIndex && m.EndIndex > u.StartIndex {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+
+			uniqueMatches = append(uniqueMatches, m)
+		}
+	}
+
+	return uniqueMatches
+}
+
+func normalizeBlock(s string) string {
+	// Remove all whitespace
+	return strings.Join(strings.Fields(s), "")
 }
 
 func lineIndexToByteIndex(s string, lineIdx int) int {
-	// Inefficient but safe for prototype
-	lines := strings.Split(s, "\n")
+	lines := strings.Split(s, "\n") // Note: strings.Split keeps empty string at end if trailing \n
 	idx := 0
 	for i := 0; i < lineIdx && i < len(lines); i++ {
 		idx += len(lines[i]) + 1 // +1 for newline
@@ -256,4 +298,54 @@ func lineIndexToByteIndex(s string, lineIdx int) int {
 		return len(s)
 	}
 	return idx
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func generateDiff(original, expected string) string {
+	// Simple diff visualization
+	return fmt.Sprintf("- %s\n+ %s", strings.ReplaceAll(original, "\n", "\n- "), strings.ReplaceAll(expected, "\n", "\n+ "))
+}
+
+func levenshteinDistance(s1, s2 string) int {
+	r1, r2 := []rune(s1), []rune(s2)
+	n, m := len(r1), len(r2)
+	if n == 0 {
+		return m
+	}
+	if m == 0 {
+		return n
+	}
+
+	row := make([]int, n+1)
+	for i := 0; i <= n; i++ {
+		row[i] = i
+	}
+
+	for j := 1; j <= m; j++ {
+		prev := j
+		for i := 1; i <= n; i++ {
+			cost := 0
+			if r1[i-1] != r2[j-1] {
+				cost = 1
+			}
+			current := min(min(row[i]+1, prev+1), row[i-1]+cost)
+			row[i-1] = prev
+			prev = current
+		}
+		row[n] = prev
+	}
+	return row[n]
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
