@@ -45,8 +45,8 @@ func Register(server *mcp.Server, defaultModel string) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "review_code",
 		Title: "Review Go Code",
-		Description: "Analyzes Go source code for idiomatic style, correctness, and best practices. " +
-			"Returns structured suggestions to improve code quality.",
+		Description: "Review Go code for correctness, style, and idiomatic usage. " +
+			"Returns structured feedback with severity levels (error, warning, suggestion).",
 	}, reviewHandler.Tool)
 }
 

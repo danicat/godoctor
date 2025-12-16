@@ -8,12 +8,10 @@ This is not an officially supported Google product.
 
 GoDoctor is an intelligent, AI-powered companion for the modern Go developer. It integrates seamlessly with AI-powered IDEs and other development tools through the [Model Context Protocol (MCP)](https://modelcontextprotocol.io/), providing a suite of powerful features to enhance your workflow.
 
-This project was developed and refined through an iterative process of AI-driven self-review, where GoDoctor's own code review tool was used to improve its own source code.
-
 ## Features
 
-*   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `code_review` tool analyzes your code for quality, clarity, and adherence to Go best practices.
-*   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `get_docs` tool.
+*   **AI-Powered Code Review:** Get instant, context-aware feedback on your Go code. The `review_code` tool analyzes your code for quality, clarity, and adherence to Go best practices, providing actionable suggestions with severity levels.
+*   **On-Demand Documentation:** Instantly retrieve documentation for any symbol in the Go standard library or your project's dependencies using the `read_godoc` tool. Returns rich Markdown definitions, usage examples (including from `_test.go` files), and fuzzy matching for symbols and packages.
 *   **Flexible Transports:** Communicate with the `godoctor` server via standard I/O or over the network with a new HTTP mode.
 *   **MCP Compliant:** Built on the Model Context Protocol for broad compatibility with modern development tools.
 
@@ -36,7 +34,7 @@ This project was developed and refined through an iterative process of AI-driven
 
 ### Authentication
 
-The `code_review` tool uses the Google Gen AI SDK. You can authenticate in one of two ways:
+The `review_code` tool uses the Google Gen AI SDK. You can authenticate in one of two ways:
 
 1.  **Gemini API (Recommended for Personal Use):**
     Set the `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) environment variable.
@@ -81,8 +79,8 @@ This project follows the standard Go project layout.
 
 *   `cmd/godoctor`: The source code for the MCP server.
 *   `internal/tools`: The implementation of the available tools:
-    *   `codereview`: AI-powered code analysis using Gemini/Vertex AI.
-    *   `getdocs`: Documentation retrieval wrapper for `go doc`.
+    *   `codereview` (Tool: `review_code`): AI-powered code analysis using Gemini/Vertex AI.
+    *   `getdocs` (Tool: `read_godoc`): Native Go documentation parser with Markdown output.
 *   `internal/server`: The core MCP server implementation.
 *   `internal/config`: Configuration handling.
 
@@ -116,6 +114,6 @@ And for tool calls:
 (
   echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}';
   echo '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}';
-  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_docs", "arguments":{"package_path":"fmt"}}}';
+  echo '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_godoc", "arguments":{"package_path":"fmt"}}}';
 ) | ./bin/godoctor
 ```

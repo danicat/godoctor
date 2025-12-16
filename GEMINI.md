@@ -10,16 +10,16 @@
 ## Key Features & Tools
 The server exposes the following MCP tools:
 
-1.  **`code_review`**
+1.  **`review_code`**
     *   **Purpose:** Analyzes Go code for style, correctness, and idioms.
     *   **Input:** `file_content` (string), `model_name` (optional), `hint` (optional).
-    *   **Output:** Structured JSON suggestions (line number, finding, comment).
+    *   **Output:** Structured JSON suggestions (line number, severity, finding, comment).
     *   **Backend:** Uses Google's `gemini-2.5-pro` (default) via `google.golang.org/genai`.
 
-2.  **`get_docs`**
-    *   **Purpose:** Retrieves documentation for Go packages or symbols.
+2.  **`read_godoc`**
+    *   **Purpose:** Retrieves documentation for Go packages or symbols in Markdown format.
     *   **Input:** `package_path` (string), `symbol_name` (optional).
-    *   **Mechanism:** Uses `go doc`. Includes a fallback mechanism to download missing packages to a temporary directory if not found locally.
+    *   **Mechanism:** Uses native `go/doc` and `go/parser` parsing. Supports merging examples from `_test.go` files and fuzzy matching for symbols and packages. Includes fallback to download missing packages.
 
 ## Architecture & Structure
 *   **`cmd/godoctor/`**: Main entry point. Handles signal processing and server startup.

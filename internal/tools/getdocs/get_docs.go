@@ -42,8 +42,8 @@ func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "read_godoc",
 		Title: "Read Go Documentation",
-		Description: "Retrieves Go documentation for packages or symbols using the standard go/doc format. " +
-			"Use this to inspect function signatures, type definitions, and usage examples before writing code.",
+		Description: "Read Go documentation for packages and symbols. Returns definitions, comments, and examples in Markdown format. " +
+			"Useful for discovering standard library functions and external package usage.",
 	}, Handler)
 }
 
@@ -469,7 +469,8 @@ func fetchAndRetry(ctx context.Context, pkgPath, symbolName, originalErr string)
 }
 
 func suggestPackages(ctx context.Context, query string) []string {
-	cmd := exec.CommandContext(ctx, "go", "list", "std")
+	// 'go list all' includes std, local packages, and dependencies.
+	cmd := exec.CommandContext(ctx, "go", "list", "all")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

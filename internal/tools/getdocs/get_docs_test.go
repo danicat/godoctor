@@ -32,10 +32,16 @@ func TestHandler(t *testing.T) {
 		wantContent string
 	}{
 		{
-			name:        "Standard Library Function",
+			name:        "Standard Library Function (Markdown Check)",
 			params:      Params{PackagePath: "fmt", SymbolName: "Println"},
 			wantErr:     false,
-			wantContent: "func Println", // Markdown code block content
+			wantContent: "```go\nfunc Println", // Verifies Markdown code block start
+		},
+		{
+			name:        "Fuzzy Match Symbol",
+			params:      Params{PackagePath: "fmt", SymbolName: "Pritln"}, // Typo
+			wantErr:     true,
+			wantContent: "Println", // Expect the correct suggestion to appear in the error
 		},
 		{
 			name:        "Package-Level Documentation",
