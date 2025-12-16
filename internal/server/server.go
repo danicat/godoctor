@@ -9,8 +9,10 @@ import (
 
 	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/prompts"
+	"github.com/danicat/godoctor/internal/resources/godoc"
 	"github.com/danicat/godoctor/internal/tools/codereview"
 	"github.com/danicat/godoctor/internal/tools/getdocs"
+	"github.com/danicat/godoctor/internal/tools/inspect"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -38,6 +40,12 @@ func (s *Server) RegisterHandlers() {
 	// Register tools
 	getdocs.Register(s.mcpServer)
 	codereview.Register(s.mcpServer, s.cfg.DefaultModel)
+	if s.cfg.Experimental {
+		inspect.Register(s.mcpServer)
+	}
+
+	// Register resources
+	godoc.Register(s.mcpServer)
 
 	// Register prompts
 	s.mcpServer.AddPrompt(prompts.ImportThis("doc"), prompts.ImportThisHandler)

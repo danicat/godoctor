@@ -22,7 +22,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestHandler(t *testing.T) {
+func TestToolHandler(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
@@ -71,14 +71,15 @@ func TestHandler(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result, _, err := Handler(ctx, nil, tc.params)
+			result, _, err := ToolHandler(ctx, nil, tc.params)
 			if err != nil {
-				t.Fatalf("Handler returned an unexpected error: %v", err)
+				t.Fatalf("ToolHandler returned an unexpected error: %v", err)
 			}
 			verifyResult(t, result, tc.wantErr, tc.wantContent)
 		})
 	}
 }
+
 
 func verifyResult(t *testing.T, result *mcp.CallToolResult, wantErr bool, wantContent string) {
 	t.Helper()

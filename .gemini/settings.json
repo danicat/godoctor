@@ -2,8 +2,11 @@
     "mcpServers": {
         "godoctor": {
             "command": "godoctor",
+            "args": ["--experimental"],
             "env": {
-                "GOOGLE_GENAI_USE_VERTEXAI": "true"
+                "GOOGLE_GENAI_USE_VERTEXAI": "true",
+                "GOOGLE_CLOUD_PROJECT": "daniela-genai-sandbox",
+                "GOOGLE_CLOUD_LOCATION": "europe-west2"
             }
         }
     }

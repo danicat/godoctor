@@ -10,6 +10,7 @@ type Config struct {
 	ListenAddr   string
 	Version      bool
 	DefaultModel string
+	Experimental bool
 }
 
 // Load parses command-line arguments and returns a Config struct.
@@ -18,6 +19,7 @@ func Load(args []string) (*Config, error) {
 	versionFlag := fs.Bool("version", false, "print the version and exit")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., :8080)")
 	defaultModel := fs.String("model", "gemini-2.5-pro", "default Gemini model to use")
+	experimentalFlag := fs.Bool("experimental", false, "enable experimental features")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -27,6 +29,7 @@ func Load(args []string) (*Config, error) {
 		ListenAddr:   *listenAddr,
 		Version:      *versionFlag,
 		DefaultModel: *defaultModel,
+		Experimental: *experimentalFlag,
 	}
 
 	return cfg, nil
