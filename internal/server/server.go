@@ -11,6 +11,7 @@ import (
 	"github.com/danicat/godoctor/internal/prompts"
 	"github.com/danicat/godoctor/internal/resources/godoc"
 	"github.com/danicat/godoctor/internal/tools/codereview"
+	"github.com/danicat/godoctor/internal/tools/edit_code"
 	"github.com/danicat/godoctor/internal/tools/getdocs"
 	"github.com/danicat/godoctor/internal/tools/inspect"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -42,6 +43,7 @@ func (s *Server) RegisterHandlers() {
 	codereview.Register(s.mcpServer, s.cfg.DefaultModel)
 	if s.cfg.Experimental {
 		inspect.Register(s.mcpServer)
+		edit_code.Register(s.mcpServer)
 	}
 
 	// Register resources
