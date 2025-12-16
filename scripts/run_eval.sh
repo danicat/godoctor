@@ -28,8 +28,11 @@ cd "$RUN_DIR"
 echo ">>> Running Agent..."
 START_TIME=$(date +%s)
 
-# Pipe prompt to agent
-cat PROMPT.md | eval "$AGENT_CMD" || true
+# Pipe prompt to agent and capture stdout/stderr to log
+cat PROMPT.md | eval "$AGENT_CMD" > agent.log 2>&1 || true
+
+# Print log to console so user sees progress
+cat agent.log
 
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))

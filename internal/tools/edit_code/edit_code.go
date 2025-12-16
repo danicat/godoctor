@@ -152,23 +152,29 @@ Diff:
 
 	// 3. Validation & Auto-Correction (In-Memory)
 
-	// A. Auto-Format (goimports)
-	// Always run goimports to fix formatting and imports.
-	formattedBytes, err := imports.Process(args.FilePath, []byte(newContentStr), nil)
-	if err != nil {
-		// If goimports fails, try to parse specifically to give better error
-		fset := token.NewFileSet()
-		_, parseErr := parser.ParseFile(fset, "", newContentStr, parser.AllErrors)
-		if parseErr != nil {
-			return errorResult(fmt.Sprintf("Syntax Error (Pre-commit): %v", parseErr)), nil, nil
-		}
-		return errorResult(fmt.Sprintf("goimports failed: %v", err)), nil, nil
-	}
+	formattedBytes := []byte(newContentStr)
 
-	// B. Strict Syntax Check
-	fset := token.NewFileSet()
-	if _, err := parser.ParseFile(fset, "", formattedBytes, parser.AllErrors); err != nil {
-		return errorResult(fmt.Sprintf("Syntax Error (Post-format): %v", err)), nil, nil
+	// Skip validation/formatting for non-Go files
+	if strings.HasSuffix(args.FilePath, ".go") {
+		// A. Auto-Format (goimports)
+		// Always run goimports to fix formatting and imports.
+		var err error
+		formattedBytes, err = imports.Process(args.FilePath, []byte(newContentStr), nil)
+		if err != nil {
+			// If goimports fails, try to parse specifically to give better error
+			fset := token.NewFileSet()
+			_, parseErr := parser.ParseFile(fset, "", newContentStr, parser.AllErrors)
+			if parseErr != nil {
+				return errorResult(fmt.Sprintf("Syntax Error (Pre-commit): %v", parseErr)), nil, nil
+			}
+			return errorResult(fmt.Sprintf("goimports failed: %v", err)), nil, nil
+		}
+
+		// B. Strict Syntax Check
+		fset := token.NewFileSet()
+		if _, err := parser.ParseFile(fset, "", formattedBytes, parser.AllErrors); err != nil {
+			return errorResult(fmt.Sprintf("Syntax Error (Post-format): %v", err)), nil, nil
+		}
 	}
 
 	// 4. Soft Check (Go Build) - Optional/Experimental
