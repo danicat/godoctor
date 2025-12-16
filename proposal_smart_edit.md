@@ -73,6 +73,10 @@ The `edit_code` tool acts as a smart patch utility. It takes a search block (con
     *   **Auto-Correction (Best Effort):**
         *   Mechanism: Run `goimports` on the buffer.
         *   **Goal:** Automatically fix missing imports or formatting issues that would otherwise cause a build failure.
+        *   **Auto-Fix Scenarios:**
+            *   **Missing Imports:** If the code uses `fmt.Println` but lacks `import "fmt"`, `goimports` is run to insert it.
+            *   **Unused Imports:** If an edit removes the last usage of a package, `goimports` removes the import line.
+            *   **Context Typos (Distance ≤ 1):** If the `search_context` has a single-character typo compared to the actual file content, the tool treats it as a high-confidence match and applies the edit automatically.
     *   **Build/Test Check (Soft):** Run `go build` or `go test`.
         *   If Pass: Return "Success".
         *   If Fail: **Apply anyway** (to allow multi-step refactors) but return the error as a "Warning".
