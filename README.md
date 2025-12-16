@@ -59,6 +59,7 @@ You can configure the server using command-line flags:
 
 *   `--listen`: Address to listen on for HTTP transport (e.g., `:8080`). If omitted, uses Standard I/O.
 *   `--model`: Default Gemini model to use (default: `gemini-2.5-pro`).
+*   `--version`: Print the version and exit.
 
 ### Running the Server
 
@@ -79,12 +80,22 @@ export GOOGLE_API_KEY="your-api-key"
 This project follows the standard Go project layout.
 
 *   `cmd/godoctor`: The source code for the MCP server.
-*   `internal/tools`: The implementation of the `code_review` and `get_docs` tools.
+*   `internal/tools`: The implementation of the available tools:
+    *   `codereview`: AI-powered code analysis using Gemini/Vertex AI.
+    *   `getdocs`: Documentation retrieval wrapper for `go doc`.
+*   `internal/server`: The core MCP server implementation.
+*   `internal/config`: Configuration handling.
 
 To run the test suite:
 
 ```bash
 make test
+```
+
+To run lint checks:
+
+```bash
+golangci-lint run
 ```
 
 ### Manual Tests

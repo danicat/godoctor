@@ -43,10 +43,10 @@ func Register(server *mcp.Server, defaultModel string) {
 		return
 	}
 	mcp.AddTool(server, &mcp.Tool{
-		Name:  "code_review",
-		Title: "Go Code Review",
-		Description: "Analyzes Go code for style, correctness, and idioms. " +
-			"Returns structured suggestions with line numbers and recommendations to improve quality.",
+		Name:  "review_code",
+		Title: "Review Go Code",
+		Description: "Analyzes Go source code for idiomatic style, correctness, and best practices. " +
+			"Returns structured suggestions to improve code quality.",
 	}, reviewHandler.Tool)
 }
 
@@ -60,6 +60,7 @@ type Params struct {
 // ReviewSuggestion defines the structured output for a single review suggestion.
 type ReviewSuggestion struct {
 	LineNumber int    `json:"line_number"`
+	Severity   string `json:"severity"` // "error", "warning", "suggestion"
 	Finding    string `json:"finding"`
 	Comment    string `json:"comment"`
 }
@@ -137,8 +138,8 @@ func NewHandler(ctx context.Context, defaultModel string, opts ...Option) (*Hand
 			}
 
 			if apiKey == "" {
-				return nil, fmt.Errorf("%w: set GOOGLE_API_KEY (or GEMINI_API_KEY) "+
-					"for Gemini API, or set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT "+
+				return nil, fmt.Errorf("%w: set GOOGLE_API_KEY (or GEMINI_API_KEY) " +
+					"for Gemini API, or set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT " +
 					"and GOOGLE_CLOUD_LOCATION for Vertex AI", ErrAuthFailed)
 			}
 
@@ -275,7 +276,12 @@ based on the principles of idiomatic Go, as outlined in the following guidelines
 
 **Your Task:**
 Analyze the following code. Identify any areas that violate these principles. For each issue, provide a JSON object
-with the following fields: "line_number", "finding", and "comment".
+with the following fields: "line_number", "severity", "finding", and "comment".
+
+*   **severity**: Must be one of "error", "warning", or "suggestion".
+    *   "error": Critical bugs, race conditions, or panic risks.
+    *   "warning": Logic errors, potential bugs, or significant non-idiomatic usage.
+    *   "suggestion": Style improvements, naming consistency, or minor optimizations.
 
 Your response MUST be a valid JSON array of these objects. Do not include any other text, explanations, or markdown.
 If you find no issues, you MUST return an empty array: [].
@@ -284,14 +290,21 @@ Example of a valid response:
 [
   {
     "line_number": 25,
+    "severity": "suggestion",
     "finding": "The variable name 'serverUrl' doesn't comply with Go naming standards.",
     "comment": "Initialisms should have all upper or all lower case: use serverURL instead."
+  },
+  {
+    "line_number": 42,
+    "severity": "error",
+    "finding": "Unhandled error from 'os.Open'",
+    "comment": "Always check errors before using the returned values."
   }
 ]`
 
 	if hint != "" {
 		prompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\n"+
-			"Interpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) "+
+			"Interpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) " +
 			"and use it to guide your analysis.\n\n%s", hint, prompt)
 	}
 	return prompt

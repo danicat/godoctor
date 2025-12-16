@@ -3,3 +3,5 @@
 
 # Binaries
 bin/
+.gemini/
+gha-creds-*.json
