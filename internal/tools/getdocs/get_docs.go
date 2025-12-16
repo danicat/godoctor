@@ -42,7 +42,8 @@ func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:  "read_godoc",
 		Title: "Read Go Documentation",
-		Description: "Read Go documentation for packages and symbols. Returns definitions, comments, and examples in Markdown format. " +
+		Description: "Read Go documentation for packages and symbols. " +
+			"Returns definitions, comments, and examples in Markdown format. " +
 			"Useful for discovering standard library functions and external package usage.",
 	}, Handler)
 }

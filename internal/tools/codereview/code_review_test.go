@@ -121,7 +121,7 @@ func TestNewHandler_VertexAI_MissingConfig(t *testing.T) {
 func TestTool_Success(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
-		{LineNumber: 1, Finding: "Testing", Comment: "This is a test"},
+		{LineNumber: 1, Finding: "Testing", Comment: "This is a test", Severity: "suggestion"},
 	}
 	mockResponse, err := json.Marshal(expectedSuggestions)
 	if err != nil {
@@ -141,7 +141,7 @@ func TestTool_Success(t *testing.T) {
 		t.Fatalf("Expected a successful result, but got an error: %v", result.Content)
 	}
 
-	// Verify structured output
+	// Verify structured output (ReviewResult)
 	if reviewResult == nil {
 		t.Fatal("Expected non-nil ReviewResult")
 	}
@@ -149,24 +149,28 @@ func TestTool_Success(t *testing.T) {
 		t.Errorf("Unexpected suggestions in ReviewResult: %+v", reviewResult.Suggestions)
 	}
 
+	// Verify Markdown output (TextContent)
 	textContent, ok := result.Content[0].(*mcp.TextContent)
 	if !ok {
 		t.Fatalf("Expected TextContent, but got %T", result.Content[0])
 	}
 
-	var suggestions []ReviewSuggestion
-	if err := json.Unmarshal([]byte(textContent.Text), &suggestions); err != nil {
-		t.Fatalf("Failed to unmarshal suggestions from text content: %v", err)
+	// Check for Markdown headers/content
+	if !strings.Contains(textContent.Text, "## Code Review") {
+		t.Errorf("Expected Markdown header '## Code Review', but got: %s", textContent.Text)
 	}
-	if len(suggestions) != 1 || suggestions[0].Comment != "This is a test" {
-		t.Errorf("Unexpected suggestions received: %+v", suggestions)
+	if !strings.Contains(textContent.Text, "Found 1 issues") {
+		t.Errorf("Expected 'Found 1 issues', but got: %s", textContent.Text)
+	}
+	if !strings.Contains(textContent.Text, "💡") { // Check for icon
+		t.Errorf("Expected icon '💡', but got: %s", textContent.Text)
 	}
 }
 
 func TestTool_Hint(t *testing.T) {
 	// 1. Setup
 	expectedSuggestions := []ReviewSuggestion{
-		{LineNumber: 1, Finding: "Hint", Comment: "This is a hint test"},
+		{LineNumber: 1, Finding: "Hint", Comment: "This is a hint test", Severity: "suggestion"},
 	}
 	mockResponse, err := json.Marshal(expectedSuggestions)
 	if err != nil {
@@ -202,12 +206,8 @@ func TestTool_Hint(t *testing.T) {
 		t.Fatalf("Expected TextContent, but got %T", result.Content[0])
 	}
 
-	var suggestions []ReviewSuggestion
-	if err := json.Unmarshal([]byte(textContent.Text), &suggestions); err != nil {
-		t.Fatalf("Failed to unmarshal suggestions from text content: %v", err)
-	}
-	if len(suggestions) != 1 || suggestions[0].Comment != "This is a hint test" {
-		t.Errorf("Unexpected suggestions received: %+v", suggestions)
+	if !strings.Contains(textContent.Text, "## Code Review") {
+		t.Errorf("Expected Markdown output, but got: %s", textContent.Text)
 	}
 }
 
@@ -230,7 +230,7 @@ func TestTool_InvalidJSON(t *testing.T) {
 	if !ok {
 		t.Fatalf("Expected TextContent, but got %T", result.Content[0])
 	}
-	if !strings.Contains(textContent.Text, "failed to unmarshal suggestions") {
-		t.Errorf("Expected a JSON unmarshal error, but got: %s", textContent.Text)
+	if !strings.Contains(textContent.Text, "failed to parse model response") {
+		t.Errorf("Expected a parse error, but got: %s", textContent.Text)
 	}
 }

@@ -22,6 +22,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/genai"
@@ -199,6 +200,10 @@ func (h *Handler) Tool(ctx context.Context, _ *mcp.CallToolRequest, args Params)
 		}, nil, nil
 	}
 
+	return h.processResponse(resp)
+}
+
+func (h *Handler) processResponse(resp *genai.GenerateContentResponse) (*mcp.CallToolResult, *ReviewResult, error) {
 	if !isValidResponse(resp) {
 		return &mcp.CallToolResult{
 			IsError: true,
@@ -219,28 +224,59 @@ func (h *Handler) Tool(ctx context.Context, _ *mcp.CallToolRequest, args Params)
 		}, nil, nil
 	}
 
-	return parseReviewResponse(part.Text)
-}
-
-func parseReviewResponse(text string) (*mcp.CallToolResult, *ReviewResult, error) {
-	// Clean the response by trimming markdown and whitespace
-	cleanedJSON := jsonMarkdownRegex.ReplaceAllString(text, "$1")
-
-	var suggestions []ReviewSuggestion
-	if err := json.Unmarshal([]byte(cleanedJSON), &suggestions); err != nil {
+	suggestions, err := parseReviewResponse(part.Text)
+	if err != nil {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("failed to unmarshal suggestions from model response: %v", err)},
+				&mcp.TextContent{Text: fmt.Sprintf("failed to parse model response: %v", err)},
 			},
 		}, nil, nil
 	}
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: cleanedJSON},
+			&mcp.TextContent{Text: renderReviewMarkdown(suggestions)},
 		},
 	}, &ReviewResult{Suggestions: suggestions}, nil
+}
+
+func parseReviewResponse(text string) ([]ReviewSuggestion, error) {
+	// Clean the response by trimming markdown and whitespace
+	cleanedJSON := jsonMarkdownRegex.ReplaceAllString(text, "$1")
+
+	var suggestions []ReviewSuggestion
+	if err := json.Unmarshal([]byte(cleanedJSON), &suggestions); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal suggestions: %w", err)
+	}
+	return suggestions, nil
+}
+
+func renderReviewMarkdown(suggestions []ReviewSuggestion) string {
+	if len(suggestions) == 0 {
+		return "## Code Review\n\nNo issues found. Great job! 🚀"
+	}
+
+	var buf strings.Builder
+	buf.WriteString(fmt.Sprintf("## Code Review\n\nFound %d issues.\n\n", len(suggestions)))
+
+	for _, s := range suggestions {
+		icon := "ℹ️"
+		switch strings.ToLower(s.Severity) {
+		case "error":
+			icon = "🚨"
+		case "warning":
+			icon = "⚠️"
+		case "suggestion":
+			icon = "💡"
+		}
+
+		buf.WriteString(fmt.Sprintf("### %s Line %d: %s\n", icon, s.LineNumber, s.Finding))
+		buf.WriteString(fmt.Sprintf("**Severity:** %s\n\n", s.Severity))
+		buf.WriteString(s.Comment)
+		buf.WriteString("\n\n---\n\n")
+	}
+	return buf.String()
 }
 
 func isValidResponse(resp *genai.GenerateContentResponse) bool {
@@ -249,63 +285,28 @@ func isValidResponse(resp *genai.GenerateContentResponse) bool {
 }
 
 func constructSystemPrompt(hint string) string {
-	prompt := `You are an expert Go code reviewer. Your sole purpose is to analyze Go code and provide feedback
-based on the principles of idiomatic Go, as outlined in the following guidelines.
+	prompt := `You are an expert Go code reviewer. Your goal is to help the developer improve their code quality,
+safety, and idiomatic style. Be constructive, specific, and prioritize critical issues (bugs, race conditions)
+over minor style nitpicks.
 
-**Core Principles:**
-*   **Simplicity:** Is the code simple and straightforward? Does it avoid unnecessary complexity?
-*   **Readability:** Is the code easy to read and understand?
-*   **Clarity:** Does the code clearly express its intent?
-*   **Concurrency:** Is concurrency used safely and correctly?
-*   **Interfaces:** Are interfaces small and focused?
+**Guidelines:**
+1.  **Correctness:** Identify bugs, race conditions, and unhandled errors. (Severity: "error")
+2.  **Idioms:** specific Go patterns (e.g., table-driven tests, proper interface usage). (Severity: "warning")
+3.  **Simplicity:** Suggest simplifications if code is overly complex. (Severity: "suggestion")
+4.  **Style:** Follow effective Go and CodeReviewComments. (Severity: "suggestion")
 
-**Formatting and Style:**
-*   **gofmt:** Assume the code has been formatted with gofmt.
-*   **Naming:** Are package, variable, function, and interface names idiomatic?
-*   **Comments:** Are comments clear, concise, and helpful? Do they explain *why*, not *what*?
+**Format:**
+Return a JSON array of objects. Do not include markdown code blocks around the JSON.
+Each object must have:
+- "line_number": int
+- "severity": "error" | "warning" | "suggestion"
+- "finding": string (concise title)
+- "comment": string (detailed explanation and recommendation)
 
-**Language Idioms:**
-*   **Error Handling:** Is error handling correct? Are errors wrapped to provide context?
-*   **Interfaces:** Are interfaces used effectively?
-*   **Concurrency:** Are goroutines and channels used appropriately? Is shared data protected?
-*   **Data Structures:** Are slices, maps, and structs used correctly?
-*   **Control Structures:** Are 'if', 'for', 'switch', and 'defer' used in a standard way?
-
-**Testability:**
-*   Is the code easy to test? Are there any dependencies that make testing difficult?
-
-**Your Task:**
-Analyze the following code. Identify any areas that violate these principles. For each issue, provide a JSON object
-with the following fields: "line_number", "severity", "finding", and "comment".
-
-*   **severity**: Must be one of "error", "warning", or "suggestion".
-    *   "error": Critical bugs, race conditions, or panic risks.
-    *   "warning": Logic errors, potential bugs, or significant non-idiomatic usage.
-    *   "suggestion": Style improvements, naming consistency, or minor optimizations.
-
-Your response MUST be a valid JSON array of these objects. Do not include any other text, explanations, or markdown.
-If you find no issues, you MUST return an empty array: [].
-
-Example of a valid response:
-[
-  {
-    "line_number": 25,
-    "severity": "suggestion",
-    "finding": "The variable name 'serverUrl' doesn't comply with Go naming standards.",
-    "comment": "Initialisms should have all upper or all lower case: use serverURL instead."
-  },
-  {
-    "line_number": 42,
-    "severity": "error",
-    "finding": "Unhandled error from 'os.Open'",
-    "comment": "Always check errors before using the returned values."
-  }
-]`
+If no issues are found, return an empty array: []`
 
 	if hint != "" {
-		prompt = fmt.Sprintf("A user has provided the following hint for your review: \"%s\".\n"+
-			"Interpret this hint within the context of Go best practices (such as simplicity, clarity, and robustness) " +
-			"and use it to guide your analysis.\n\n%s", hint, prompt)
+		prompt = fmt.Sprintf("Focus on this hint: \"%s\".\n\n%s", hint, prompt)
 	}
 	return prompt
 }
