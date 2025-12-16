@@ -157,4 +157,92 @@ func TestEditCode(t *testing.T) {
 			t.Errorf("expected diff in feedback, got: %s", text)
 		}
 	})
+
+	t.Run("Soft Validation Warning", func(t *testing.T) {
+		// Valid syntax but invalid build (undefined function)
+		dir := t.TempDir()
+
+		// Initialize go.mod
+		if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/test\ngo 1.21\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		file := filepath.Join(dir, "main.go")
+		if err := os.WriteFile(file, []byte("package main\n\nfunc main() {}\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		params := EditCodeParams{
+			FilePath:   file,
+			NewContent: "package main\n\nfunc main() { undefinedFunc() }", // Syntax valid, Build invalid
+			Strategy:   "overwrite_file",
+		}
+
+		result, _, err := editCodeHandler(ctx, nil, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		text := result.Content[0].(*mcp.TextContent).Text
+		if !strings.Contains(text, "Success: File updated") {
+			t.Errorf("expected success, got: %s", text)
+		}
+		if !strings.Contains(text, "Warning:** Analysis found issues") {
+			t.Errorf("expected build warning, got: %s", text)
+		}
+		if !strings.Contains(text, "undefined: undefinedFunc") {
+			// Output might vary slightly by go version, checking key part
+			t.Errorf("expected specific build error in warning, got: %s", text)
+		}
+	})
+
+	t.Run("AutoFix Typo", func(t *testing.T) {
+		writeFile("package main\n\nfunc correct() {\n\tprintln(\"hello\")\n}\n")
+		// Typo: prntln (missing i). Length 7 vs 6. Distance 1.
+		// Score = 1 - 1/7 = 0.857. Wait, maxLen is 7 ("correct").
+		// If context "prntln". maxLen 6. Score 1 - 1/6 = 0.833.
+		// Default threshold 0.85. So it should FAIL by default.
+
+		params := EditCodeParams{
+			FilePath:      filePath,
+			SearchContext: "func correct() {\n  prntln(\"hello\")\n}",
+			NewContent:    "func new() {}",
+			Strategy:      "single_match",
+			AutoFix:       true, // Should enable the fix
+		}
+
+		// We need to ensure the score < 0.85 so it triggers AutoFix logic.
+		// "prntln" vs "println".
+		// Context block len ~35.
+		// 1 char difference in 35 chars is Score ~0.97.
+		// So it would pass threshold 0.85 anyway!
+
+		// To force AutoFix logic, we need a SHORT string where 1 char is significant penalty.
+		// e.g. "func a()" vs "func b()".
+
+		writeFile("func a() {}")
+		params.SearchContext = "func b() {}" // Dist 1. Len 11. Score 1 - 1/11 = 0.90.
+		// Still passes 0.85.
+
+		// We need to raise threshold or make string shorter.
+		// "a" vs "b". Dist 1. Len 1. Score 0.
+
+		writeFile("package main\nvar a = 1\n")
+		params.SearchContext = "var b = 1" // Dist 1.
+		params.NewContent = "var c = 1"
+		params.Threshold = 0.95 // Strict threshold
+
+		// Without AutoFix, 0.9 < 0.95 -> Fail.
+		// With AutoFix, Dist 1 -> Pass.
+
+		_, _, err := editCodeHandler(ctx, nil, params)
+		if err != nil {
+			t.Fatalf("unexpected error with AutoFix: %v", err)
+		}
+
+		got := readFile()
+		if !strings.Contains(got, "var c = 1") {
+			t.Errorf("AutoFix failed to apply edit, got: %q", got)
+		}
+	})
 }

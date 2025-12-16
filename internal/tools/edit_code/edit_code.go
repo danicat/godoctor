@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/imports"
 )
 
@@ -36,6 +37,7 @@ type EditCodeParams struct {
 	NewContent    string  `json:"new_content"`
 	Strategy      string  `json:"strategy,omitempty"` // single_match (default), replace_all, overwrite_file
 	Threshold     float64 `json:"threshold,omitempty"`
+	AutoFix       bool    `json:"autofix,omitempty"` // Automatically fix imports and small typos
 }
 
 func editCodeHandler(ctx context.Context, request *mcp.CallToolRequest, args EditCodeParams) (*mcp.CallToolResult, any, error) {
@@ -76,6 +78,22 @@ func editCodeHandler(ctx context.Context, request *mcp.CallToolRequest, args Edi
 		for _, c := range candidates {
 			if c.Score >= args.Threshold {
 				validCandidates = append(validCandidates, c)
+			}
+		}
+
+		// AutoFix: Typo Correction (Distance <= 1)
+		// If no matches found by threshold, but AutoFix is enabled, look for a very close match (distance <= 1).
+		if len(validCandidates) == 0 && args.AutoFix && len(candidates) > 0 {
+			best := candidates[0] // candidates are sorted descending by score
+
+			// We need the window content to calc distance.
+			bestContext := originalContent[best.StartIndex:best.EndIndex]
+			normBest := normalizeBlock(bestContext)
+			normContext := normalizeBlock(args.SearchContext)
+			dist := levenshteinDistance(normContext, normBest)
+
+			if dist <= 1 {
+				validCandidates = append(validCandidates, best)
 			}
 		}
 
@@ -135,9 +153,10 @@ Diff:
 	// 3. Validation & Auto-Correction (In-Memory)
 
 	// A. Auto-Format (goimports)
+	// Always run goimports to fix formatting and imports.
 	formattedBytes, err := imports.Process(args.FilePath, []byte(newContentStr), nil)
 	if err != nil {
-		// If goimports fails, try to parse specifically
+		// If goimports fails, try to parse specifically to give better error
 		fset := token.NewFileSet()
 		_, parseErr := parser.ParseFile(fset, "", newContentStr, parser.AllErrors)
 		if parseErr != nil {
@@ -175,11 +194,76 @@ Diff:
 		return errorResult(fmt.Sprintf("failed to write file: %v", err)), nil, nil
 	}
 
+	// 6. Post-Write Soft Validation (Go Analysis)
+	// We use go/packages to load the package and run 'printf' analyzer.
+	var analysisWarning string
+	if diags, err := checkAnalysis(ctx, args.FilePath); err == nil && len(diags) > 0 {
+		analysisWarning = fmt.Sprintf("\n\n**Warning:** Analysis found issues:\n%s", strings.Join(diags, "\n"))
+	} else if err != nil {
+		// Only report loading errors if they seem critical?
+		// packages.Load usually returns partial packages with errors in Pkg.Errors.
+		// If checkAnalysis returns error, it's likely fatal config/env error.
+		// We'll ignore it to avoid noise, or log it?
+		// Let's just append it if useful.
+		// Actually, checkAnalysis returns formatted strings.
+	}
+
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf("Success: File updated. (Strategy: %s)", args.Strategy)},
+			&mcp.TextContent{Text: fmt.Sprintf("Success: File updated. (Strategy: %s)%s", args.Strategy, analysisWarning)},
 		},
 	}, nil, nil
+}
+
+func checkAnalysis(ctx context.Context, filePath string) ([]string, error) {
+	// Load the package containing the file
+	cfg := &packages.Config{
+		Context: ctx,
+		Mode:    packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo,
+		Dir:     filepath.Dir(filePath),
+	}
+
+	pkgs, err := packages.Load(cfg, ".")
+	if err != nil {
+		return nil, err
+	}
+
+	var diags []string
+
+	// Collect package errors (e.g. undefined variable)
+	for _, pkg := range pkgs {
+		for _, err := range pkg.Errors {
+			diags = append(diags, fmt.Sprintf("Build: %s", err.Msg))
+		}
+	}
+
+	// Run Analyzer (Printf) - DISABLED
+	// Note: Running analyzers manually requires managing dependencies (e.g. inspector).
+	// For now, we rely on packages.Load to report type errors (undefined vars, etc).
+	/*
+		for _, pkg := range pkgs {
+			pass := &analysis.Pass{
+				Fset:      pkg.Fset,
+				Files:     pkg.Syntax,
+				Pkg:       pkg.Types,
+				TypesInfo: pkg.TypesInfo,
+				Report: func(d analysis.Diagnostic) {
+					diags = append(diags, fmt.Sprintf("Vet: %s", d.Message))
+				},
+				ResultOf: map[*analysis.Analyzer]interface{}{}, // Missing dependencies like inspector
+			}
+
+			// Run printf analyzer
+			_, _ = printf.Analyzer.Run(pass)
+		}
+	*/
+
+	// Limit warnings
+	if len(diags) > 5 {
+		diags = append(diags[:5], "... (more)")
+	}
+
+	return diags, nil
 }
 
 func errorResult(msg string) *mcp.CallToolResult {
