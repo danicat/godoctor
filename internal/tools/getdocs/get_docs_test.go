@@ -30,48 +30,34 @@ func TestHandler(t *testing.T) {
 		params      Params
 		wantErr     bool
 		wantContent string
-		// For successful cases, we might want to check specific JSON fields
-		wantDefinition string
 	}{
 		{
-			name: "Standard Library Function",
-			params: Params{
-				PackagePath: "fmt",
-				SymbolName:  "Println",
-			},
-			wantErr:        false,
-			wantDefinition: "func Println(a ...any) (n int, err error)",
+			name:        "Standard Library Function",
+			params:      Params{PackagePath: "fmt", SymbolName: "Println"},
+			wantErr:     false,
+			wantContent: "func Println", // Markdown code block content
 		},
 		{
-			name: "Package-Level Documentation",
-			params: Params{
-				PackagePath: "os",
-			},
-			wantErr:        false,
-			wantDefinition: "package os",
+			name:        "Package-Level Documentation",
+			params:      Params{PackagePath: "os"},
+			wantErr:     false,
+			wantContent: "# os", // Markdown header
 		},
 		{
-			name: "Symbol Not Found",
-			params: Params{
-				PackagePath: "fmt",
-				SymbolName:  "NonExistentSymbol",
-			},
+			name:        "Symbol Not Found",
+			params:      Params{PackagePath: "fmt", SymbolName: "NonExistentSymbol"},
 			wantErr:     true,
 			wantContent: "symbol \"NonExistentSymbol\" not found in package fmt",
 		},
 		{
-			name: "Package Not Found",
-			params: Params{
-				PackagePath: "non/existent/package",
-			},
+			name:        "Package Not Found",
+			params:      Params{PackagePath: "non/existent/package"},
 			wantErr:     true,
 			wantContent: "failed to download package",
 		},
 		{
-			name: "Empty Package Path",
-			params: Params{
-				PackagePath: "",
-			},
+			name:        "Empty Package Path",
+			params:      Params{PackagePath: ""},
 			wantErr:     true,
 			wantContent: "package_path cannot be empty",
 		},
@@ -83,12 +69,12 @@ func TestHandler(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Handler returned an unexpected error: %v", err)
 			}
-			verifyResult(t, result, tc.wantErr, tc.wantContent, tc.wantDefinition)
+			verifyResult(t, result, tc.wantErr, tc.wantContent)
 		})
 	}
 }
 
-func verifyResult(t *testing.T, result *mcp.CallToolResult, wantErr bool, wantContent, wantDefinition string) {
+func verifyResult(t *testing.T, result *mcp.CallToolResult, wantErr bool, wantContent string) {
 	t.Helper()
 	if len(result.Content) == 0 {
 		t.Fatal("Expected content, but got none.")
@@ -109,18 +95,8 @@ func verifyResult(t *testing.T, result *mcp.CallToolResult, wantErr bool, wantCo
 		if result.IsError {
 			t.Errorf("Did not expect an error, but got one: %v", result.Content)
 		}
-		
-		// Unmarshal the JSON result to verify structure
-		// We define a partial struct for what we want to verify
-		// var doc struct {
-		// 	Definition string `json:"definition"`
-		// }
-		// Using encoding/json here requires importing it
-		// Assuming we can't easily modify imports here without replace tool limitation of exact match.
-		// Wait, I can't use encoding/json if it's not imported.
-		// I'll check if text contains the definition string as a fallback, which JSON output should.
-		if !strings.Contains(textContent.Text, wantDefinition) {
-			t.Errorf("Expected content to contain %q, but got %q", wantDefinition, textContent.Text)
+		if !strings.Contains(textContent.Text, wantContent) {
+			t.Errorf("Expected content to contain %q, but got %q", wantContent, textContent.Text)
 		}
 	}
 }

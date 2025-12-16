@@ -18,7 +18,6 @@ package getdocs
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -70,6 +69,7 @@ type StructuredDoc struct {
 	Definition  string    `json:"definition,omitempty"`
 	Description string    `json:"description"`
 	Examples    []Example `json:"examples,omitempty"`
+	SubPackages []string  `json:"subPackages,omitempty"`
 	PkgGoDevURL string    `json:"pkgGoDevURL"`
 }
 
@@ -94,7 +94,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		return fetchAndRetry(ctx, pkgPath, symbolName, err.Error())
 	}
 
-	result, err := parsePackageDocs(pkgPath, pkgDir, symbolName)
+	result, err := parsePackageDocs(ctx, pkgPath, pkgDir, symbolName)
 	if err != nil {
 		return &mcp.CallToolResult{
 			IsError: true,
@@ -104,14 +104,11 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		}, nil, nil
 	}
 
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal structured doc: %w", err)
-	}
+	markdown := renderMarkdown(result)
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(jsonBytes)},
+			&mcp.TextContent{Text: markdown},
 		},
 	}, nil, nil
 }
@@ -126,7 +123,7 @@ func resolvePackageDir(ctx context.Context, pkgPath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func parsePackageDocs(importPath, pkgDir, symbolName string) (*StructuredDoc, error) {
+func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName string) (*StructuredDoc, error) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, pkgDir, nil, parser.ParseComments)
 	if err != nil {
@@ -135,21 +132,9 @@ func parsePackageDocs(importPath, pkgDir, symbolName string) (*StructuredDoc, er
 
 	// Collect all files from all packages (e.g. "http" and "http_test")
 	var files []*ast.File
-	var packageName string
-	for name, pkg := range pkgs {
-		if !strings.HasSuffix(name, "_test") {
-			packageName = name
-		}
+	for _, pkg := range pkgs {
 		for _, file := range pkg.Files {
 			files = append(files, file)
-		}
-	}
-
-	// If we didn't find a main package name, pick any
-	if packageName == "" {
-		for name := range pkgs {
-			packageName = name
-			break
 		}
 	}
 
@@ -169,6 +154,14 @@ func parsePackageDocs(importPath, pkgDir, symbolName string) (*StructuredDoc, er
 		PkgGoDevURL: fmt.Sprintf("https://pkg.go.dev/%s", importPath),
 	}
 
+	// Always look for sub-packages
+	subs := listSubPackages(ctx, pkgDir)
+	for _, sub := range subs {
+		if sub != importPath { // Exclude self
+			result.SubPackages = append(result.SubPackages, sub)
+		}
+	}
+
 	if symbolName == "" {
 		result.Description = targetPkg.Doc
 		result.Definition = fmt.Sprintf("package %s // import %q", targetPkg.Name, importPath)
@@ -181,116 +174,116 @@ func parsePackageDocs(importPath, pkgDir, symbolName string) (*StructuredDoc, er
 
 	found, candidates := findSymbol(fset, targetPkg, symbolName, result)
 	if !found {
-		// Limit candidates to avoid huge error messages
-		maxCandidates := 20
-		if len(candidates) > maxCandidates {
-			candidates = append(candidates[:maxCandidates], fmt.Sprintf("...and %d more", len(candidates)-maxCandidates))
+		fuzzyMatches := findFuzzyMatches(symbolName, candidates)
+		msg := fmt.Sprintf("symbol %q not found in package %s", symbolName, importPath)
+		if len(fuzzyMatches) > 0 {
+			msg += fmt.Sprintf(". Did you mean: %s?", strings.Join(fuzzyMatches, ", "))
 		}
-		return nil, fmt.Errorf("symbol %q not found in package %s. Available symbols: %s",
-			symbolName, importPath, strings.Join(candidates, ", "))
+		return nil, errors.New(msg)
 	}
 
 	return result, nil
 }
 
-//nolint:staticcheck // ast.Package is deprecated but required by go/doc
-func findTargetPackage(pkgs map[string]*ast.Package, importPath string) *doc.Package {
-	// Prefer non-test packages
-	for _, pkg := range pkgs {
-		if !strings.HasSuffix(pkg.Name, "_test") {
-			return doc.New(pkg, importPath, doc.AllDecls)
-		}
-	}
-	// Fallback to any package
-	for _, pkg := range pkgs {
-		return doc.New(pkg, importPath, doc.AllDecls)
-	}
-	return nil
-}
-
 func findSymbol(fset *token.FileSet, pkg *doc.Package, symName string, result *StructuredDoc) (bool, []string) {
 	var candidates []string
+	add := func(name string) { candidates = append(candidates, name) }
 
-	// Helper to add candidate
-	addCandidate := func(name string) {
-		candidates = append(candidates, name)
+	if checkFuncs(fset, pkg, symName, result, add) {
+		return true, nil
+	}
+	if checkTypes(fset, pkg, symName, result, add) {
+		return true, nil
+	}
+	if checkVars(fset, pkg, symName, result, add) {
+		return true, nil
+	}
+	if checkConsts(fset, pkg, symName, result, add) {
+		return true, nil
 	}
 
-	// Check Functions (Top-level)
+	return false, candidates
+}
+
+func checkFuncs(fset *token.FileSet, pkg *doc.Package, symName string, result *StructuredDoc, add func(string)) bool {
 	for _, f := range pkg.Funcs {
 		if f.Name == symName {
-			result.Type = "function"
-			result.Definition = bufferCode(fset, f.Decl)
-			result.Description = f.Doc
-			result.Examples = extractExamples(fset, f.Examples)
-			return true, nil
+			populateFunc(fset, f, result)
+			return true
 		}
-		addCandidate(f.Name)
+		add(f.Name)
 	}
+	return false
+}
 
-	// Check Types
+func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *StructuredDoc, add func(string)) bool {
 	for _, t := range pkg.Types {
 		if t.Name == symName {
 			result.Type = "type"
 			result.Definition = bufferCode(fset, t.Decl)
 			result.Description = t.Doc
 			result.Examples = extractExamples(fset, t.Examples)
-			return true, nil
+			return true
 		}
-		addCandidate(t.Name)
+		add(t.Name)
 
-		// Check constructors/factories associated with the type
 		for _, f := range t.Funcs {
 			if f.Name == symName {
-				result.Type = "function"
-				result.Definition = bufferCode(fset, f.Decl)
-				result.Description = f.Doc
-				result.Examples = extractExamples(fset, f.Examples)
-				return true, nil
+				populateFunc(fset, f, result)
+				return true
 			}
-			addCandidate(f.Name)
+			add(f.Name)
 		}
 
-		// Check methods
 		for _, m := range t.Methods {
 			if m.Name == symName {
 				result.Type = "method"
 				result.Definition = bufferCode(fset, m.Decl)
 				result.Description = m.Doc
 				result.Examples = extractExamples(fset, m.Examples)
-				return true, nil
+				return true
 			}
-			addCandidate(m.Name)
+			add(m.Name)
 		}
 	}
+	return false
+}
 
-	// Check Variables
+func checkVars(fset *token.FileSet, pkg *doc.Package, symName string, result *StructuredDoc, add func(string)) bool {
 	for _, v := range pkg.Vars {
 		for _, name := range v.Names {
 			if name == symName {
 				result.Type = "var"
 				result.Definition = bufferCode(fset, v.Decl)
 				result.Description = v.Doc
-				return true, nil
+				return true
 			}
-			addCandidate(name)
+			add(name)
 		}
 	}
+	return false
+}
 
-	// Check Constants
+func checkConsts(fset *token.FileSet, pkg *doc.Package, symName string, result *StructuredDoc, add func(string)) bool {
 	for _, c := range pkg.Consts {
 		for _, name := range c.Names {
 			if name == symName {
 				result.Type = "const"
 				result.Definition = bufferCode(fset, c.Decl)
 				result.Description = c.Doc
-				return true, nil
+				return true
 			}
-			addCandidate(name)
+			add(name)
 		}
 	}
+	return false
+}
 
-	return false, candidates
+func populateFunc(fset *token.FileSet, f *doc.Func, result *StructuredDoc) {
+	result.Type = "function"
+	result.Definition = bufferCode(fset, f.Decl)
+	result.Description = f.Doc
+	result.Examples = extractExamples(fset, f.Examples)
 }
 
 func extractExamples(fset *token.FileSet, examples []*doc.Example) []Example {
@@ -314,6 +307,116 @@ func bufferCode(fset *token.FileSet, node any) string {
 	return buf.String()
 }
 
+func renderMarkdown(doc *StructuredDoc) string {
+	var buf strings.Builder
+
+	buf.WriteString(fmt.Sprintf("# %s\n\n", doc.ImportPath))
+
+	if doc.SymbolName != "" {
+		buf.WriteString(fmt.Sprintf("## %s %s\n\n", doc.Type, doc.SymbolName))
+	}
+
+	if doc.Definition != "" {
+		buf.WriteString("```go\n")
+		buf.WriteString(doc.Definition)
+		buf.WriteString("\n```\n\n")
+	}
+
+	buf.WriteString(doc.Description)
+	buf.WriteString("\n\n")
+
+	if len(doc.Examples) > 0 {
+		buf.WriteString("### Examples\n\n")
+		for _, ex := range doc.Examples {
+			name := ex.Name
+			if name == "" {
+				name = "Package Example"
+			}
+			buf.WriteString(fmt.Sprintf("#### %s\n\n", name))
+			buf.WriteString("```go\n")
+			buf.WriteString(ex.Code)
+			buf.WriteString("\n```\n")
+			if ex.Output != "" {
+				buf.WriteString("\n**Output:**\n```\n")
+				buf.WriteString(ex.Output)
+				buf.WriteString("\n```\n")
+			}
+			buf.WriteString("\n")
+		}
+	}
+
+	if len(doc.SubPackages) > 0 {
+		buf.WriteString("### Sub-packages\n\n")
+		for _, sub := range doc.SubPackages {
+			buf.WriteString(fmt.Sprintf("- %s\n", sub))
+		}
+		buf.WriteString("\n")
+	}
+
+	buf.WriteString(fmt.Sprintf("[View on pkg.go.dev](%s)\n", doc.PkgGoDevURL))
+	return buf.String()
+}
+
+func findFuzzyMatches(query string, candidates []string) []string {
+	var matches []string
+	lowerQuery := strings.ToLower(query)
+
+	for _, c := range candidates {
+		// Case insensitive match
+		if strings.EqualFold(query, c) {
+			matches = append(matches, c)
+			continue
+		}
+
+		// Levenshtein distance < 3 (allow small typos)
+		dist := levenshtein(lowerQuery, strings.ToLower(c))
+		if dist <= 2 {
+			matches = append(matches, c)
+		}
+	}
+	// Limit to top 5
+	if len(matches) > 5 {
+		return matches[:5]
+	}
+	return matches
+}
+
+func levenshtein(s1, s2 string) int {
+	r1, r2 := []rune(s1), []rune(s2)
+	n, m := len(r1), len(r2)
+	if n > m {
+		r1, r2 = r2, r1
+		n, m = m, n
+	}
+
+	currentRow := make([]int, n+1)
+	for i := 0; i <= n; i++ {
+		currentRow[i] = i
+	}
+
+	for i := 1; i <= m; i++ {
+		previousRow := currentRow
+		currentRow = make([]int, n+1)
+		currentRow[0] = i
+		for j := 1; j <= n; j++ {
+			add, del, change := previousRow[j]+1, currentRow[j-1]+1, previousRow[j-1]
+			if r1[j-1] != r2[i-1] {
+				change++
+			}
+			
+			minVal := add
+			if del < minVal {
+				minVal = del
+			}
+			if change < minVal {
+				minVal = change
+			}
+			currentRow[j] = minVal
+		}
+	}
+	return currentRow[n]
+}
+
 func fetchAndRetry(ctx context.Context, pkgPath, symbolName, originalErr string) (*mcp.CallToolResult, any, error) {
 	tempDir, err := setupTempModule(ctx)
 	if err != nil {
@@ -330,16 +433,23 @@ func fetchAndRetry(ctx context.Context, pkgPath, symbolName, originalErr string)
 
 	pkgDir, err := downloadPackage(ctx, tempDir, pkgPath)
 	if err != nil {
+		// Attempt to provide suggestions from standard library
+		suggestions := suggestPackages(ctx, pkgPath)
+		suggestionText := ""
+		if len(suggestions) > 0 {
+			suggestionText = fmt.Sprintf("\nDid you mean: %s?", strings.Join(suggestions, ", "))
+		}
+
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("failed to download package %q: %v\nOriginal error: %s",
-					pkgPath, err, originalErr)},
+				&mcp.TextContent{Text: fmt.Sprintf("failed to download package %q: %v\nOriginal error: %s%s",
+					pkgPath, err, originalErr, suggestionText)},
 			},
 		}, nil, nil
 	}
 
-	result, err := parsePackageDocs(pkgPath, pkgDir, symbolName)
+	result, err := parsePackageDocs(ctx, pkgPath, pkgDir, symbolName)
 	if err != nil {
 		return &mcp.CallToolResult{
 			IsError: true,
@@ -349,16 +459,39 @@ func fetchAndRetry(ctx context.Context, pkgPath, symbolName, originalErr string)
 		}, nil, nil
 	}
 
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to marshal structured doc: %w", err)
-	}
+	markdown := renderMarkdown(result)
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: string(jsonBytes)},
+			&mcp.TextContent{Text: markdown},
 		},
 	}, nil, nil
+}
+
+func suggestPackages(ctx context.Context, query string) []string {
+	cmd := exec.CommandContext(ctx, "go", "list", "std")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	candidates := strings.Split(strings.TrimSpace(string(out)), "\n")
+	return findFuzzyMatches(query, candidates)
+}
+
+func listSubPackages(ctx context.Context, pkgDir string) []string {
+	cmd := exec.CommandContext(ctx, "go", "list", "-f", "{{.ImportPath}}", "./...")
+	cmd.Dir = pkgDir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "\n")
 }
 
 func setupTempModule(ctx context.Context) (string, error) {
