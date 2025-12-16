@@ -65,7 +65,14 @@ The `edit_code` tool acts as a smart patch utility. It takes a search block (con
 4.  **Application:**
     *   Apply replacement(s) to the file buffer.
 5.  **Validation (Pre-commit):**
-    *   **Syntax Check (Strict):** Run `go fmt` or parser check. If unparseable (e.g., missing brace), **REVERT**. The file must be valid Go code.
+    *   **Syntax Check (Strict):**
+        *   Mechanism: Run `go/parser.ParseFile` (or `go fmt`).
+        *   **Gate:** If this returns errors (e.g., unmatched braces, bad keywords), the edit is **REJECTED**.
+        *   **Feedback:** The tool returns the *exact* parser error (e.g., `expected '}', found 'EOF' at line 120`) to the agent, enabling immediate self-correction in the next turn.
+        *   *Note:* This does not check for unused variables or type errors, only structural validity.
+    *   **Auto-Correction (Best Effort):**
+        *   Mechanism: Run `goimports` on the buffer.
+        *   **Goal:** Automatically fix missing imports or formatting issues that would otherwise cause a build failure.
     *   **Build/Test Check (Soft):** Run `go build` or `go test`.
         *   If Pass: Return "Success".
         *   If Fail: **Apply anyway** (to allow multi-step refactors) but return the error as a "Warning".
