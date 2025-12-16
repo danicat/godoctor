@@ -62,12 +62,12 @@ The `edit_code` tool acts as a smart patch utility. It takes a search block (con
 3.  **Ambiguity Check:**
     *   If `candidates == 0`: **FAIL**. Return "No match found. Best candidate at line X (Score Y%). Diff: ..."
     *   If `candidates > 1` AND `strategy == "single_match"`: **FAIL**. Return "Ambiguous match. Found N occurrences at lines A, B, C. Please add more context."
-4.  **Application:**
-    *   Apply replacement(s) to the file buffer.
+4.  **Application (In-Memory):**
+    *   Apply replacement(s) to the **in-memory buffer**. The actual file on disk remains completely untouched at this stage.
 5.  **Validation (Pre-commit):**
     *   **Syntax Check (Strict):**
-        *   Mechanism: Run `go/parser.ParseFile` (or `go fmt`).
-        *   **Gate:** If this returns errors (e.g., unmatched braces, bad keywords), the edit is **REJECTED**.
+        *   Mechanism: Parse the **buffer content** using `go/parser.ParseFile`.
+        *   **Gate:** If this returns errors (e.g., unmatched braces, bad keywords), the edit is **ABORTED**. The disk file is **NEVER** modified, preventing corruption.
         *   **Feedback:** The tool returns the *exact* parser error (e.g., `expected '}', found 'EOF' at line 120`) to the agent, enabling immediate self-correction in the next turn.
         *   *Note:* This does not check for unused variables or type errors, only structural validity.
     *   **Auto-Correction (Best Effort):**
@@ -77,10 +77,14 @@ The `edit_code` tool acts as a smart patch utility. It takes a search block (con
             *   **Missing Imports:** If the code uses `fmt.Println` but lacks `import "fmt"`, `goimports` is run to insert it.
             *   **Unused Imports:** If an edit removes the last usage of a package, `goimports` removes the import line.
             *   **Context Typos (Distance ≤ 1):** If the `search_context` has a single-character typo compared to the actual file content, the tool treats it as a high-confidence match and applies the edit automatically.
-    *   **Build/Test Check (Soft):** Run `go build` or `go test`.
-        *   If Pass: Return "Success".
-        *   If Fail: **Apply anyway** (to allow multi-step refactors) but return the error as a "Warning".
+    *   **Build/Test Check (Soft):**
+        *   **Action:** Write the buffer to a **temporary file** (e.g., in `/tmp` or adjacent hidden file) to run `go build` or `go test`.
+        *   If Pass: Proceed to Commit.
+        *   If Fail: **Proceed to Commit** (to allow multi-step refactors) but return the error as a "Warning".
         *   *Output:* "Success: Edit applied. **Warning:** Build failed (`undefined: NewField`). You may need to update dependent files."
+6.  **Commit (Write to Disk):**
+    *   **Action:** Only if the Strict Syntax Check passed, overwrite `file_path` with the validated buffer content.
+    *   **Guarantee:** This ensures the file is always in a parseable state, even if it has compiler errors.
 
 ---
 
