@@ -57,6 +57,11 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 
+	if cfg.Agents {
+		printAgentInstructions()
+		return nil
+	}
+
 	srv := server.New(cfg, version)
 	srv.RegisterHandlers()
 
