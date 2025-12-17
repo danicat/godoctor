@@ -6,3 +6,4 @@ bin/
 .gemini/
 gha-creds-*.json
 runs/
+.env
