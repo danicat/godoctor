@@ -16,24 +16,23 @@ import (
 	"github.com/danicat/godoctor/internal/resources/godoc"
 	"github.com/danicat/godoctor/internal/resources/project"
 	"github.com/danicat/godoctor/internal/resources/symbol"
-	"github.com/danicat/godoctor/internal/tools/analyze_dependency_updates"
-	"github.com/danicat/godoctor/internal/tools/code_outline"
-	"github.com/danicat/godoctor/internal/tools/edit"
-	"github.com/danicat/godoctor/internal/tools/edit_code"
-	"github.com/danicat/godoctor/internal/tools/go_build"
-	"github.com/danicat/godoctor/internal/tools/go_install"
-	"github.com/danicat/godoctor/internal/tools/go_test"
-	"github.com/danicat/godoctor/internal/tools/inspect_symbol"
-	"github.com/danicat/godoctor/internal/tools/list_files"
-	"github.com/danicat/godoctor/internal/tools/master_gopher"
-	"github.com/danicat/godoctor/internal/tools/modernize"
-	"github.com/danicat/godoctor/internal/tools/open"
-	"github.com/danicat/godoctor/internal/tools/oracle"
-	"github.com/danicat/godoctor/internal/tools/read_code"
-	"github.com/danicat/godoctor/internal/tools/read_docs"
-	"github.com/danicat/godoctor/internal/tools/rename_symbol"
-	"github.com/danicat/godoctor/internal/tools/review_code"
-	"github.com/danicat/godoctor/internal/tools/write"
+	"github.com/danicat/godoctor/internal/tools/agent/master"
+	"github.com/danicat/godoctor/internal/tools/agent/review"
+	"github.com/danicat/godoctor/internal/tools/agent/specialist"
+	"github.com/danicat/godoctor/internal/tools/file/create"
+	"github.com/danicat/godoctor/internal/tools/file/edit"
+	"github.com/danicat/godoctor/internal/tools/file/list"
+	"github.com/danicat/godoctor/internal/tools/file/outline"
+	"github.com/danicat/godoctor/internal/tools/file/read"
+	"github.com/danicat/godoctor/internal/tools/golang/build"
+	"github.com/danicat/godoctor/internal/tools/golang/diff"
+	"github.com/danicat/godoctor/internal/tools/golang/install"
+	"github.com/danicat/godoctor/internal/tools/golang/modernize"
+	"github.com/danicat/godoctor/internal/tools/golang/test"
+	"github.com/danicat/godoctor/internal/tools/project/docs"
+	"github.com/danicat/godoctor/internal/tools/project/map"
+	"github.com/danicat/godoctor/internal/tools/symbol/inspect"
+	"github.com/danicat/godoctor/internal/tools/symbol/rename"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -69,58 +68,27 @@ func (s *Server) RegisterHandlers() error {
 	}
 
 	availableTools := []toolDef{
-		{name: "read_docs", experimental: false, register: read_docs.Register},
-		{name: "review_code", experimental: false, register: func(srv *mcp.Server) {
-			review_code.Register(srv, s.cfg.DefaultModel)
+		{name: "go.docs", experimental: false, register: docs.Register},
+		{name: "agent.review", experimental: true, register: func(srv *mcp.Server) {
+			review.Register(srv, s.cfg.DefaultModel)
 		}},
-		{name: "edit_code", experimental: false, register: edit_code.Register},
-		{name: "read_code", experimental: false, register: read_code.Register},
-		{name: "code_outline", experimental: false, register: code_outline.Register},
-		{name: "open", experimental: true, register: open.Register},
-		{name: "code_outline", experimental: false, register: code_outline.Register},
-		{name: "open", experimental: true, register: open.Register},
-		{name: "inspect_symbol", experimental: false, register: inspect_symbol.Register},
-		{name: "describe", experimental: true, register: inspect_symbol.Register}, // Legacy alias for now? Or just map it. IsToolEnabled('describe') -> inspect_symbol?
-		// Let's just register 'inspect_symbol'. If user asks for 'describe' and config has alias, fine.
-		// But config.go handles enablement.
-		// I will keep 'describe' entry pointing to inspect_symbol as an alias if needed, or just remove it.
-		// Spec v7 calls it 'inspect_symbol'. I updated instructions to use 'inspect_symbol' (or fallback 'describe'?).
-		// In instructions.go I wrote: if !isEnabled("inspect_symbol") { name="describe" }
-		// So I should register BOTH if I want backward compat, or just ONE.
-		// Let's register "inspect_symbol".
-		// And "describe" as alias?
-		// Server uses a list. If I add two entries with same register func, it registers same tool name unless Register uses the name passed?
-		// inspect_symbol.Register hardcodes Name: "inspect_symbol".
-		// So I cannot register it as "describe" easily without a wrapper.
-		// So, I'll just register "inspect_symbol".
-		// And instructions.go logic `isEnabled("inspect_symbol")` works.
-		// The fallback logic in instructions.go was: `if !isEnabled("inspect_symbol") { name="describe" }`.
-		// If I remove "describe", `isEnabled("describe")` is false.
-		// So instructions will show "inspect_symbol".
-		// But existing prompts might use "describe".
-		// I'll leave "describe" out for now and assume "inspect_symbol" is the way forward.
-		// Wait, `instructions.go` logic: `if isEnabled("inspect_symbol", true) || isEnabled("describe", true)`
-		// If I remove "describe" from server's availableTools, `IsToolEnabled("describe")` logic for Standard profile says?
-		// `IsToolEnabled` in config.go:
-		// case "code_outline", "inspect_symbol", "smart_edit", ... return true.
-		// It has "inspect_symbol".
-		// It likely doesn't have "describe" in the static list for Standard.
-		// So "describe" is experimental.
-		// If I don't register "describe", it's just gone.
-		// That's fine.
-		{name: "inspect_symbol", experimental: false, register: inspect_symbol.Register},
-		{name: "smart_edit", experimental: false, register: edit.Register},
-		{name: "write", experimental: true, register: write.Register},
-		{name: "analyze_dependency_updates", experimental: true, register: analyze_dependency_updates.Register},
-		{name: "modernize", experimental: true, register: modernize.Register},
-		{name: "list_files", experimental: false, register: list_files.Register},
-		{name: "go_build", experimental: false, register: go_build.Register},
-		{name: "go_install", experimental: false, register: go_install.Register},
-		{name: "go_test", experimental: false, register: go_test.Register},
-		{name: "rename_symbol", experimental: true, register: rename_symbol.Register}, // experimental because likely to fail if no gopls
-		{name: "ask_specialist", experimental: true, register: oracle.Register},
-		{name: "ask_the_master_gopher", experimental: true, register: func(srv *mcp.Server) {
-			master_gopher.Register(srv, s.UpdateTools)
+		// edit_code is removed
+		{name: "file.read", experimental: false, register: read.Register},
+		{name: "file.outline", experimental: false, register: outline.Register},
+		{name: "symbol.inspect", experimental: false, register: inspect.Register},
+		{name: "file.edit", experimental: false, register: edit.Register},
+		{name: "file.create", experimental: true, register: create.Register},
+		{name: "go.diff", experimental: true, register: diff.Register},
+		{name: "project.map", experimental: false, register: projectmap.Register},
+		{name: "go.modernize", experimental: true, register: modernize.Register},
+		{name: "file.list", experimental: false, register: list.Register},
+		{name: "go.build", experimental: false, register: build.Register},
+		{name: "go.install", experimental: false, register: install.Register},
+		{name: "go.test", experimental: false, register: test.Register},
+		{name: "symbol.rename", experimental: true, register: rename.Register},
+		{name: "agent.specialist", experimental: false, register: specialist.Register},
+		{name: "agent.master", experimental: true, register: func(srv *mcp.Server) {
+			master.Register(srv, s.UpdateTools)
 		}},
 	}
 
