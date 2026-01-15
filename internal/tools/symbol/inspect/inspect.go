@@ -89,6 +89,7 @@ func resolveLocal(ctx context.Context, pkgName, symName, fileName string) *godoc
 	if symName == "" {
 		// Package Overview
 		if fileName != "" {
+			//nolint:gosec // G304: File path provided by user is expected.
 			content, _ := os.ReadFile(fileName)
 			doc.Definition = fmt.Sprintf("// File: %s\n%s", fileName, string(content))
 			return doc

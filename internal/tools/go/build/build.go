@@ -1,3 +1,4 @@
+// Package build implements the go build tool.
 package build
 
 import (
@@ -39,6 +40,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	cmdArgs := append([]string{"build"}, args.Args...)
 	cmdArgs = append(cmdArgs, pkgs...)
 
+	//nolint:gosec // G204: Subprocess launched with variable is expected behavior for this tool.
 	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
 	cmd.Dir = dir
 

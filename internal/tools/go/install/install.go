@@ -1,3 +1,4 @@
+// Package install implements the go install tool.
 package install
 
 import (
@@ -38,6 +39,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 
 	cmdArgs := append([]string{"install"}, args.Args...)
 	cmdArgs = append(cmdArgs, pkgs...)
+	//nolint:gosec // G204: Subprocess launched with variable is expected behavior.
 	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
 	cmd.Dir = dir
 

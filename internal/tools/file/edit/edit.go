@@ -1,3 +1,4 @@
+// Package edit implements the file editing tool.
 package edit
 
 import (
@@ -97,6 +98,7 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 	}
 
 	// 5. Write to disk
+	//nolint:gosec // G306: Standard permissions for source files.
 	if err := os.WriteFile(args.File, formatted, 0644); err != nil {
 		return errorResult(fmt.Sprintf("failed to write file: %v", err)), nil, nil
 	}
@@ -328,13 +330,7 @@ func levenshtein(s1, s2 string) int {
 	return currentRow[n]
 }
 
-func getByteOffset(lines []string, lineIdx int) int {
-	offset := 0
-	for i := 0; i < lineIdx && i < len(lines); i++ {
-		offset += len(lines[i]) + 1 // +1 for newline
-	}
-	return offset
-}
+
 
 func errorResult(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{

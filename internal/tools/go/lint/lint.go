@@ -1,3 +1,4 @@
+// Package lint implements the golangci-lint tool.
 package lint
 
 import (

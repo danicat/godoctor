@@ -1,3 +1,4 @@
+// Package create implements the file creation tool.
 package create
 
 import (
@@ -29,7 +30,7 @@ type Params struct {
 	Content string `json:"content" jsonschema:"The content to write"`
 }
 
-func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+func toolHandler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	if args.Name == "" {
 		return errorResult("name (file path) cannot be empty"), nil, nil
 	}
@@ -47,11 +48,13 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 	}
 
 	// 2. Ensure directory exists
+	//nolint:gosec // G301: Standard permissions for source directories.
 	if err := os.MkdirAll(filepath.Dir(args.Name), 0755); err != nil {
 		return errorResult(fmt.Sprintf("failed to create directory: %v", err)), nil, nil
 	}
 
 	// 3. Write to disk
+	//nolint:gosec // G306: Standard permissions for source files.
 	if err := os.WriteFile(args.Name, finalContent, 0644); err != nil {
 		return errorResult(fmt.Sprintf("failed to write file: %v", err)), nil, nil
 	}

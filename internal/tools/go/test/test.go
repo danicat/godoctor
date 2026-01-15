@@ -1,3 +1,4 @@
+// Package test implements the go test tool.
 package test
 
 import (

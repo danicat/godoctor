@@ -1,3 +1,4 @@
+// Package mod implements the go mod tool.
 package mod
 
 import (
@@ -45,6 +46,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}
 
 	cmdArgs := append([]string{"mod", subCmd}, args.Args...)
+	//nolint:gosec // G204: Subprocess launched with variable is expected behavior.
 	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
 	output, err := cmd.CombinedOutput()
 

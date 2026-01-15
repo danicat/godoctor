@@ -43,6 +43,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 		return errorResult("file_path cannot be empty"), nil, nil
 	}
 
+	//nolint:gosec // G304: File path provided by user is expected.
 	content, err := os.ReadFile(args.FilePath)
 
 	if err != nil {
@@ -160,7 +161,7 @@ func checkAnalysis(ctx context.Context, filePath string) ([]string, error) {
 		for _, err := range pkg.Errors {
 			// Basic deduplication
 			if !seen[err.Msg] {
-				diags = append(diags, fmt.Sprintf("%s", err.Msg)) // err.Msg typically includes position
+				diags = append(diags, err.Msg) // err.Msg typically includes position
 				seen[err.Msg] = true
 			}
 		}

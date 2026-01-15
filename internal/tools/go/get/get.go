@@ -1,3 +1,4 @@
+// Package get implements the go get tool.
 package get
 
 import (
