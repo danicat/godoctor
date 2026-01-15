@@ -28,10 +28,11 @@ import (
 	"github.com/danicat/godoctor/internal/tools/go/docs"
 	"github.com/danicat/godoctor/internal/tools/go/get"
 	"github.com/danicat/godoctor/internal/tools/go/install"
+	"github.com/danicat/godoctor/internal/tools/go/lint"
 	"github.com/danicat/godoctor/internal/tools/go/mod"
 	"github.com/danicat/godoctor/internal/tools/go/modernize"
 	"github.com/danicat/godoctor/internal/tools/go/test"
-	"github.com/danicat/godoctor/internal/tools/project/map"
+	projectmap "github.com/danicat/godoctor/internal/tools/project/map"
 	"github.com/danicat/godoctor/internal/tools/symbol/inspect"
 	"github.com/danicat/godoctor/internal/tools/symbol/rename"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -86,6 +87,7 @@ func (s *Server) RegisterHandlers() error {
 		{name: "go.install", experimental: false, register: install.Register},
 		{name: "go.get", experimental: true, register: get.Register},
 		{name: "go.mod", experimental: true, register: mod.Register},
+		{name: "go.lint", experimental: true, register: lint.Register},
 		{name: "go.test", experimental: false, register: test.Register},
 		{name: "symbol.rename", experimental: true, register: rename.Register},
 		{name: "agent.specialist", experimental: false, register: specialist.Register},

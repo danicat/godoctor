@@ -25,11 +25,12 @@ GoDoctor organizes its capabilities into **Profiles** to suit different workflow
 
 Includes all Standard tools, plus:
 *   **♻️ Modernize**:
+    *   `mo*   **♻️ Modernize**:
     *   `modernize`: Automatically upgrades legacy patterns (e.g., `interface{}` → `any`, manual loops → slices).
 *   **📦 Dependency Analysis**:
     *   `analyze_dependency_updates`: Assess breaking changes and risks *before* upgrading dependencies.
-
-### 🔮 Specialized Profiles
+*   **🧹 Linting**:
+    *   `go_lint`: Runs `golangci-lint` to catch style issues and bugs. Auto-installs if missing.es
 
 *   **Oracle**: Exposes *only* `ask_specialist`, a high-level tool that acts as a gateway to other hidden tools, forcing a "Human-in-the-Loop" or "Manager Agent" pattern.
 

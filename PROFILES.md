@@ -61,9 +61,9 @@ This document lists the tools available in each of the GoDoctor server profiles,
 | `code_outline` | Code Outline | Returns the skeleton of a Go file (declarations without function bodies) and a summary of external imports. | ✅ | ✅ | - |
 | `edit_code` | Edit Code | Smartly edits a Go file (*.go) with fuzzy matching and safety checks. | ✅ | ✅ | - |
 | `go_build` | Go Build | Runs 'go build' to compile packages and generate binaries. | ✅ | ✅ | - |
-| `go_install` | Go Install | Runs 'go install' to install packages. | - | ✅ | - |
-| `go_test` | Go Test | Runs 'go test' on specified packages/tests. Use this to verify your changes. | ✅ | ✅ | - |
-| `inspect_symbol` | Inspect Symbol | Returns detailed information about a symbol (signature, documentation, source code, references). Prioritizes local source code over external documentation. | ✅ | ✅ | - |
+| `go_install` | Go Install | | `go_install` | Go Install | Runs 'go install' to install packages. | - | ✅ | - |
+| `go_lint` | Go Lint | Runs 'golangci-lint' on the project. Automatically installs the linter if it is not found in the path. | - | ✅ | - |
+| `go_test` | Go Test | Runs 'go test' on specified packages/tests. Use this to verify your changes. | ✅ | ✅ | - |t Symbol | Returns detailed information about a symbol (signature, documentation, source code, references). Prioritizes local source code over external documentation. | ✅ | ✅ | - |
 | `list_files` | List Files | Lists files in a directory recursively. Useful for exploring project structure. Supports max depth and ignore patterns. | ✅ | ✅ | - |
 | `modernize` | Modernize Go Code | Runs the 'modernize' analyzer to suggest and apply updates for newer Go versions (e.g. replacing s[i:len(s)] with s[i:], using min/max/slices/maps packages). | - | ✅ | - |
 | `open` | Open File (Satellite View) | Entry Point. Returns a lightweight skeleton of a Go file (imports and signatures only). Use this for 'Satellite View' exploration to save tokens and avoid context noise compared to reading the full file. | - | ✅ | - |

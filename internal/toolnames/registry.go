@@ -131,6 +131,14 @@ var Registry = map[string]ToolDef{
 		Instruction:  "*   **`go.mod`**: Manage module requirements.\n    *   **Usage:** `go.mod(command=\"tidy\")`\n    *   **Outcome:** go.mod and go.sum are updated/cleaned.",
 		Experimental: true,
 	},
+	"go.lint": {
+		InternalName: "go.lint",
+		ExternalName: "go.lint",
+		Title:        "Go Lint",
+		Description:  "Runs 'golangci-lint' on the project. Automatically installs the linter if it is not found in the path.",
+		Instruction:  "*   **`go.lint`**: Analyze code quality.\n    *   **Usage:** `go.lint(args=[\"./...\"])`\n    *   **Outcome:** A report of style and correctness issues.",
+		Experimental: true,
+	},
 	"go.modernize": {
 		InternalName: "go.modernize",
 		ExternalName: "go.modernize",
