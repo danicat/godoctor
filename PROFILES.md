@@ -22,7 +22,7 @@ This document lists the tools available in each of the GoDoctor server profiles,
 
 ---
 
-## 2. Full Profile (`--profile=full`)
+## 2. Advanced Profile (`--profile=advanced`)
 *Enables all experimental and legacy features. The "Kitchen Sink".*
 
 **Count:** 19 Tools
@@ -64,7 +64,7 @@ This document lists the tools available in each of the GoDoctor server profiles,
 
 ## 5. Tool Availability Matrix
 
-| Tool | Title | Description | Standard | Full | Oracle | Dynamic |
+| Tool | Title | Description | Standard | Advanced | Oracle | Dynamic |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: |
 | `analyze_dependency_updates` | Analyze Dependency Updates | Checks for breaking changes in your Go packages or dependencies. Wrapper around 'apidiff'. useful before upgrading dependencies or releasing new versions. | - | ✅ | - | - |
 | `analyze_project` | Analyze Project | Use this first when joining a new project to get a mental map. | ✅ | ✅ | - | - |

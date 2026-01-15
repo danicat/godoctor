@@ -18,11 +18,11 @@ func TestDynamicProfile(t *testing.T) {
 	}
 
 	// 1. Verify Config Logic
-	if !cfg.IsToolEnabled("ask_the_master_gopher", true) {
-		t.Error("ask_the_master_gopher should be enabled in Dynamic profile")
+	if !cfg.IsToolEnabled("agent.master", true) {
+		t.Error("agent.master should be enabled in Dynamic profile")
 	}
-	if cfg.IsToolEnabled("smart_edit", false) {
-		t.Error("smart_edit should be disabled in Dynamic profile initially")
+	if cfg.IsToolEnabled("file.edit", false) {
+		t.Error("file.edit should be disabled in Dynamic profile initially")
 	}
 
 	// 2. Verify Server Init

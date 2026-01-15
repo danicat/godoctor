@@ -21,7 +21,7 @@ GoDoctor organizes its capabilities into **Profiles** to suit different workflow
     *   `go_test`: Run specific tests to validate logic.
     *   `read_docs`: internal documentation retrieval.
 
-### ⚡ Advanced Modernization (Full Profile)
+### ⚡ Advanced Modernization (Advanced Profile)
 
 Includes all Standard tools, plus:
 *   **♻️ Modernize**:
@@ -82,7 +82,7 @@ export GOOGLE_CLOUD_LOCATION="us-central1"
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
-| `--profile` | Server profile: `standard`, `full`, `oracle`, `dynamic`. | `standard` |
+| `--profile` | Server profile: `standard`, `advanced`, `oracle`, `dynamic`. | `standard` |
 | `--model` | Default Gemini model to use for AI tasks. | `gemini-2.5-pro` |
 | `--allow` | Comma-separated list of tools to explicitly **enable** (overrides profile defaults). | `""` |
 | `--disable` | Comma-separated list of tools to explicitly **disable**. | `""` |
@@ -104,8 +104,8 @@ To get the optimal system prompt for your AI agent based on your chosen profile:
 # Get instructions for the standard profile
 godoctor --agents --profile=standard
 
-# Get instructions for the full profile with modernization tools
-godoctor --agents --profile=full
+# Get instructions for the advanced profile with modernization tools
+godoctor --agents --profile=advanced
 ```
 
 ## License
