@@ -16,7 +16,6 @@ const (
 	ProfileStandard Profile = "standard"
 	ProfileAdvanced Profile = "advanced"
 	ProfileOracle   Profile = "oracle"
-	ProfileDynamic  Profile = "dynamic"
 )
 
 // Config holds the application configuration.
@@ -39,7 +38,7 @@ func Load(args []string) (*Config, error) {
 	listToolsFlag := fs.Bool("list-tools", false, "list available tools for the selected profile and exit")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., :8080)")
 	defaultModel := fs.String("model", "gemini-2.5-pro", "default Gemini model to use")
-	profileFlag := fs.String("profile", "standard", "server profile: standard, advanced, oracle, dynamic")
+	profileFlag := fs.String("profile", "standard", "server profile: standard, advanced, oracle")
 	allowFlag := fs.String("allow", "", "comma-separated list of tools to explicitly allow (overrides profile defaults)")
 	disableFlag := fs.String("disable", "", "comma-separated list of tools to disable")
 
@@ -56,7 +55,7 @@ func Load(args []string) (*Config, error) {
 	}
 
 	switch profile {
-	case ProfileStandard, ProfileAdvanced, ProfileOracle, ProfileDynamic:
+	case ProfileStandard, ProfileAdvanced, ProfileOracle:
 		// valid
 	default:
 		return nil, fmt.Errorf("invalid profile: %s", profile)

@@ -45,13 +45,6 @@ func DefaultProfiles() map[string]ProfileDef {
 				"agent.specialist",
 			},
 		},
-		"dynamic": {
-			Name:        "dynamic",
-			Description: "The 'Master Gopher' Flow. Starts minimal, unlocks tools on demand.",
-			Tools: []string{
-				"agent.master",
-			},
-		},
 	}
 }
 

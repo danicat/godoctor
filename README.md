@@ -32,7 +32,6 @@ Includes all Standard tools, plus:
 ### 🔮 Specialized Profiles
 
 *   **Oracle**: Exposes *only* `ask_specialist`, a high-level tool that acts as a gateway to other hidden tools, forcing a "Human-in-the-Loop" or "Manager Agent" pattern.
-*   **Dynamic**: Exposes *only* `ask_the_master_gopher`, an experimental dynamic agent interface.
 
 ## Installation
 
@@ -82,7 +81,7 @@ export GOOGLE_CLOUD_LOCATION="us-central1"
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |
-| `--profile` | Server profile: `standard`, `advanced`, `oracle`, `dynamic`. | `standard` |
+| `--profile` | Server profile: `standard`, `advanced`, `oracle`. | `standard` |
 | `--model` | Default Gemini model to use for AI tasks. | `gemini-2.5-pro` |
 | `--allow` | Comma-separated list of tools to explicitly **enable** (overrides profile defaults). | `""` |
 | `--disable` | Comma-separated list of tools to explicitly **disable**. | `""` |

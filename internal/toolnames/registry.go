@@ -165,12 +165,4 @@ var Registry = map[string]ToolDef{
 		Instruction:  "*   **`agent.specialist`**: Ask a question requiring deep research.\n    *   **Usage:** `agent.specialist(query=\"How does the auth flow handle token expiry?\")`\n    *   **Outcome:** Comprehensive investigative report.",
 		Experimental: false,
 	},
-	"agent.master": {
-		InternalName: "agent.master",
-		ExternalName: "agent.master",
-		Title:        "Master Gopher",
-		Description:  "Consult the Master Gopher for strategic guidance. The lead analyzes your task and dynamically unlocks the tools you need to succeed.",
-		Instruction:  "*   **`agent.master`**: Get help with tool selection and strategy.\n    *   **Usage:** `agent.master(query=\"I need to modernize the logging layer.\")`\n    *   **Outcome:** Guidance and dynamic tool enablement.",
-		Experimental: true,
-	},
 }
