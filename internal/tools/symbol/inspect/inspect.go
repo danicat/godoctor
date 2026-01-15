@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/types"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/godoc"
@@ -33,9 +34,6 @@ type Params struct {
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	if args.Package == "" && args.File == "" {
 		return errorResult("at least package or file must be specified"), nil, nil
-	}
-	if args.File != "" && !strings.HasSuffix(args.File, ".go") {
-		return errorResult("file must be a Go file (*.go)"), nil, nil
 	}
 
 	desc, err := Describe(ctx, args.Package, args.Symbol, args.File)
