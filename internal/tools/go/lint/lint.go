@@ -4,7 +4,9 @@ package lint
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,10 +28,46 @@ type Params struct {
 	Args []string `json:"args,omitempty" jsonschema:"Additional arguments (e.g. ./..., --fix). Default: run ./..."`
 }
 
+const defaultConfig = `version: "2"
+
+run:
+  concurrency: 4
+  timeout: 5m
+  issues-exit-code: 1
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - revive
+    - whitespace
+    - misspell
+    - gosec
+`
+
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	dir := args.Dir
 	if dir == "" {
 		dir = "."
+	}
+
+	// Check if .golangci.yml exists
+	configPath := filepath.Join(dir, ".golangci.yml")
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		//nolint:gosec // G306: Creating default config with standard permissions.
+		if err := os.WriteFile(configPath, []byte(defaultConfig), 0644); err != nil {
+			return &mcp.CallToolResult{
+				IsError: true,
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("Failed to create default .golangci.yml: %v", err)},
+				},
+			}, nil, nil
+		}
 	}
 
 	// 1. Check if installed
