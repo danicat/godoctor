@@ -1,0 +1,10 @@
+{
+  "file.edit": {
+    "name": "custom_patcher",
+    "title": "Custom Overridden Title",
+    "description": "This description was loaded from a JSON file."
+  },
+  "go.build": {
+    "name": "check_my_code"
+  }
+}
