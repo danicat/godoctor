@@ -26,25 +26,14 @@ func TestWrite(t *testing.T) {
 	res, _, _ := toolHandler(nil, nil, Params{
 		Name:    filePath,
 		Content: "package lib\n\nfunc A() {}",
-		Mode:    "overwrite",
 	})
 	if res.IsError {
 		t.Fatalf("Initial write failed: %v", res.Content[0].(*mcp.TextContent).Text)
 	}
 
-	// 2. Append
-	res, _, _ = toolHandler(nil, nil, Params{
-		Name:    filePath,
-		Content: "func B() {}",
-		Mode:    "append",
-	})
-	if res.IsError {
-		t.Fatalf("Append failed: %v", res.Content[0].(*mcp.TextContent).Text)
-	}
-
 	content, _ := os.ReadFile(filePath)
-	if !strings.Contains(string(content), "func A()") || !strings.Contains(string(content), "func B()") {
-		t.Errorf("expected both functions in file, got: %s", string(content))
+	if !strings.Contains(string(content), "func A()") {
+		t.Errorf("expected func A() in file, got: %s", string(content))
 	}
 }
 
@@ -62,7 +51,6 @@ func TestWrite_Validation(t *testing.T) {
 	res, _, _ := toolHandler(nil, nil, Params{
 		Name:    filePath,
 		Content: "package main\n\nfunc main() { fmt.Println(NonExistent) }",
-		Mode:    "overwrite",
 	})
 
 	output := res.Content[0].(*mcp.TextContent).Text

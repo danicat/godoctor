@@ -58,10 +58,3 @@ func DefaultProfiles() map[string]ProfileDef {
 // ActiveProfiles holds the currently active profile definitions.
 // It is initialized with defaults but can be overridden.
 var ActiveProfiles = DefaultProfiles()
-
-// ApplyProfileOverrides updates the ActiveProfiles with values from the provided map.
-func ApplyProfileOverrides(overrides map[string]ProfileDef) {
-	for name, def := range overrides {
-		ActiveProfiles[name] = def
-	}
-}

@@ -23,7 +23,7 @@ func Register(server *mcp.Server) {
 type Params struct {
 	Dir      string   `json:"dir,omitempty" jsonschema:"Directory to build in (default: current)"`
 	Packages []string `json:"packages,omitempty" jsonschema:"Packages to build (default: ./...)"`
-	Output   string   `json:"output,omitempty" jsonschema:"Output file name (-o flag). default: package name or module name"`
+	Args     []string `json:"args,omitempty" jsonschema:"Additional build arguments (e.g. -o, -race, -tags, -v)"`
 }
 
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
@@ -36,14 +36,8 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		pkgs = []string{"./..."}
 	}
 
-	cmdArgs := append([]string{"build"}, pkgs...)
-	if args.Output != "" {
-		// Output flag requires single package often, or strict rules if multiple.
-		// If ./... is used, -o only works if output is a directory.
-		cmdArgs = append([]string{"build", "-o", args.Output}, pkgs...)
-	} else {
-		cmdArgs = append([]string{"build"}, pkgs...)
-	}
+	cmdArgs := append([]string{"build"}, args.Args...)
+	cmdArgs = append(cmdArgs, pkgs...)
 
 	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
 	cmd.Dir = dir
@@ -59,7 +53,6 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		}
 	} else {
 		if output == "" {
-			// Check if file exists if specific output?
 			output = "Build Successful."
 		} else {
 			output = "Build Successful:\n" + output

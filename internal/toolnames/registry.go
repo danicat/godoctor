@@ -10,35 +10,6 @@ type ToolDef struct {
 	Experimental bool   // Whether the tool is considered experimental
 }
 
-// ToolConfigEntry defines the structure for overriding a tool's definition in the config file.
-type ToolConfigEntry struct {
-	ExternalName string `json:"name" yaml:"name"`
-	Title        string `json:"title" yaml:"title"`
-	Description  string `json:"description" yaml:"description"`
-	Instruction  string `json:"instruction" yaml:"instruction"`
-}
-
-// ApplyOverrides updates the registry with values from the provided map.
-func ApplyOverrides(overrides map[string]ToolConfigEntry) {
-	for internalName, override := range overrides {
-		if original, ok := Registry[internalName]; ok {
-			if override.ExternalName != "" {
-				original.ExternalName = override.ExternalName
-			}
-			if override.Title != "" {
-				original.Title = override.Title
-			}
-			if override.Description != "" {
-				original.Description = override.Description
-			}
-			if override.Instruction != "" {
-				original.Instruction = override.Instruction
-			}
-			Registry[internalName] = original
-		}
-	}
-}
-
 // Registry holds all tool definitions, keyed by InternalName.
 var Registry = map[string]ToolDef{
 	// --- FILE OPERATIONS ---

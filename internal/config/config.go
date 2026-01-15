@@ -2,10 +2,8 @@
 package config
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/toolnames"
@@ -39,8 +37,6 @@ func Load(args []string) (*Config, error) {
 	versionFlag := fs.Bool("version", false, "print the version and exit")
 	agentsFlag := fs.Bool("agents", false, "print LLM agent instructions and exit")
 	listToolsFlag := fs.Bool("list-tools", false, "list available tools for the selected profile and exit")
-	toolConfigFlag := fs.String("tool-config", "", "path to tool definition overrides JSON file")
-	profileConfigFlag := fs.String("profile-config", "", "path to profile definition overrides JSON file")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., :8080)")
 	defaultModel := fs.String("model", "gemini-2.5-pro", "default Gemini model to use")
 	profileFlag := fs.String("profile", "standard", "server profile: standard, advanced, oracle, dynamic")
@@ -52,20 +48,6 @@ func Load(args []string) (*Config, error) {
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
-	}
-
-	// Load Tool Overrides if specified
-	if *toolConfigFlag != "" {
-		if err := loadToolConfig(*toolConfigFlag); err != nil {
-			return nil, fmt.Errorf("failed to load tool config: %w", err)
-		}
-	}
-
-	// Load Profile Overrides if specified
-	if *profileConfigFlag != "" {
-		if err := loadProfileConfig(*profileConfigFlag); err != nil {
-			return nil, fmt.Errorf("failed to load profile config: %w", err)
-		}
 	}
 
 	profile := Profile(*profileFlag)
@@ -107,37 +89,6 @@ func Load(args []string) (*Config, error) {
 
 	return cfg, nil
 }
-
-func loadToolConfig(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	var overrides map[string]toolnames.ToolConfigEntry
-	if err := json.Unmarshal(data, &overrides); err != nil {
-		return err
-	}
-
-	toolnames.ApplyOverrides(overrides)
-	return nil
-}
-
-func loadProfileConfig(path string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-
-	var overrides map[string]toolnames.ProfileDef
-	if err := json.Unmarshal(data, &overrides); err != nil {
-		return err
-	}
-
-	toolnames.ApplyProfileOverrides(overrides)
-	return nil
-}
-
 
 // IsToolEnabled checks if a tool should be enabled based on the current profile and overrides.
 // 'experimental' indicates if the tool is considered experimental (legacy concept, now mostly handled by profiles).

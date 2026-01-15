@@ -17,15 +17,3 @@ func TestRegister(t *testing.T) {
 
 	Register(s, updater)
 }
-
-func TestFormatToolList(t *testing.T) {
-	tools := []struct{ Name, Desc string }{
-		{"toolA", "descA"},
-		{"toolB", "descB"},
-	}
-	res := formatToolList(tools)
-	expected := "- toolA: descA\n- toolB: descB\n"
-	if res != expected {
-		t.Errorf("Expected %q, got %q", expected, res)
-	}
-}

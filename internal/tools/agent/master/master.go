@@ -47,23 +47,21 @@ func (h *Handler) Handle(ctx context.Context, _ *mcp.CallToolRequest, args Param
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("The Master Gopher is asleep (failed to init AI): %v", err)}}}, nil, nil
 	}
 
-	prompt := fmt.Sprintf(`You are the Master Gopher, a wise and slightly witty Go programming expert.
-The user has a problem: "%s"
+	prompt := fmt.Sprintf(`You are the Master Gopher. The user has a problem: "%s"
 
-You have access to the following toolkit (currently locked). Use this reference to guide the user:
-
+Ref:
 %s
 
-Your goal is to:
-1. Select the best subset of tools to help the user solve their problem.
-2. ENABLE those tools for the user.
-3. Provide a response that explains WHY you chose those tools.
-4. Provide **Recommended Next Steps** with concrete examples of how to call the selected tools to solve the specific problem. Use the usage patterns from the toolkit reference.
+Goal:
+1. Select the best subset of tools to help.
+2. ENABLE those tools.
+3. Provide a CONCISE response listing ONLY the selected tools with their Description, Usage, and a SHORT reason why you chose them.
+4. DO NOT provide examples or tutorial text. Keep it minimal.
 
 Output JSON format:
 {
   "selected_tools": ["tool_external_name1", "tool_external_name2"],
-  "instructions": "Markdown text with explanation and code blocks showing exactly how to call the tools for this specific task."
+  "instructions": "Markdown text listing the tools, their usage, and the reason for selection."
 }
 `, args.Query, formatToolListFromRegistry())
 
@@ -91,8 +89,12 @@ Output JSON format:
 	}
 
 	// Update the tools!
-	// We must include "ask_the_master_gopher" so the user can ask again.
-	newTools := append(result.SelectedTools, "ask_the_master_gopher")
+	// We must include "agent.master" (ExternalName) so the user can ask again.
+	masterName := toolnames.Registry["agent.master"].ExternalName
+	if masterName == "" {
+		masterName = "agent.master"
+	}
+	newTools := append(result.SelectedTools, masterName)
 
 	if err := h.updater(newTools); err != nil {
 		return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: fmt.Sprintf("The Master Gopher tried to unlock the tools but the key broke: %v", err)}}}, nil, nil

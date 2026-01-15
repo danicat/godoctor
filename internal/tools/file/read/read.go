@@ -42,14 +42,19 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 	if args.FilePath == "" {
 		return errorResult("file_path cannot be empty"), nil, nil
 	}
-	if !strings.HasSuffix(args.FilePath, ".go") {
-		return errorResult("file must be a Go file (*.go)"), nil, nil
-	}
 
 	content, err := os.ReadFile(args.FilePath)
 
 	if err != nil {
 		return errorResult(fmt.Sprintf("failed to read file: %v", err)), nil, nil
+	}
+
+	if !strings.HasSuffix(args.FilePath, ".go") {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: fmt.Sprintf("# File: %s\n\n```\n%s\n```", args.FilePath, string(content))},
+			},
+		}, nil, nil
 	}
 
 	fset := token.NewFileSet()
