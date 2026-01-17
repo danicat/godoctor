@@ -24,6 +24,7 @@ import (
 	"syscall"
 
 	"github.com/danicat/godoctor/internal/config"
+	"github.com/danicat/godoctor/internal/graph"
 	"github.com/danicat/godoctor/internal/instructions"
 	"github.com/danicat/godoctor/internal/server"
 	"github.com/danicat/godoctor/internal/toolnames"
@@ -63,7 +64,7 @@ func run(ctx context.Context, args []string) error {
 	if cfg.ListTools {
 		var tools []toolnames.ToolDef
 		for _, def := range toolnames.Registry {
-			if cfg.IsToolEnabled(def.InternalName, def.Experimental) {
+			if cfg.IsToolEnabled(def.InternalName) {
 				tools = append(tools, def)
 			}
 		}
@@ -90,6 +91,10 @@ func run(ctx context.Context, args []string) error {
 	if err := srv.RegisterHandlers(); err != nil {
 		return err
 	}
+
+	// Initialize with CWD as a baseline root.
+	// This will be overridden if the client supports and provides workspace roots.
+	graph.Global.Initialize(".")
 
 	return srv.Run(ctx)
 }

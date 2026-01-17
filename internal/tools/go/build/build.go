@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	"github.com/danicat/godoctor/internal/toolnames"
+	"github.com/danicat/godoctor/internal/tools/shared"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -53,6 +54,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		} else {
 			output = "Build Failed:\n" + output
 		}
+		output += shared.GetMCPHintFromOutput(output)
 	} else {
 		if output == "" {
 			output = "Build Successful."
