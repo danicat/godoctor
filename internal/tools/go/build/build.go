@@ -13,9 +13,9 @@ import (
 
 // Register registers the tool with the server.
 func Register(server *mcp.Server) {
-	def := toolnames.Registry["go.build"]
+	def := toolnames.Registry["go_build"]
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        def.ExternalName,
+		Name:        def.Name,
 		Title:       def.Title,
 		Description: def.Description,
 	}, Handler)
@@ -54,7 +54,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		} else {
 			output = "Build Failed:\n" + output
 		}
-		output += shared.GetMCPHintFromOutput(output)
+		output += shared.GetDocHintFromOutput(output)
 	} else {
 		if output == "" {
 			output = "Build Successful."

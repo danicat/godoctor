@@ -14,9 +14,9 @@ import (
 
 // Register registers the read_docs tool with the server.
 func Register(server *mcp.Server) {
-	def := toolnames.Registry["go.docs"]
+	def := toolnames.Registry["go_docs"]
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        def.ExternalName,
+		Name:        def.Name,
 		Title:       def.Title,
 		Description: def.Description,
 	}, Handler)
@@ -54,8 +54,8 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		}, nil, nil
 	}
 
-	// Use GetStructuredDoc for flexibility
-	doc, err := godoc.GetStructuredDoc(ctx, args.ImportPath, args.SymbolName)
+	// Use Load for flexibility
+	doc, err := godoc.Load(ctx, args.ImportPath, args.SymbolName)
 	if err != nil {
 		return &mcp.CallToolResult{
 			IsError: true,
