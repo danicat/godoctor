@@ -65,5 +65,6 @@ Tools follow a `domain_verb` naming convention (e.g., `file_create`, `go_build`)
 
 ### Documentation
 
-*   **`PROFILES.md`**: detailed matrix of which tools are available in each profile.
+
+
 *   **`EVOLUTION.md`**: History of tool changes and architectural shifts.
