@@ -608,15 +608,15 @@ func fetchAndRetryStructured(ctx context.Context, pkgPath, symbolName string, or
 
 	pkgDir, actualPkgPath, err := downloadPackage(ctx, tempDir, pkgPath)
 	if err != nil {
-		// Attempt to provide suggestions from standard library
+		// Attempt to provide suggestions from standard library and local context
 		suggestions := suggestPackages(ctx, pkgPath)
-		suggestionText := ""
+
 		if len(suggestions) > 0 {
-			suggestionText = fmt.Sprintf("\nDid you mean: %s?", strings.Join(suggestions, ", "))
+			return nil, fmt.Errorf("package %q not found. Did you mean: %s?", pkgPath, strings.Join(suggestions, ", "))
 		}
 
-		return nil, fmt.Errorf("failed to download package %q: %v\nOriginal error: %v%s",
-			pkgPath, err, originalErr, suggestionText)
+		return nil, fmt.Errorf("failed to download package %q: %v\nOriginal error: %v",
+			pkgPath, err, originalErr)
 	}
 
 	result, err := parsePackageDocs(ctx, actualPkgPath, pkgDir, symbolName, pkgPath)
@@ -628,14 +628,31 @@ func fetchAndRetryStructured(ctx context.Context, pkgPath, symbolName string, or
 }
 
 func suggestPackages(ctx context.Context, query string) []string {
-	// 'go list all' includes std, local packages, and dependencies.
-	cmd := exec.CommandContext(ctx, "go", "list", "all")
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
+	var candidates []string
+	seen := make(map[string]bool)
+
+	// Helper to add unique candidates
+	add := func(out []byte) {
+		for _, pkg := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+			if pkg != "" && !seen[pkg] {
+				candidates = append(candidates, pkg)
+				seen[pkg] = true
+			}
+		}
 	}
 
-	candidates := strings.Split(strings.TrimSpace(string(out)), "\n")
+	// 1. Standard Library (Reliable, works everywhere)
+	if out, err := exec.CommandContext(ctx, "go", "list", "std").Output(); err == nil {
+		add(out)
+	}
+
+	// 2. All reachable packages (Context-dependent, might fail outside modules)
+	// We ignore errors here because 'go list all' might fail in non-module roots,
+	// but we still want the std results we already collected.
+	if out, err := exec.CommandContext(ctx, "go", "list", "all").Output(); err == nil {
+		add(out)
+	}
+
 	return findFuzzyMatches(query, candidates)
 }
 
