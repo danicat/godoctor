@@ -467,7 +467,11 @@ func Render(doc *Doc) string {
 	buf.WriteString(fmt.Sprintf("# %s\n\n", doc.ImportPath))
 
 	if doc.ResolvedPath != "" {
-		buf.WriteString(fmt.Sprintf("> **Note:** Redirected from %s\n\n", doc.ResolvedPath))
+		if strings.HasPrefix(doc.ResolvedPath, doc.ImportPath) {
+			buf.WriteString(fmt.Sprintf("> ℹ️ **Note:** Could not find `%s`. Showing documentation for parent module `%s` instead.\n\n", doc.ResolvedPath, doc.ImportPath))
+		} else {
+			buf.WriteString(fmt.Sprintf("> **Note:** Redirected from %s\n\n", doc.ResolvedPath))
+		}
 	}
 
 	if doc.SymbolName != "" {
