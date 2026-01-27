@@ -36,11 +36,41 @@ import (
 // Load resolves an import path and returns documentation.
 // It performs disk I/O ("go list") and parsing. Use this when starting from a string path.
 func Load(ctx context.Context, pkgPath, symbolName string) (*Doc, error) {
+	return loadInternal(ctx, pkgPath, symbolName, false)
+}
+
+// LoadWithFallback is like Load but attempts to find parent packages if the exact match fails.
+func LoadWithFallback(ctx context.Context, pkgPath, symbolName string) (*Doc, error) {
+	return loadInternal(ctx, pkgPath, symbolName, true)
+}
+
+func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback bool) (*Doc, error) {
 	// Try to find the package directory locally
 	pkgDir, err := resolvePackageDir(ctx, pkgPath)
 	if err != nil {
 		// Fallback: try to fetch the package in a temp directory
-		return fetchAndRetryStructured(ctx, pkgPath, symbolName, err)
+		doc, fetchErr := fetchAndRetryStructured(ctx, pkgPath, symbolName, err)
+		if fetchErr == nil {
+			return doc, nil
+		}
+
+		if allowFallback {
+			// Try walking up the path
+			parts := strings.Split(pkgPath, "/")
+			minParts := 1
+			if strings.Contains(parts[0], ".") {
+				minParts = 3
+			}
+
+			for i := len(parts) - 1; i >= minParts; i-- {
+				parentPath := strings.Join(parts[:i], "/")
+				if doc, err := loadInternal(ctx, parentPath, "", false); err == nil {
+					doc.ResolvedPath = pkgPath
+					return doc, nil
+				}
+			}
+		}
+		return nil, fetchErr
 	}
 
 	result, err := parsePackageDocs(ctx, pkgPath, pkgDir, symbolName, pkgPath)
@@ -646,11 +676,18 @@ func suggestPackages(ctx context.Context, query string) []string {
 		add(out)
 	}
 
-	// 2. All reachable packages (Context-dependent, might fail outside modules)
-	// We ignore errors here because 'go list all' might fail in non-module roots,
-	// but we still want the std results we already collected.
+	// 2. Local context (Context-dependent, might fail outside modules)
 	if out, err := exec.CommandContext(ctx, "go", "list", "all").Output(); err == nil {
 		add(out)
+	}
+
+	// 3. Parent context (If query is a path, try listing sibling packages)
+	if parts := strings.Split(query, "/"); len(parts) > 1 {
+		parent := strings.Join(parts[:len(parts)-1], "/")
+		// Attempt to list sub-packages of the parent
+		if out, err := exec.CommandContext(ctx, "go", "list", parent+"/...").Output(); err == nil {
+			add(out)
+		}
 	}
 
 	return findFuzzyMatches(query, candidates)
