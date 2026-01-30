@@ -42,7 +42,20 @@ If you use the [Gemini CLI](https://github.com/google/gemini-cli), you can insta
     ```
 
 ### For GoDoctor Developers
-... (rest of the existing installation)
+
+1.  **Clone the repository:**
+    ```bash
+    git clone https://github.com/danicat/godoctor.git
+    cd godoctor
+    ```
+2.  **Build the project:**
+    ```bash
+    make build
+    ```
+3.  **Run the server (Stdio mode):**
+    ```bash
+    ./bin/godoctor
+    ```
 
 
 ## Configuration
@@ -96,3 +109,70 @@ godoctor --list-tools
 ## License
 
 Apache 2.0
+
+## Cloud Deployment
+
+GoDoctor can be deployed as a containerized service on **Google Cloud Run**. This allows you to host your own MCP server instance securely.
+
+### Prerequisites
+
+1.  **Google Cloud Project**: You need an active GCP project.
+2.  **gcloud CLI**: Installed and authenticated (`gcloud auth login`).
+3.  **Permissions**:
+    *   `Artifact Registry Administrator`
+    *   `Cloud Run Admin`
+    *   `Secret Manager Admin` (if using Gemini API keys)
+    *   `Vertex AI User` (if using Vertex AI)
+
+### 1. Setup Infrastructure
+
+Run the setup script once to enable required APIs (Cloud Run, Artifact Registry, Secret Manager) and create the Docker repository.
+
+```bash
+# Optional: Set region (defaults to us-central1)
+export GOOGLE_CLOUD_LOCATION="europe-west1"
+
+./deploy/setup.sh
+```
+
+
+### 2. Deploy to Cloud Run
+
+The deployment script handles building the container, pushing it to the registry, and deploying the service. It supports three modes:
+
+#### Option A: Standard Mode (No AI)
+Deploys the server with basic file and Go tools. The `code_review` tool will be **disabled**.
+
+```bash
+./deploy/deploy.sh
+```
+
+#### Option B: With Gemini API (Secret Manager)
+For secure API key management, store your key in Secret Manager first:
+
+```bash
+echo -n "YOUR_API_KEY" | gcloud secrets create GEMINI_API_KEY --data-file=-
+```
+
+Then deploy with the Gemini flag. The script will securely mount the secret as an environment variable.
+
+```bash
+./deploy/deploy.sh --with-gemini
+```
+
+#### Option C: With Vertex AI
+Uses your project's default Vertex AI quota.
+
+```bash
+./deploy/deploy.sh --with-vertex
+```
+
+### 3. Usage
+
+After deployment, the script outputs the **Service URL**. You can connect your MCP client to this URL (e.g., using Streamable HTTP transport).
+
+```bash
+MCP Endpoint (Streamable HTTP): https://godoctor-xyz.a.run.app
+```
+
+

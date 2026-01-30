@@ -65,10 +65,11 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		// Strip version suffix if present (e.g., @latest, @v1.2.3)
 		pkgPath := strings.Split(pkg, "@")[0]
 
-		if docContent := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
+		if docContent, _ := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
 			sb.WriteString("\n")
 			sb.WriteString(docContent)
 		}
+
 	}
 
 	return &mcp.CallToolResult{
@@ -78,4 +79,3 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		},
 	}, nil, nil
 }
-

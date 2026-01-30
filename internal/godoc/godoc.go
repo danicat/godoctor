@@ -137,11 +137,11 @@ func GetDocumentation(ctx context.Context, pkgPath, symbolName string) (string, 
 // GetDocumentationWithFallback attempts to retrieve documentation for a package.
 // If the specific package documentation is not found, it attempts to find documentation
 // for parent paths (module roots) and returns it with a hint.
-func GetDocumentationWithFallback(ctx context.Context, pkgPath string) string {
+func GetDocumentationWithFallback(ctx context.Context, pkgPath string) (string, error) {
 	// 1. Try exact match
 	doc, err := Load(ctx, pkgPath, "")
 	if err == nil && doc.Package != "" {
-		return Render(doc)
+		return Render(doc), nil
 	}
 
 	// 2. Fallback: Walk up the path
@@ -156,11 +156,11 @@ func GetDocumentationWithFallback(ctx context.Context, pkgPath string) string {
 		parentPath := strings.Join(parts[:i], "/")
 		doc, err := Load(ctx, parentPath, "")
 		if err == nil && doc.Package != "" {
-			return fmt.Sprintf("> ℹ️ Could not find docs for `%s`. Showing docs for module root `%s` instead.\n\n%s", pkgPath, parentPath, Render(doc))
+			return fmt.Sprintf("> ℹ️ **Note:** Could not find `%s`. Showing documentation for parent module `%s` instead.\n\n%s", pkgPath, parentPath, Render(doc)), nil
 		}
 	}
 
-	return ""
+	return "", fmt.Errorf("could not find documentation for %s or its parents", pkgPath)
 }
 
 // Example represents a code example extracted from documentation.

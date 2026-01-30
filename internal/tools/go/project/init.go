@@ -75,15 +75,15 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	// 3. Install dependencies
 	if len(args.Dependencies) > 0 {
 		sb.WriteString("- Dependencies:\n")
-		
+
 		docsNeeded := make(map[string]bool)
-		
+
 		for _, dep := range args.Dependencies {
 			pkgPath := strings.Split(dep, "@")[0]
-			
+
 			if out, err := CommandRunner.Run(ctx, absPath, "go", "get", dep); err != nil {
 				sb.WriteString(fmt.Sprintf("  - ⚠️ Failed to get `%s`: %v\n", dep, out))
-				
+
 				// Deduplicate by guessing module root
 				parts := strings.Split(pkgPath, "/")
 				if len(parts) >= 3 && strings.Contains(parts[0], ".") {
@@ -104,11 +104,12 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 
 		// Process docs (deduplicated)
 		for pkgPath := range docsNeeded {
-			if docContent := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
+			if docContent, _ := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
 				sb.WriteString("\n")
 				sb.WriteString(docContent)
 			}
 		}
+
 	}
 
 	return &mcp.CallToolResult{
