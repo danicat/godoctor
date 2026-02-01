@@ -34,7 +34,7 @@ If you use the [Gemini CLI](https://github.com/google/gemini-cli), you can insta
 
 1.  **Install the binary:**
     ```bash
-    go install github.com/danicat/godoctor@latest
+    go install github.com/danicat/godoctor/cmd/godoctor@latest
     ```
 2.  **Install the extension:**
     ```bash
