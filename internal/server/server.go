@@ -24,11 +24,11 @@ import (
 	"github.com/danicat/godoctor/internal/tools/file/edit"
 	"github.com/danicat/godoctor/internal/tools/file/list"
 	"github.com/danicat/godoctor/internal/tools/file/read"
-	"github.com/danicat/godoctor/internal/tools/go/diff"
 	"github.com/danicat/godoctor/internal/tools/go/docs"
 	"github.com/danicat/godoctor/internal/tools/go/get"
 	"github.com/danicat/godoctor/internal/tools/go/modernize"
 	"github.com/danicat/godoctor/internal/tools/go/project"
+
 	"github.com/danicat/godoctor/internal/tools/go/quality"
 )
 
@@ -126,10 +126,11 @@ func (s *Server) RegisterHandlers() error {
 		{name: "smart_read", register: read.Register},
 		{name: "smart_edit", register: edit.Register},
 		{name: "file_create", register: create.Register},
-		{name: "check_api", register: diff.Register},
 		{name: "modernize_code", register: modernize.Register},
 		{name: "list_files", register: list.Register},
+
 		{name: "smart_build", register: quality.Register},
+
 		{name: "project_init", register: project.Register},
 		{name: "add_dependency", register: get.Register},
 	}

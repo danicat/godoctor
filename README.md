@@ -19,10 +19,11 @@ GoDoctor organizes its capabilities into domain-specific tools to streamline dev
 *   **`add_dependency`**: Manage module dependencies and immediately fetch documentation for the new package.
 *   **`read_docs`**: Query documentation for any package or symbol in the Go ecosystem.
 *   **`modernize_code`**: Automatically upgrade legacy Go patterns to modern standards.
-*   **`check_api`**: Detect breaking API changes between versions.
 
 
 ### 🤖 Expert Assistance
+
+
 *   **`code_review`**: Submit code for expert AI analysis focusing on correctness and idiomatic style.
 
 

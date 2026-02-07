@@ -67,21 +67,16 @@ var Registry = map[string]ToolDef{
 		Instruction: "*   **`project_init`**: Bootstrap a new Go project.\n    *   **Usage:** `project_init(path=\"my-app\", module_path=\"github.com/user/my-app\", dependencies=[\"github.com/go-chi/chi/v5\"])`\n    *   **Outcome:** A valid Go module with requested dependencies and a skeleton structure.",
 	},
 	"modernize_code": {
-
 		Name:        "modernize_code",
 		Title:       "Modernize Code",
 		Description: "Analyzes the codebase for outdated Go patterns and automatically refactors them to modern standards. Improves maintainability and performance by applying idiomatic upgrades.",
 		Instruction: "*   **`modernize_code`**: Automatically upgrade legacy patterns.\n    *   **Usage:** `modernize_code(dir=\".\", fix=true)`\n    *   **Outcome:** Source code refactored to modern Go standards.",
 	},
-	"check_api": {
-		Name:        "check_api",
-		Title:       "Check API Compatibility",
-		Description: "Compares the public API of two package versions to detect breaking changes. Essential for maintaining backward compatibility and adhering to semantic versioning.",
-		Instruction: "*   **`check_api`**: Identify breaking changes in the public API.\n    *   **Usage:** `check_api(old=\"v1.0.0\", new=\".\")`\n    *   **Outcome:** Report on incompatible API changes.",
-	},
 
 	// --- AGENTS ---
+
 	"code_review": {
+
 		Name:        "code_review",
 		Title:       "Code Review",
 		Description: "Provides an automated architectural and idiomatic review of source code. Identifies potential defects in concurrency, error handling, and performance before code is committed.",

@@ -42,9 +42,6 @@ func Get(cfg *config.Config) string {
 
 	// 4. Modernization & Upgrades
 	sb.WriteString("### 🚀 Modernization & Upgrades\n")
-	if isEnabled("check_api") {
-		sb.WriteString(toolnames.Registry["check_api"].Instruction + "\n")
-	}
 	if isEnabled("modernize_code") {
 		sb.WriteString(toolnames.Registry["modernize_code"].Instruction + "\n")
 	}

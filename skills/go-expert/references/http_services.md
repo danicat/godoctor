@@ -1,0 +1,1 @@
+Source: https://grafana.com/blog/2024/02/09/how-i-write-http-services-in-go-after-13-years/\n\n# How I write HTTP services in Go after 13 years\n\n\nAn OpenTelemetry backend in a Docker image: Introducing grafana/otel-lgtm

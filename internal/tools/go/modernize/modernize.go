@@ -4,19 +4,12 @@ package modernize
 import (
 	"context"
 	"fmt"
-	"go/format"
-	"go/token"
-	"log"
-	"os"
+	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"golang.org/x/tools/go/analysis"
-	"golang.org/x/tools/go/analysis/passes/modernize"
-	"golang.org/x/tools/go/packages"
 )
 
 // Register registers the tool with the server.
@@ -40,197 +33,79 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 	if dir == "" {
 		dir = "."
 	}
-	absDir, _ := filepath.Abs(dir)
-
-	// Load packages
-	cfg := &packages.Config{
-		Mode:    packages.LoadAllSyntax,
-		Dir:     absDir,
-		Context: ctx,
-	}
-	pkgs, err := packages.Load(cfg, "./...")
+	
+	absDir, err := filepath.Abs(dir)
 	if err != nil {
-		return errorResult(fmt.Sprintf("failed to load packages: %v", err)), nil, nil
-	}
-	if len(pkgs) == 0 {
-		return errorResult("no packages found"), nil, nil
+		return errorResult(fmt.Sprintf("failed to resolve absolute path: %v", err)), nil, nil
 	}
 
-	// Prepare analyzers
-	analyzers := modernize.Suite
+	toolPath := "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest"
+	
+	// 1. Always run in check mode first to identify what needs fixing
+	checkCmd := exec.CommandContext(ctx, "go", "run", toolPath, "./...")
+	checkCmd.Dir = absDir
+	checkOut, checkErr := checkCmd.CombinedOutput()
+	diagnostics := string(checkOut)
 
-	var sb strings.Builder
-	var appliedCount int
-	var pendingCount int
+	// If check failed with a non-exit-code error, fail immediately
+	if checkErr != nil && diagnostics == "" {
+		return errorResult(fmt.Sprintf("modernize check failed to run: %v", checkErr)), nil, nil
+	}
 
-	// Run analysis per package
-	for _, pkg := range pkgs {
-		if len(pkg.Errors) > 0 {
-			for _, e := range pkg.Errors {
-				sb.WriteString(fmt.Sprintf("❌ Package %s error: %v\n", pkg.PkgPath, e))
+	// Clean up diagnostics string: remove trailing exit status messages
+	diagnostics = strings.TrimSpace(diagnostics)
+	if strings.Contains(diagnostics, "exit status") {
+		lines := strings.Split(diagnostics, "\n")
+		var filtered []string
+		for _, line := range lines {
+			if !strings.Contains(line, "exit status") {
+				filtered = append(filtered, line)
 			}
-			continue
 		}
+		diagnostics = strings.Join(filtered, "\n")
+	}
+	diagnostics = strings.TrimSpace(diagnostics)
 
-		for _, analyzer := range analyzers {
-			pass := &analysis.Pass{
-				Analyzer:  analyzer,
-				Fset:      pkg.Fset,
-				Files:     pkg.Syntax,
-				Pkg:       pkg.Types,
-				TypesInfo: pkg.TypesInfo,
-				Report: func(d analysis.Diagnostic) {
-					// Handle report
-					pos := pkg.Fset.Position(d.Pos)
-					file := pos.Filename
-					relFile, _ := filepath.Rel(absDir, file)
-					if relFile == "" {
-						relFile = file
-					}
+	// 2. If nothing to fix, we're done
+	if diagnostics == "" {
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: "✅ No modernization issues found."},
+			},
+		}, nil, nil
+	}
 
-					sb.WriteString(fmt.Sprintf("⚠️ [%s] %s:%d: %s\n", analyzer.Name, relFile, pos.Line, d.Message))
-
-					if len(d.SuggestedFixes) > 0 {
-						if args.Fix {
-							// Apply fixes
-							if err := applyFixes(pkg.Fset, d.SuggestedFixes); err != nil {
-								sb.WriteString(fmt.Sprintf("   Failed to apply fix: %v\n", err))
-							} else {
-								sb.WriteString("   ✅ Applied fix.\n")
-								appliedCount++
-							}
-						} else {
-							pendingCount++
-							sb.WriteString("   💡 Fix available (run with fix=true to apply)\n")
-							for _, fix := range d.SuggestedFixes {
-								for _, edit := range fix.TextEdits {
-									sb.WriteString(fmt.Sprintf("      - Replace at %d .. %d\n", edit.Pos, edit.End))
-								}
-							}
-						}
-					}
-					sb.WriteString("\n")
+	// 3. If user requested fix, apply it
+	if args.Fix {
+		fixCmd := exec.CommandContext(ctx, "go", "run", toolPath, "-fix", "./...")
+		fixCmd.Dir = absDir
+		fixOut, fixErr := fixCmd.CombinedOutput()
+		
+		if fixErr != nil {
+			// If fix failed, report the error and the output
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{
+					&mcp.TextContent{Text: fmt.Sprintf("⚠️ Modernization fix attempted but encountered errors:\n\n%s", string(fixOut))},
 				},
-			}
-
-			_, err := analyzer.Run(pass)
-			if err != nil {
-				sb.WriteString(fmt.Sprintf("❌ Analysis '%s' failed for %s: %v\n", analyzer.Name, pkg.PkgPath, err))
-			}
+			}, nil, nil
 		}
+
+		// Success! Report what was fixed (based on the check we ran earlier)
+		report := fmt.Sprintf("⚠️ Found modernization opportunities:\n\n%s\n\n✅ Automatically applied modernization fixes.", diagnostics)
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: report},
+			},
+		}, nil, nil
 	}
 
-	summary := fmt.Sprintf("\nAnalysis Complete.\nPending Fixes: %d\nApplied Fixes: %d\n", pendingCount, appliedCount)
-	sb.WriteString(summary)
-
+	// 4. Check mode only - report findings
+	report := fmt.Sprintf("⚠️ Found modernization opportunities:\n\n%s", diagnostics)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: sb.String()},
+			&mcp.TextContent{Text: report},
 		},
 	}, nil, nil
-}
-
-func applyFixes(fset *token.FileSet, fixes []analysis.SuggestedFix) error {
-	// Simple application of text edits.
-	// We must group edits by file and apply them from back to front to avoid offset shifting issues,
-	// or use a robust applier.
-	// This simple implementation applies one diagnostic's fixes.
-
-	// Flatten all edits
-	type edit struct {
-		file *token.File
-		pos  int
-		end  int
-		new  []byte
-	}
-	var edits []edit
-
-	for _, f := range fixes {
-		for _, te := range f.TextEdits {
-			file := fset.File(te.Pos)
-			if file == nil {
-				continue
-			}
-			edits = append(edits, edit{
-				file: file,
-				pos:  file.Offset(te.Pos),
-				end:  file.Offset(te.End),
-				new:  te.NewText,
-			})
-		}
-	}
-
-	// Sort edits by file and position (descending)
-	sort.Slice(edits, func(i, j int) bool {
-		if edits[i].file.Name() != edits[j].file.Name() {
-			return edits[i].file.Name() < edits[j].file.Name()
-		}
-		return edits[i].pos > edits[j].pos // Apply back to front
-	})
-
-	// Apply
-	filesToUpdate := make(map[string][]edit)
-	for _, e := range edits {
-		filesToUpdate[e.file.Name()] = append(filesToUpdate[e.file.Name()], e)
-	}
-
-	for path, fileEdits := range filesToUpdate {
-		//nolint:gosec // G304: File path provided by user is expected.
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		// Apply edits back-to-front
-		
-		// Sort edits descending by position (already done in outer slice but re-ensuring per file)
-		sort.Slice(fileEdits, func(i, j int) bool {
-			return fileEdits[i].pos > fileEdits[j].pos
-		})
-
-		for _, e := range fileEdits {
-			if e.pos > len(content) || e.end > len(content) {
-				return fmt.Errorf("edit out of bounds")
-			}
-			
-			// We build the new content from the END of the file to the START
-			// because the edits are sorted back-to-front.
-			// Actually, a simpler way is to use a pre-allocated buffer if we know the final size,
-			// or just copy the suffix, then the edit, then the next part.
-		}
-
-		// REFACTORED: Single pass edit application
-		var result []byte
-		cursor := 0
-		
-		// Re-sort ascending for single-pass forward application
-		sort.Slice(fileEdits, func(i, j int) bool {
-			return fileEdits[i].pos < fileEdits[j].pos
-		})
-
-		for _, e := range fileEdits {
-			if e.pos < cursor {
-				continue // Skip overlapping edits for safety in this simple implementation
-			}
-			result = append(result, content[cursor:e.pos]...)
-			result = append(result, e.new...)
-			cursor = e.end
-		}
-		result = append(result, content[cursor:]...)
-		content = result
-
-		// Reformat
-		formatted, err := format.Source(content)
-		if err != nil {
-			log.Printf("formatting failed for %s: %v", path, err)
-			formatted = content
-		}
-
-		        //nolint:gosec // G306: Standard permissions for source files.
-		        if err := os.WriteFile(path, formatted, 0644); err != nil {
-		            return err
-		        }	}
-	return nil
 }
 
 func errorResult(msg string) *mcp.CallToolResult {

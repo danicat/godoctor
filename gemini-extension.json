@@ -5,7 +5,7 @@
   "contextFileName": "GODOCTOR.md",
   "mcpServers": {
     "godoctor": {
-      "command": "godoctor",
+      "command": "${extensionPath}/bin/godoctor",
       "args": []
     }
   }
