@@ -33,14 +33,9 @@ GoDoctor organizes its capabilities into domain-specific tools to streamline dev
 
 If you use the [Gemini CLI](https://github.com/google/gemini-cli), you can install GoDoctor as an extension. This is the easiest way for most Go developers to use it.
 
-1.  **Install the binary:**
-    ```bash
-    go install github.com/danicat/godoctor/cmd/godoctor@latest
-    ```
-2.  **Install the extension:**
-    ```bash
-    gemini extensions install https://github.com/danicat/godoctor
-    ```
+```bash
+gemini extensions install https://github.com/danicat/godoctor
+```
 
 ### For GoDoctor Developers
 
