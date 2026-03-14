@@ -1,11 +1,15 @@
 {
   "name": "godoctor",
   "version": "0.9.0",
-  "description": "AI-powered Go development assistant. Requires 'godoctor' to be installed via 'go install github.com/danicat/godoctor@latest'.",
+  "description": "AI-powered Go development assistant. Requires 'godoctor' to be installed via 'go install github.com/danicat/godoctor/cmd/godoctor@latest'",
   "contextFileName": "GODOCTOR.md",
+  "files": [
+    "GODOCTOR.md",
+    "gemini-extension.json"
+  ],
   "mcpServers": {
     "godoctor": {
-      "command": "${extensionPath}/bin/godoctor",
+      "command": "godoctor",
       "args": []
     }
   }
