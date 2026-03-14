@@ -34,4 +34,10 @@ test-cov:
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	@echo "to view the coverage report, run: go tool cover -html=coverage.out"
 
-.PHONY: all build install clean test test-cov
+snapshot:
+	goreleaser release --snapshot --clean
+
+release:
+	goreleaser release --clean
+
+.PHONY: all build install clean test test-cov snapshot release

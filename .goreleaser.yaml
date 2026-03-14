@@ -1,0 +1,40 @@
+# .goreleaser.yaml
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    main: ./cmd/godoctor
+    binary: bin/godoctor
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - format: tar.gz
+    name_template: >-
+      {{ if eq .Os "windows" }}win32{{ else }}{{ .Os }}{{ end }}.{{ if eq .Arch "amd64" }}x64{{ else if eq .Arch "386" }}ia32{{ else }}{{ .Arch }}{{ end }}.{{ .ProjectName }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - gemini-extension.json
+      - GODOCTOR.md
+      - README.md
+      - LICENSE
+      - skills/**/*
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
