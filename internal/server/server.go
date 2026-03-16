@@ -27,9 +27,10 @@ import (
 	"github.com/danicat/godoctor/internal/tools/go/docs"
 	"github.com/danicat/godoctor/internal/tools/go/get"
 	"github.com/danicat/godoctor/internal/tools/go/modernize"
+	"github.com/danicat/godoctor/internal/tools/go/mutation"
 	"github.com/danicat/godoctor/internal/tools/go/project"
-
 	"github.com/danicat/godoctor/internal/tools/go/quality"
+	"github.com/danicat/godoctor/internal/tools/go/testquery"
 )
 
 // Server encapsulates the MCP server and its configuration.
@@ -133,6 +134,8 @@ func (s *Server) RegisterHandlers() error {
 
 		{name: "project_init", register: project.Register},
 		{name: "add_dependency", register: get.Register},
+		{name: "mutation_test", register: mutation.Register},
+		{name: "test_query", register: testquery.Register},
 	}
 
 	validTools := make(map[string]bool)
@@ -164,6 +167,10 @@ func (s *Server) RegisterHandlers() error {
 	if !s.registeredTools["prompt_import_this"] {
 		s.mcpServer.AddPrompt(prompts.ImportThis("doc"), prompts.ImportThisHandler)
 		s.registeredTools["prompt_import_this"] = true
+	}
+	if !s.registeredTools["prompt_go_code_review"] {
+		s.mcpServer.AddPrompt(prompts.CodeReview("doc"), prompts.CodeReviewHandler)
+		s.registeredTools["prompt_go_code_review"] = true
 	}
 
 	return nil

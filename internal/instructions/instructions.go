@@ -64,6 +64,16 @@ func Get(cfg *config.Config) string {
 	if isEnabled("code_review") {
 		sb.WriteString(toolnames.Registry["code_review"].Instruction + "\n")
 	}
+	sb.WriteString("\n")
+
+	// 6. Testing
+	sb.WriteString("### 🧪 Testing\n")
+	if isEnabled("mutation_test") {
+		sb.WriteString(toolnames.Registry["mutation_test"].Instruction + "\n")
+	}
+	if isEnabled("test_query") {
+		sb.WriteString(toolnames.Registry["test_query"].Instruction + "\n")
+	}
 
 	return sb.String()
 }

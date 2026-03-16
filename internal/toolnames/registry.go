@@ -73,10 +73,23 @@ var Registry = map[string]ToolDef{
 		Instruction: "*   **`modernize_code`**: Automatically upgrade legacy patterns.\n    *   **Usage:** `modernize_code(dir=\".\", fix=true)`\n    *   **Outcome:** Source code refactored to modern Go standards.",
 	},
 
+	// --- TESTING ---
+	"mutation_test": {
+		Name:        "mutation_test",
+		Title:       "Mutation Test",
+		Description: "Runs mutation testing using Selene. Introduces small code mutations (flipped conditions, swapped operators) and checks if existing tests catch them, objectively measuring test suite quality.",
+		Instruction: "*   **`mutation_test`**: Verify test quality with mutation testing.\n    *   **Usage:** `mutation_test(dir=\".\")`\n    *   **Outcome:** A report showing which mutations survived (tests missed) and the mutation score.",
+	},
+	"test_query": {
+		Name:        "test_query",
+		Title:       "Test Query",
+		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Enables flexible analysis of test outcomes, coverage gaps, and redundant tests across packages.",
+		Instruction: "*   **`test_query`**: Query test results with SQL.\n    *   **Usage:** `test_query(query=\"SELECT * FROM all_coverage WHERE coverage < 80\")`\n    *   **Outcome:** Tabular results from the SQL query over test and coverage data.",
+	},
+
 	// --- AGENTS ---
 
 	"code_review": {
-
 		Name:        "code_review",
 		Title:       "Code Review",
 		Description: "Provides an automated architectural and idiomatic review of source code. Identifies potential defects in concurrency, error handling, and performance before code is committed.",

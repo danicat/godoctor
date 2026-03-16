@@ -104,7 +104,7 @@ Or better: delete the dynamic generation entirely and replace with the embed app
 
 ---
 
-## Phase 2: Tool Coherence & Pruning (Future PR)
+## Phase 2: Tool Coherence (Future PR)
 
 ### 2.1 Tool Usability Assessment
 
@@ -122,63 +122,55 @@ Every GoDoctor tool exists to prevent a specific **LLM coding failure mode**. Th
 
 | Tool | LLM Failure Mode Prevented | Effectiveness | Improvement Opportunities |
 |------|---------------------------|---------------|--------------------------|
-| **smart_read** | **Blind coding.** LLMs edit files without understanding the full context — imported types, package APIs, function signatures. smart_read provides IDE-like "hover" functionality: static analysis findings, documentation for imported packages, and AST-based outlines. | High. The outline mode and import doc hints are valuable. | **P0: Restore imported symbol resolution.** The original spec included type/function definitions for imported symbols (stripped due to a bug). This is the "IDE hover" feature. **P1: Doc memoization.** Track which package docs have already been shown to the agent in this session and skip them on subsequent reads to save tokens. **P2: Tighten stdlib filtering.** Skip doc hints for obvious stdlib imports (no `.` in first path segment). |
+| **smart_read** | **Blind coding.** LLMs edit files without understanding the full context — imported types, package APIs, function signatures. smart_read provides IDE-like "hover" functionality: static analysis findings, documentation for imported packages, and AST-based outlines. | High. The outline mode and import doc hints are valuable. | **P0: Restore imported symbol resolution.** The original spec included type/function definitions for imported symbols (stripped due to a bug). This is the "IDE hover" feature. **P1: Doc memoization.** Track which package docs have already been shown to the agent in this session and skip them on subsequent reads to save tokens. |
 | **smart_edit** | **Typos and syntax corruption.** LLMs frequently produce edits with whitespace mismatches, indentation errors, and minor typos that cause exact-match editors to fail. smart_edit tolerates these via normalization + Levenshtein distance. Post-edit static analysis catches syntax corruption before it reaches disk. | Medium-High. The fuzzy matching works well for small edits. For larger blocks, the friction log shows it can misalign replacements (workaround: use line ranges). | **P1: Better error diagnostics.** When fuzzy match misaligns, show a diff of what the tool *tried* to do (not just "syntax error"). **P2: Confidence tiers.** Auto-apply at >0.98, warn-and-apply at 0.95-0.98, reject below 0.95 with suggestions. |
 | **file_create** | **Invalid initial files.** LLMs create `.go` files with wrong imports, missing imports, or syntax errors. file_create runs `goimports` + `gofmt` + syntax verification, ensuring every new file is valid Go from the first write. | High. Simple and reliable. | **P1: Template hints.** Suggest standard file structure (package declaration, imports, main patterns) based on filename conventions (e.g., `_test.go` -> test boilerplate). |
 | **list_files** | **Disorientation.** LLMs need to understand project structure before making changes. list_files provides a clean, Go-project-aware view filtered of noise (.git, node_modules, build artifacts). | Medium. Works but limited. | **P1: `.gitignore` support.** Currently uses hardcoded skip list. Either parse `.gitignore` or shell out to `git ls-files`. **P2: Go module awareness.** Annotate directories that contain `go.mod` or are Go packages vs. plain directories. |
-| **read_docs** | **API hallucination.** LLMs frequently invent function signatures, struct fields, and package APIs that don't exist. read_docs provides ground-truth documentation from the actual Go source, including examples, even for packages not installed in the current project. Vanity import resolution prevents confusion with redirected module paths. | High. The fallback chain (local -> download -> walk up path) is robust. | **P1: Structured output mode.** Return JSON for programmatic consumption by other tools. **P2: Method listing for types.** When querying a type, include its method set. |
-| **smart_build** | **Ship-and-pray.** LLMs make changes and declare success without verifying. smart_build enforces a full quality pipeline (tidy -> fmt -> build -> test -> lint) as one atomic step, catching regressions before the agent moves on. | High. The pipeline design is solid. | **P1: Structured test failure output.** Parse `go test -json` for per-test pass/fail instead of raw text. **P2: Incremental mode.** Only test packages affected by recent changes. |
+| **read_docs** | **API hallucination.** LLMs frequently invent function signatures, struct fields, and package APIs that don't exist. read_docs provides ground-truth documentation from the actual Go source, including examples, even for packages not installed in the current project. Vanity import resolution prevents confusion with redirected module paths. | High. The fallback chain (local -> download -> walk up path) is robust. | **P1: Method listing for types.** When querying a type, include its method set. |
+| **smart_build** | **Ship-and-pray.** LLMs make changes and declare success without verifying. smart_build enforces a full quality pipeline (tidy -> fmt -> build -> test -> lint) as one atomic step, catching regressions before the agent moves on. | High. The pipeline design is solid. | **P1: Incremental mode.** Only test packages affected by recent changes. |
 | **add_dependency** | **API hallucination (at install time).** LLMs `go get` a package then immediately hallucinate its API. add_dependency prints the package documentation right after install, grounding the agent in the real API. | High. Simple and effective. | **P1: Version pinning guidance.** Warn when installing `@latest` in a production project. |
-| **project_init** | **Scaffolding errors.** LLMs run multi-step init sequences (`mkdir`, `go mod init`, `go get`, ...) and often get the order wrong or forget steps. project_init bundles it atomically with the same doc-fetching anti-hallucination behavior as add_dependency. | Medium. Works but needs security fix. | **P0: Add `roots.Validate()`.** Security gap. **P1: Integration with `go-scaffold` skill.** Skill selects template, tool does the init. |
-| **modernize_code** | **Stale patterns.** LLMs reproduce Go patterns from their training data, which may be outdated. modernize_code uses the official `golang.org/x/tools` analyzer to identify and auto-fix legacy patterns. | Medium. Useful but niche. | **P0: Add `roots.Validate()`.** Security gap. **P1: Integrate findings into smart_build.** Run modernize check as optional step in the quality pipeline. |
-| **code_review** | **Self-review bias.** When the same model that wrote the code also reviews it, it's biased toward its own patterns and blind to its own mistakes. code_review solves this by delegating review to a separate model with a clean context (no implementation history, no sunk-cost bias). Also allows using a *different* model for review (e.g., Gemini reviewing Claude's code or vice versa), providing genuine diversity of perspective. | Medium. The review quality depends on the Gemini model and prompt. Requires separate API credentials. | **KEEP.** The clean-context and cross-model review arguments are strong. **P1: Use system instruction properly.** Currently packs the system prompt as a user message — use `GenerateContentConfig.SystemInstruction` instead. **P1: Make credentials optional gracefully.** Already auto-disables when no keys found, but improve the UX (clearer message about what's lost). **P2: Support configurable review checklists.** Let users provide custom review focus areas beyond the hardcoded prompt. |
+| **project_init** | **Scaffolding errors.** LLMs run multi-step init sequences (`mkdir`, `go mod init`, `go get`, ...) and often get the order wrong or forget steps. project_init bundles it atomically with the same doc-fetching anti-hallucination behavior as add_dependency. | Medium-High. Works well after v0.12 fixes. | **P1: Integration with `go-project-setup` skill.** Skill selects template, tool does the init. |
+| **modernize_code** | **Stale patterns.** LLMs reproduce Go patterns from their training data, which may be outdated. modernize_code uses the official `golang.org/x/tools` analyzer to identify and auto-fix legacy patterns. | Medium. Useful but niche. | **P1: Integrate findings into smart_build.** Run modernize check as optional step in the quality pipeline. |
+| **code_review** | **Self-review bias.** When the same model that wrote the code also reviews it, it's biased toward its own patterns and blind to its own mistakes. code_review solves this by delegating review to a separate model with a clean context (no implementation history, no sunk-cost bias). Also allows using a *different* model for review (e.g., Gemini reviewing Claude's code or vice versa), providing genuine diversity of perspective. | Medium. The review quality depends on the Gemini model and prompt. Requires separate API credentials. | **P1: Use system instruction properly.** Currently packs the system prompt as a user message — use `GenerateContentConfig.SystemInstruction` instead. **P1: Make credentials optional gracefully.** Already auto-disables when no keys found, but improve the UX (clearer message about what's lost). |
 
 #### Summary
 
 | Action | Tools |
 |--------|-------|
 | **Keep (all 10)** | `smart_read`, `smart_edit`, `file_create`, `list_files`, `read_docs`, `smart_build`, `add_dependency`, `project_init`, `modernize_code`, `code_review` |
+| **Add (2)** | `mutation_test` (selene wrapper), `test_query` (tq wrapper) |
+| **Keep all current names** | No renames. Current names are well-established and the `smart_` convention is working as intended. |
 
 #### Priority Improvements
 
 | Priority | Tool | Improvement |
 |----------|------|-------------|
 | **P0** | `smart_read` | Restore imported symbol type/function resolution (the "IDE hover" feature) |
-| **P0** | `project_init` | Add `roots.Validate()` |
-| **P0** | `modernize_code` | Add `roots.Validate()` |
 | **P1** | `smart_read` | Doc memoization — don't repeat docs already shown this session |
 | **P1** | `smart_edit` | Better error diagnostics — show what the fuzzy match tried to do |
 | **P1** | `list_files` | `.gitignore` support |
-| **P1** | `smart_build` | Structured test failure output via `go test -json` |
 | **P1** | `code_review` | Use `GenerateContentConfig.SystemInstruction` instead of packing system prompt as user message |
-| **P2** | `code_review` | Support configurable review checklists beyond the hardcoded prompt |
 
-### 2.2 Proposed Naming Convention
+#### Completed (v0.12.0)
 
-The `smart_` prefix is intentional and valuable — it signals to the LLM that these tools do more than their plain counterparts. A model calling `smart_edit` understands it's not just writing bytes to a file; it's invoking a pipeline with fuzzy matching, auto-formatting, and syntax verification. This distinction matters for tool selection behavior.
+| Tool | Improvement |
+|------|-------------|
+| `project_init` | `roots.Validate()` security fix |
+| `modernize_code` | `roots.Validate()` security fix |
+| `smart_read` | Filter stdlib from outline imports (show third-party only) |
+| `add_dependency` | Accept single `"package"` string as convenience alias |
+| `file_create` | Richer success output confirming format/syntax pipeline |
+| `modernize_code` | Strip `go: downloading` noise from output |
+| `project_init` | Richer success output with absolute path and go.mod confirmation |
 
-Adopt a two-tier convention:
-- **`smart_*`** — Go-enhanced file operations that do more than the name suggests (static analysis, formatting, fuzzy matching)
-- **`go_*`** — Go toolchain wrappers
+### 2.2 Revised GODOCTOR.md
 
-| Current Name | Proposed Name | Rationale |
-|-------------|---------------|-----------|
-| `smart_read` | `smart_read` | **Keep.** The "smart" signals: outline mode, static analysis, import doc resolution. |
-| `smart_edit` | `smart_edit` | **Keep.** The "smart" signals: fuzzy matching, auto-format, syntax verification. |
-| `smart_build` | `smart_build` | **Keep.** The "smart" signals: atomic pipeline (tidy + fmt + build + test + lint), not just `go build`. |
-| `file_create` | `smart_create` | Align with the `smart_*` tier. It does auto-format + goimports + syntax check, same pattern as the others. |
-| `list_files` | `list_files` | **Keep as-is.** Straightforward listing, not a "smart" operation. |
-| `read_docs` | `read_docs` | **Keep as-is.** Clear and descriptive. |
-| `add_dependency` | `add_dependency` | **Keep as-is.** Descriptive of the full operation (install + doc fetch). |
-| `project_init` | `project_init` | **Keep as-is.** Clear intent. |
-| `modernize_code` | `go_modernize` | Domain prefix + verb. Aligns with the Go toolchain it wraps. |
-| `code_review` | `code_review` | **Keep as-is.** Well-established name, clear intent. |
+Merge the best of both sources:
+- **From GODOCTOR.md:** Core Philosophy section and workflow examples (these steer agent behavior)
+- **From dynamic instructions:** Compact Usage/Outcome format with concrete call examples (these help tool invocation)
+- **Add:** The two missing tools (`project_init`, `modernize_code`)
 
-Minimal renames — only change names where the current name is actively misleading or inconsistent:
-- `file_create` -> `smart_create` (aligns with the `smart_*` tier it belongs to)
-- `modernize_code` -> `go_modernize` (it's a thin wrapper around a Go analyzer, not a "smart" operation)
-
-### 2.3 Revised GODOCTOR.md
+Then embed via `//go:embed` and delete the dynamic generation in `instructions.go`.
 
 The new GODOCTOR.md should tell a coherent story organized around developer workflows:
 
@@ -187,50 +179,51 @@ The new GODOCTOR.md should tell a coherent story organized around developer work
 Four sections mapping to how developers actually work:
 
 1. **Navigate** (`smart_read`, `list_files`) — Explore and understand Go projects with AST-aware outlines, static analysis, and clean project views
-2. **Write** (`smart_edit`, `smart_create`) — Edit and create Go files with fuzzy matching, auto-formatting, auto-imports, and syntax verification baked in
+2. **Write** (`smart_edit`, `file_create`) — Edit and create Go files with fuzzy matching, auto-formatting, auto-imports, and syntax verification baked in
 3. **Verify** (`smart_build`, `code_review`) — Build + test + lint in one atomic step, with optional cross-model code review for unbiased feedback
-4. **Discover** (`read_docs`, `add_dependency`, `project_init`, `go_modernize`) — Access documentation, manage dependencies, bootstrap projects, and modernize patterns
-
-This is the "coherent story" — GoDoctor handles the things that are hard for a general-purpose AI agent to do well with Go: intelligent file operations that prevent syntax corruption, atomic quality gates, anti-hallucination documentation, and ecosystem integration.
+4. **Discover** (`read_docs`, `add_dependency`, `project_init`, `modernize_code`) — Access documentation, manage dependencies, bootstrap projects, and modernize patterns
 
 ---
 
 ## Implementation Order
 
 ```
-Phase 1 (this PR - structural fixes):
-  1. Extract shared code (levenshtein, errorResult)
+Phase 1 (v0.12.0 - structural fixes): ✅ DONE
+  1. Extract shared Levenshtein to internal/textdist
   2. Fix security gaps (roots.Validate in smart_build, modernize_code, project_init)
   3. Fix path containment bug in roots.go
-  4. Embed GODOCTOR.md, replace instructions.go
+  4. Fix instructions.go stale tool references
   5. Minor code fixes (similarity rune len, rm -> os.Remove, debug prints, etc.)
-  6. Update tests
+  6. Tool usability improvements (add_dependency, file_create, modernize_code, project_init, smart_read)
+  7. Claude Code support (README, MCP config, goreleaser workflow)
 
 Phase 2 (next PR - coherence):
-  1. Rename all tools to file_*/go_* convention (including code_review -> go_review)
-  3. Rewrite GODOCTOR.md with Navigate/Write/Verify/Discover narrative
+  1. Embed GODOCTOR.md as single source of truth (merge best of static + dynamic)
+  2. Rewrite GODOCTOR.md with Navigate/Write/Verify/Discover narrative
+  3. Add go-code-review MCP prompt (structured review checklist)
+  4. Add mutation_test and test_query MCP tools (go run selene/tq)
+  5. Add go-test skill (Gemini CLI) with example tq queries
   4. Improve list_files (.gitignore support)
-  5. Improve smart_read (tighten external doc filtering)
-  6. Update all tests and registry
-  7. Provide one-release-cycle aliases for renamed tools
+  5. Improve smart_read (restore imported symbol resolution)
+  6. Improve code_review (use SystemInstruction properly)
 
 Phase 3 (future PR - skills):
-  1. Decompose go-expert into go-scaffold, go-review, go-test, go-architect
-  2. Clean up dead reference files
-  3. Add dual-format support (Gemini CLI + Claude Code)
+  1. Replace go-expert with go-project-setup (from danicat/skills repo)
+  2. Clean up dead reference files (ebitengine_docs.md, http_services.md)
+  3. Delete reference material that duplicates LLM training data
+  4. Add dual-format support (Gemini CLI + Claude Code)
 ```
 
 ## Risks
 
 | Risk | Mitigation |
 |------|------------|
-| Renaming tools breaks existing configs | Provide aliases for one release cycle, then remove. |
 | Embedding GODOCTOR.md loses dynamic tool filtering | Append "disabled tools" note instead. Acceptable tradeoff for correctness. |
-| `code_review` rename to `go_review` | Provide alias for one release cycle. |
+| Removing reference material loses value for weaker models | Keep references in Gemini CLI skill for models that need them. MCP prompt provides structured guidance without bulk. |
 
 ---
 
-## Phase 3: Skills Decomposition (Future PR)
+## Phase 3: Skills & Prompts (Future PR)
 
 ### 3.1 Problem with the Uber-Skill
 
@@ -245,178 +238,189 @@ The current `skills/go-expert/` is a monolithic "God skill" that tries to be eve
 
 **Problems:**
 
-1. **Context overload.** The skill loads ~3,000 lines of reference material. Most of it is irrelevant to any specific task. An agent asking "how do I add a test?" doesn't need Effective Go (2,370 lines), project layout guidance, or Ebitengine docs.
+1. **Context overload.** The skill loads ~3,000 lines of reference material. Most of it is irrelevant to any specific task.
 2. **Vague activation.** "The definitive expert for ALL Go programming tasks" means it triggers on everything Go-related, always loading the full payload.
-3. **Mixed concerns.** Architectural decision-making, code review, testing strategy, and project scaffolding are fundamentally different activities with different reference needs.
+3. **Training data duplication.** Most reference material (Effective Go, Code Review Comments, Google Style Guide, testing patterns) is well-known public content that LLMs already have in their training data. Loading 2,370 lines of Effective Go adds latency and token cost with near-zero marginal value.
 4. **Dead references.** `ebitengine_docs.md` and `http_services.md` are empty files (0 lines). `go_proverbs.md` is 2 lines.
-5. **Gemini-specific.** The `SKILL.md` format is Gemini CLI-specific. For Claude Code, skills need to be expressed differently (as CLAUDE.md instructions or MCP prompts).
+5. **Gemini-specific.** The `SKILL.md` format is Gemini CLI-specific. For Claude Code, skills need to be expressed differently.
 
-### 3.2 Proposed Skill Decomposition
+### 3.2 Value-Add Analysis
 
-Break the uber-skill into **four focused skills**, each with a clear trigger, minimal references, and a specific job.
+| Content | Lines | In LLM Training Data? | Value-Add |
+|---------|-------|----------------------|-----------|
+| `effective_go.md` | 2,370 | Yes (canonical Go doc) | **None.** Every major LLM knows this. |
+| `code_review_comments.md` | 216 | Yes (Go wiki) | **None.** Well-known public document. |
+| `google_style_guide.md` | 64 | Yes (Google OSS) | **None.** |
+| `advanced_testing.md` | 56 | Yes (standard patterns) | **None.** Fuzz, bench, golden files are well-documented. |
+| `senior_review_checklist.md` | 20 | No (custom) | **Low-Medium.** Useful as a *structured prompt* to force systematic checking. Not domain knowledge the LLM lacks, but a prompt engineering technique. |
+| `project_layout.md` | 150 | Partially | **Medium.** Opinionated decisions ("no pkg/ directory") and Go 1.24+ conventions add value. |
+| `package_oriented_design.md` | 42 | Partially (Ardan Labs) | **Low.** |
+| `architectural_decisions.md` | 37 | Yes (ADR format) | **None.** |
+| Project templates (assets/) | ~260 | No (custom code) | **High.** Concrete starter code with correct patterns (graceful shutdown, signal handling, run functions). LLMs can't consistently produce these. |
 
-#### Skill 1: `go-scaffold` — Project Bootstrap
+**Conclusion:** Only the **project templates** and **project layout opinions** provide genuine value beyond what LLMs already know. The senior review checklist has value as a structured prompt, not as reference material.
 
-**Trigger:** "Create a new project", "bootstrap", "init", "new service", "start a CLI app"
+### 3.3 Decision: One Skill + One MCP Prompt
 
-**References:**
-- `project_layout.md` (150 lines)
-- `package_oriented_design.md` (42 lines)
+#### Skill: `go-project-setup` (Gemini CLI)
 
-**Assets:** All template directories (`cli-simple`, `cli-cobra`, `webservice`, `mcp-server`, `library`, `game`)
+Replace `go-expert` with `go-project-setup` based on the existing skill at `github.com/danicat/skills/go-project-setup`.
 
-**Behavior:**
-1. Ask: spike or production?
-2. Ask: module name
-3. Select template based on project type
-4. Scaffold and verify with `go build`
+**What it keeps:**
+- 6 project templates (the high-value assets)
+- `project_layout.md` (opinionated layout guidance)
+- Structured workflow: scope assessment → template selection → init → verify
 
-**Why standalone:** Scaffolding is a one-time activity at project start. It needs layout knowledge but not review checklists or testing patterns. Loading 2,370 lines of Effective Go to create a `main.go` is wasteful.
+**What it drops:**
+- `effective_go.md` (2,370 lines — training data)
+- `code_review_comments.md` (216 lines — training data)
+- `google_style_guide.md` (64 lines — training data)
+- `advanced_testing.md` (56 lines — training data)
+- `architectural_decisions.md` (37 lines — training data)
+- `go_proverbs.md` (2 lines — nearly empty)
+- `ebitengine_docs.md` (0 lines — empty)
+- `http_services.md` (0 lines — empty)
+- `package_oriented_design.md` (42 lines — low value)
+- "Prototyping vs Meticulous" modes (over-engineered)
 
-#### Skill 2: `go-review` — Code Review & Quality
+**Context budget:** ~410 lines (down from ~3,200). **87% reduction.**
 
-**Trigger:** "Review this code", "check quality", "is this idiomatic?", "code review"
+#### MCP Prompt: `go-code-review`
 
-**References:**
-- `senior_review_checklist.md` (20 lines)
-- `code_review_comments.md` (216 lines)
-- `google_style_guide.md` (64 lines)
+Expose the senior review checklist as an **MCP prompt** rather than a skill or reference file. This is the right abstraction: the checklist's value is as a structured prompt that forces systematic review, not as domain knowledge.
 
-**Behavior:**
-1. Apply the senior review checklist systematically
-2. Flag concurrency issues, interface pollution, error handling gaps
-3. Reference specific Go Code Review Comments entries
-4. Suggest `go_modernize` for pattern upgrades
-5. Invoke `go_review` tool for unbiased cross-model review (if API keys configured)
+The prompt combines:
+- The senior review checklist (consumer-defined interfaces, goroutine lifecycles, mutex copying, channel hygiene, error wrapping)
+- Guidance to use GoDoctor tools (`smart_build` to verify, `modernize_code` for pattern upgrades, `code_review` for cross-model second opinion)
 
-**Why standalone:** Review is a distinct activity from writing code. The reference material is focused (300 lines total vs 3,000) and directly actionable. Works in two modes: the skill guides the host agent's own review using curated checklists, and can escalate to the `go_review` tool for a clean-context, cross-model second opinion.
+**Implementation:** Add `internal/prompts/code_review.go` alongside the existing `import_this.go`, following the same pattern. Register in `server.go`.
 
-#### Skill 3: `go-test` — Testing Strategy
+```go
+// code_review.go
+func GoCodeReview(namespace string) *mcp.Prompt {
+    return &mcp.Prompt{
+        Name:        namespace + ":go_code_review",
+        Title:       "Go Code Review",
+        Description: "Structured senior-level Go code review checklist with GoDoctor tool integration.",
+        Arguments: []*mcp.PromptArgument{
+            {Name: "focus", Description: "Optional area to focus the review on", Required: false},
+        },
+    }
+}
+```
 
-**Trigger:** "Write tests", "add test coverage", "fuzz", "benchmark", "test this function"
+The prompt content includes:
+1. The senior review checklist (concurrency, interfaces, errors, API design)
+2. Key items from Go Code Review Comments (the non-obvious ones: receiver names, in-band errors, goroutine lifetimes)
+3. Tool integration: "Run `smart_build` to verify. Use `modernize_code` to catch stale patterns. Use `code_review` for a cross-model second opinion."
+4. If a `focus` argument is provided, narrow the review to that area.
 
-**References:**
-- `advanced_testing.md` (56 lines)
+#### Why MCP prompt (not a skill) for code review:
+- No reference files needed (the checklist fits in ~40 lines of prompt text)
+- Works across all MCP clients (Claude Code, Gemini CLI, any MCP client)
+- Lightweight — no context overhead until explicitly invoked
+- The `code_review` tool already handles the heavy lifting (cross-model review); the prompt just structures the host agent's own review
 
-**Behavior:**
-1. Identify what kind of test is needed (unit, integration, fuzz, benchmark)
-2. Generate table-driven tests by default
-3. Use `t.Parallel()` for independent tests
-4. Suggest fuzz testing for parsers/validators
-5. Suggest benchmarks for hot paths
-6. Verify with `go_check` (run_tests=true)
+### 3.4 Skill: `go-test` — Testing with selene and testquery
 
-**Why standalone:** Testing is the most common skill invocation and needs the least context. Loading 56 lines of testing patterns instead of 3,000 lines of everything is a massive efficiency win.
+Testing gets a **skill** (not just a prompt) because it integrates two external tools that provide genuine superpowers LLMs don't have internally:
 
-#### Skill 4: `go-architect` — Design & Architecture
+| Tool | What It Does | LLM Failure Mode Addressed |
+|------|-------------|---------------------------|
+| **[selene](https://github.com/danicat/selene)** | Mutation testing — mutates code and checks if tests catch it | "Tests look good but catch nothing" — proves test quality objectively |
+| **[testquery (tq)](https://github.com/danicat/testquery)** | SQL queries over test results and coverage | "Wrote 50 tests but missed the critical path" — finds coverage gaps and redundant tests |
 
-**Trigger:** "Design this system", "ADR", "architecture decision", "how should I structure this?", "system design"
+#### Integration: `go run` pattern (like modernize_code)
 
-**References:**
-- `effective_go.md` (2,370 lines) — loaded here because architecture is where deep language philosophy matters
-- `architectural_decisions.md` (37 lines)
-- `go_proverbs.md` (needs content — currently 2 lines)
+Both tools are integrated via `go run`, avoiding code duplication while keeping selene and tq as independent projects:
 
-**Behavior:**
-1. Clarify the problem statement
-2. Ask for constraints (latency, team size, deployment)
-3. Propose design using Go idioms
-4. Record decisions in ADR format
-5. Reference Effective Go for philosophical grounding
+```go
+// Mutation testing
+exec.CommandContext(ctx, "go", "run", "github.com/danicat/selene@latest", "run", "./...")
 
-**Why standalone:** Architecture decisions are rare but high-stakes. This is the one skill where loading the full Effective Go is justified — you need deep language philosophy when making structural choices, not when writing a unit test.
+// Test querying
+exec.CommandContext(ctx, "go", "run", "github.com/danicat/testquery@latest", "query", sqlQuery)
+```
 
-### 3.3 Reference Material Cleanup
+This matches the existing `modernize_code` pattern. Benefits:
+- Zero code duplication — logic lives in selene/tq repos
+- No separate install step (auto-downloads)
+- Isolated from API changes in selene/tq
+- Can graduate to direct Go library import later when APIs stabilize
+
+#### New MCP Tools
+
+| Tool | Description | Params |
+|------|------------|--------|
+| `mutation_test` | Run selene mutation testing on a package | `dir`, `mutators` (optional filter) |
+| `test_query` | Run a SQL query over test results and coverage | `dir`, `query`, `mode` (memory/file) |
+
+#### Skill Workflow
+
+The `go-test` skill (Gemini CLI) / prompt guidance (Claude Code) orchestrates a testing loop:
+
+```
+1. smart_read(outline=true) — understand the code under test
+2. Write tests (table-driven, adversarial edge cases, error paths)
+3. smart_build(run_tests=true) — verify tests pass
+4. mutation_test(dir=".") — do the tests actually catch bugs?
+5. Fix surviving mutants (mutations the tests didn't detect)
+6. test_query(query="SELECT * FROM all_coverage WHERE coverage < 80") — find coverage gaps
+7. test_query(query="SELECT * FROM test_coverage WHERE unique_coverage = 0") — find redundant tests
+```
+
+#### Example tq Queries (skill assets)
+
+```sql
+-- Find functions with no test coverage
+SELECT * FROM all_coverage WHERE coverage = 0;
+
+-- Find tests that cover nothing unique (candidates for removal)
+SELECT * FROM test_coverage WHERE unique_coverage = 0;
+
+-- Coverage summary by package
+SELECT package, AVG(coverage) as avg_coverage FROM all_coverage GROUP BY package;
+
+-- Find the most impactful function to test next
+SELECT * FROM all_coverage WHERE coverage < 50 ORDER BY num_statements DESC LIMIT 10;
+```
+
+#### Why skill (not just a prompt):
+- **Custom tools:** LLMs don't know selene or tq — they need concrete usage guidance
+- **Workflow orchestration:** The write → mutate → fix → query loop is non-obvious
+- **Assets:** Example tq queries are genuine value-add (not training data)
+- **Two new MCP tools** to register and document
+
+### 3.5 Reference Material Cleanup
 
 | File | Lines | Action |
 |------|-------|--------|
-| `effective_go.md` | 2,370 | **Keep.** Move to `go-architect` only. |
-| `code_review_comments.md` | 216 | **Keep.** Move to `go-review`. |
-| `project_layout.md` | 150 | **Keep.** Move to `go-scaffold`. |
-| `google_style_guide.md` | 64 | **Keep.** Move to `go-review`. |
-| `advanced_testing.md` | 56 | **Keep.** Move to `go-test`. |
-| `package_oriented_design.md` | 42 | **Keep.** Move to `go-scaffold`. |
-| `architectural_decisions.md` | 37 | **Keep.** Move to `go-architect`. |
-| `senior_review_checklist.md` | 20 | **Keep.** Move to `go-review`. |
-| `go_proverbs.md` | 2 | **Fix.** Currently nearly empty. Either populate with the actual Go proverbs or remove. Move to `go-architect` if populated. |
-| `ebitengine_docs.md` | 0 | **Remove.** Empty file. Ebitengine is too niche for a general skill. |
-| `http_services.md` | 0 | **Remove.** Empty file. HTTP patterns belong in the `webservice` template itself, not as a standalone reference. |
-
-### 3.4 Context Budget Per Skill
-
-| Skill | References (lines) | Templates | Total Context |
-|-------|-------------------|-----------|---------------|
-| `go-scaffold` | ~192 | 6 templates (~260 lines) | ~450 lines |
-| `go-review` | ~300 | None | ~300 lines |
-| `go-test` | ~56 | None | ~56 lines |
-| `go-architect` | ~2,407 | None | ~2,400 lines |
-| **Current `go-expert`** | **~2,957** | **6 templates (~260)** | **~3,200 lines** |
-
-Every skill except `go-architect` is dramatically lighter than the current uber-skill. And `go-architect` is the one case where the heavy context is justified.
-
-### 3.5 Dual-Format Support (Gemini CLI + Claude Code)
-
-Skills need to work in two ecosystems:
-
-**Gemini CLI:** Uses the `SKILL.md` frontmatter format with `references/` directory. Each skill gets its own directory under `skills/`.
-
-```
-skills/
-    go-scaffold/
-        SKILL.md
-        references/
-            project_layout.md
-            package_oriented_design.md
-        assets/
-            cli-simple/
-            cli-cobra/
-            webservice/
-            ...
-    go-review/
-        SKILL.md
-        references/
-            senior_review_checklist.md
-            code_review_comments.md
-            google_style_guide.md
-    go-test/
-        SKILL.md
-        references/
-            advanced_testing.md
-    go-architect/
-        SKILL.md
-        references/
-            effective_go.md
-            architectural_decisions.md
-            go_proverbs.md
-```
-
-**Claude Code:** Skills are expressed as sections in `CLAUDE.md`. The `godoctor --agents` output should include condensed skill guidance (not the full reference material, since Claude already knows Go well). Example:
-
-```markdown
-## When reviewing Go code
-Use the Senior Go Review Checklist: check consumer-defined interfaces,
-goroutine lifecycles, error wrapping, and channel hygiene. Run `go_check`
-to verify. Use `go_modernize` to catch outdated patterns.
-
-## When writing tests
-Default to table-driven tests with t.Run(). Use t.Parallel() for
-independent subtests. Suggest fuzz testing for parsers. Always verify
-with `go_check(run_tests=true)`.
-```
-
-This keeps the Claude Code instructions concise (the agent already has Go knowledge in its training) while still steering it toward GoDoctor's tools.
+| `effective_go.md` | 2,370 | **Delete.** Training data duplication. |
+| `code_review_comments.md` | 216 | **Delete.** Training data. Key items absorbed into `go-code-review` MCP prompt. |
+| `project_layout.md` | 150 | **Keep.** Move to `go-project-setup`. |
+| `google_style_guide.md` | 64 | **Delete.** Training data. |
+| `advanced_testing.md` | 56 | **Delete.** Training data. |
+| `package_oriented_design.md` | 42 | **Delete.** Low value-add. |
+| `architectural_decisions.md` | 37 | **Delete.** ADR format is well-known. |
+| `senior_review_checklist.md` | 20 | **Delete file, absorb into MCP prompt.** The checklist content lives on as the `go-code-review` prompt. |
+| `go_proverbs.md` | 2 | **Delete.** Nearly empty. |
+| `ebitengine_docs.md` | 0 | **Delete.** Empty. |
+| `http_services.md` | 0 | **Delete.** Empty. |
 
 ### 3.6 Migration Path
 
 ```
-Step 1: Create the four new skill directories with their SKILL.md files
-Step 2: Move reference files from go-expert/references/ to the appropriate new skill
-Step 3: Move assets/ to go-scaffold/ (only skill that uses templates)
-Step 4: Delete go-expert/
-Step 5: Delete empty reference files (ebitengine_docs.md, http_services.md)
-Step 6: Populate go_proverbs.md with actual content or remove
-Step 7: Update GODOCTOR.md to reference the new skills
-Step 8: Update goreleaser to package new skill directories
+Step 1: Add go-code-review MCP prompt (internal/prompts/code_review.go)
+Step 2: Register prompt in server.go
+Step 3: Add mutation_test tool (internal/tools/go/mutation/mutation.go) — wraps selene via go run
+Step 4: Add test_query tool (internal/tools/go/testquery/testquery.go) — wraps tq via go run
+Step 5: Register both tools in server.go and toolnames registry
+Step 6: Replace go-expert/ with go-project-setup/ (from danicat/skills repo)
+Step 7: Add go-test/ skill with SKILL.md + example tq queries as assets
+Step 4: Keep only project_layout.md reference + 6 template assets
+Step 5: Delete all other reference files
+Step 6: Update GODOCTOR.md to reference the prompt and skill
+Step 7: Update goreleaser to package go-project-setup instead of go-expert
 ```
 
 ---
@@ -425,7 +429,5 @@ Step 8: Update goreleaser to package new skill directories
 
 1. **Should `smart_read` keep outline mode as a standalone tool or merge it into `edit_file` as a dry-run/preview?** Outline mode is the only differentiating feature.
 2. **Should we keep the HTTP transport?** It adds complexity and the Cloud Run deployment story. If the primary audience is CLI agents (Claude Code, Gemini CLI), stdio is sufficient.
-3. **Should `go_check` support running only tests (skip lint) or only build (skip tests)?** Current `smart_build` already has `run_tests` and `run_lint` flags — keep them.
-4. **Should the `go-scaffold` skill keep the `game` template (Ebitengine)?** It's niche but popular in the Go community. Consider keeping it but removing the empty reference file.
-5. **Should we add a `go-debug` skill?** Debugging is a common activity that could benefit from structured guidance (delve integration, error analysis patterns). Defer to Phase 4.
-6. **How much Go reference material should Claude Code instructions include?** Claude already knows Go well from training. The instructions should focus on *tool usage* not *language teaching*. Keep references for Gemini CLI skills only.
+3. **Should the `go-project-setup` skill keep the `game` template (Ebitengine)?** It's niche but popular in the Go community. Consider keeping it but removing the empty reference file.
+4. **Should `import_this` prompt be kept, merged with `go-code-review`, or removed?** It asks the LLM to read external URLs and produce instructions — useful for bootstrapping but redundant once GODOCTOR.md is embedded.

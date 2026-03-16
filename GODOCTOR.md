@@ -33,11 +33,14 @@ You are an intelligent Go development assistant powered by **GoDoctor**. Your go
 -   **`add_dependency`**: **Smart Install.** Adds a module *and* immediately delivers its documentation, so you don't have to guess the API.
 -   **`read_docs`**: **Knowledge Base.** Instant access to authoritative documentation for any Go package.
 
+### 🧪 Testing
+-   **`mutation_test`**: **Mutation Testing.** Runs Selene to introduce small code mutations and checks if your tests catch them. Objectively measures test suite quality.
+-   **`test_query`**: **Test Query.** Queries test results and coverage data using SQL via testquery (tq). Find coverage gaps, redundant tests, and failing test patterns.
+
 ### 🤖 Analysis & Safety
-
-
+-   **`modernize_code`**: **Modernize.** Analyzes and auto-fixes outdated Go patterns using the official `golang.org/x/tools` analyzer.
+-   **`project_init`**: **Project Bootstrap.** Initializes a new Go project with module, dependencies, and documentation in one atomic step.
 -   **`code_review`**: **AI Peer Review.** Get on-demand, expert-level feedback on concurrency and idioms. **Requires `GOOGLE_API_KEY`.**
-
 
 ## Workflow Examples
 
