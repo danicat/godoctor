@@ -369,20 +369,33 @@ The `go-test` skill (Gemini CLI) / prompt guidance (Claude Code) orchestrates a 
 7. test_query(query="SELECT * FROM test_coverage WHERE unique_coverage = 0") — find redundant tests
 ```
 
+#### tq Schema Reference
+
+```
+all_tests:     package, test, action, elapsed, output
+all_coverage:  file, function_name, start_line, end_line, count, stmt_num
+test_coverage: test_name, file, start_line, end_line, count
+all_code:      file, line_number, content
+```
+
 #### Example tq Queries (skill assets)
 
 ```sql
 -- Find functions with no test coverage
-SELECT * FROM all_coverage WHERE coverage = 0;
+SELECT * FROM all_coverage WHERE count = 0;
 
--- Find tests that cover nothing unique (candidates for removal)
-SELECT * FROM test_coverage WHERE unique_coverage = 0;
+-- Find which functions a specific test covers
+SELECT * FROM test_coverage WHERE test_name = 'TestMyFunc';
 
--- Coverage summary by package
-SELECT package, AVG(coverage) as avg_coverage FROM all_coverage GROUP BY package;
+-- Coverage summary by file
+SELECT file, SUM(CASE WHEN count > 0 THEN 1 ELSE 0 END) as covered,
+       COUNT(*) as total FROM all_coverage GROUP BY file;
 
--- Find the most impactful function to test next
-SELECT * FROM all_coverage WHERE coverage < 50 ORDER BY num_statements DESC LIMIT 10;
+-- Find the largest untested functions
+SELECT * FROM all_coverage WHERE count = 0 ORDER BY (end_line - start_line) DESC LIMIT 10;
+
+-- Search source code for patterns
+SELECT * FROM all_code WHERE content LIKE '%TODO%';
 ```
 
 #### Why skill (not just a prompt):

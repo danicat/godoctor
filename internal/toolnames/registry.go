@@ -83,8 +83,8 @@ var Registry = map[string]ToolDef{
 	"test_query": {
 		Name:        "test_query",
 		Title:       "Test Query",
-		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Enables flexible analysis of test outcomes, coverage gaps, and redundant tests across packages.",
-		Instruction: "*   **`test_query`**: Query test results with SQL.\n    *   **Usage:** `test_query(query=\"SELECT * FROM all_coverage WHERE coverage < 80\")`\n    *   **Outcome:** Tabular results from the SQL query over test and coverage data.",
+		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Available tables: all_tests (package, test, action, elapsed, output), all_coverage (file, function_name, start_line, end_line, count, stmt_num), test_coverage (test_name, file, start_line, end_line, count), all_code (file, line_number, content).",
+		Instruction: "*   **`test_query`**: Query test results with SQL.\n    *   **Usage:** `test_query(query=\"SELECT * FROM all_coverage WHERE count = 0\")`\n    *   **Outcome:** Tabular results from the SQL query over test and coverage data.",
 	},
 
 	// --- AGENTS ---

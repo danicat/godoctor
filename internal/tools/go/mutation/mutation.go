@@ -38,7 +38,7 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 		return errorResult(err.Error()), nil, nil
 	}
 
-	cmd := exec.CommandContext(ctx, "go", "run", "github.com/danicat/selene@latest", "./...")
+	cmd := exec.CommandContext(ctx, "go", "run", "github.com/danicat/selene/cmd/selene@latest", "./...")
 	cmd.Dir = absDir
 	out, runErr := cmd.CombinedOutput()
 
