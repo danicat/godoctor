@@ -83,8 +83,8 @@ var Registry = map[string]ToolDef{
 	"test_query": {
 		Name:        "test_query",
 		Title:       "Test Query",
-		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Available tables: all_tests (package, test, action, elapsed, output), all_coverage (file, function_name, start_line, end_line, count, stmt_num), test_coverage (test_name, file, start_line, end_line, count), all_code (file, line_number, content).",
-		Instruction: "*   **`test_query`**: Query test results with SQL.\n    *   **Usage:** `test_query(query=\"SELECT * FROM all_coverage WHERE count = 0\")`\n    *   **Outcome:** Tabular results from the SQL query over test and coverage data.",
+		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Uses a persistent SQLite database (testquery.db) to avoid re-running tests on every query. Set rebuild=true after code changes to refresh the database. Available tables: all_tests (package, test, action, elapsed, output), all_coverage (file, function_name, start_line, end_line, count, stmt_num), test_coverage (test_name, file, start_line, end_line, count), all_code (file, line_number, content).",
+		Instruction: "*   **`test_query`**: Query test results with SQL.\n    *   **Usage:** `test_query(query=\"SELECT * FROM all_coverage WHERE count = 0\")`\n    *   **Caching:** Uses a persistent `testquery.db` file. First call builds it automatically. Set `rebuild=true` after code changes.\n    *   **Outcome:** Tabular results from the SQL query over test and coverage data.",
 	},
 
 	// --- AGENTS ---

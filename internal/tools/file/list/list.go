@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -30,7 +31,7 @@ type Params struct {
 	Depth int    `json:"depth,omitempty" jsonschema:"Maximum recursion depth (0 for default of 5, 1 for non-recursive)"`
 }
 
-func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	absRoot, err := roots.Global.Validate(args.Path)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -41,6 +42,82 @@ func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallT
 		maxDepth = 5
 	}
 
+	// Try git ls-files first for .gitignore-aware listing
+	if result, ok := tryGitLsFiles(ctx, absRoot, maxDepth); ok {
+		return result, nil, nil
+	}
+
+	// Fallback to manual walk
+	return walkDir(absRoot, maxDepth)
+}
+
+// tryGitLsFiles attempts to list files using git ls-files, which respects .gitignore.
+func tryGitLsFiles(ctx context.Context, absRoot string, maxDepth int) (*mcp.CallToolResult, bool) {
+	// Check if we're in a git repo
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	cmd.Dir = absRoot
+	if _, err := cmd.Output(); err != nil {
+		return nil, false
+	}
+
+	// Use git ls-files for tracked + untracked (but not ignored) files
+	cmd = exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard")
+	cmd.Dir = absRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Listing files in %s (Depth: %d, git-aware)\n\n", absRoot, maxDepth))
+
+	fileCount := 0
+	dirsSeen := make(map[string]bool)
+	const maxFiles = 1000
+
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+
+		// Depth filter
+		depth := strings.Count(line, "/") + 1
+		if depth > maxDepth {
+			continue
+		}
+
+		if fileCount >= maxFiles {
+			sb.WriteString(fmt.Sprintf("\n(Limit of %d files reached, output truncated)\n", maxFiles))
+			return &mcp.CallToolResult{
+				Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
+			}, true
+		}
+
+		// Track directories
+		dir := filepath.Dir(line)
+		if dir != "." {
+			parts := strings.Split(dir, "/")
+			for i := range parts {
+				d := strings.Join(parts[:i+1], "/")
+				if !dirsSeen[d] {
+					dirsSeen[d] = true
+					sb.WriteString(fmt.Sprintf("%s/\n", d))
+				}
+			}
+		}
+
+		sb.WriteString(fmt.Sprintf("%s\n", line))
+		fileCount++
+	}
+
+	sb.WriteString(fmt.Sprintf("\nFound %d files, %d directories.\n", fileCount, len(dirsSeen)))
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
+	}, true
+}
+
+// walkDir is the fallback directory walker for non-git directories.
+func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Listing files in %s (Depth: %d)\n\n", absRoot, maxDepth))
 
@@ -49,10 +126,10 @@ func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallT
 	limitReached := false
 	const maxFiles = 1000
 
-	err = filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			sb.WriteString(fmt.Sprintf("Warning: skipping %s: %v\n", path, err))
-			return nil // Skip access errors but report them
+			return nil
 		}
 
 		relPath, _ := filepath.Rel(absRoot, path)
@@ -60,7 +137,6 @@ func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallT
 			return nil
 		}
 
-		// Depth check
 		depth := strings.Count(relPath, string(os.PathSeparator)) + 1
 		if depth > maxDepth {
 			if d.IsDir() {
@@ -69,7 +145,6 @@ func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallT
 			return nil
 		}
 
-		// Ignore basic stuff
 		if d.IsDir() && (d.Name() == ".git" || d.Name() == ".idea" || d.Name() == ".vscode" || d.Name() == "node_modules") {
 			return filepath.SkipDir
 		}
@@ -101,9 +176,7 @@ func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallT
 	}
 
 	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: sb.String()},
-		},
+		Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
 	}, nil, nil
 }
 

@@ -4,7 +4,9 @@ package testquery
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/roots"
@@ -24,10 +26,13 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Dir   string `json:"dir,omitempty" jsonschema:"Directory to analyze (default: current)"`
-	Query string `json:"query" jsonschema:"SQL query to run against test results (e.g. SELECT * FROM all_tests WHERE status = 'FAIL')"`
-	Pkg   string `json:"pkg,omitempty" jsonschema:"Go package pattern to analyze (default: ./...)"`
+	Dir     string `json:"dir,omitempty" jsonschema:"Directory to analyze (default: current)"`
+	Query   string `json:"query" jsonschema:"SQL query to run against test results (e.g. SELECT * FROM all_tests WHERE action = 'fail')"`
+	Pkg     string `json:"pkg,omitempty" jsonschema:"Go package pattern to analyze (default: ./...)"`
+	Rebuild bool   `json:"rebuild,omitempty" jsonschema:"Force rebuild of the test database before querying. Use after code changes. First call always builds."`
 }
+
+const dbFile = "testquery.db"
 
 func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	if args.Query == "" {
@@ -49,9 +54,28 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 		pkg = "./..."
 	}
 
-	// Run tq in live mode: runs tests and queries results in memory
+	dbPath := filepath.Join(absDir, dbFile)
+
+	// Build the DB if it doesn't exist or if rebuild is requested
+	if args.Rebuild || !fileExists(dbPath) {
+		buildCmd := exec.CommandContext(ctx, "go", "run", "github.com/danicat/testquery@latest",
+			"build", "--pkg", pkg, "--output", dbFile)
+		buildCmd.Dir = absDir
+		out, buildErr := buildCmd.CombinedOutput()
+		buildOutput := filterNoise(string(out))
+
+		if buildErr != nil {
+			// Build may fail if tests fail, but the DB might still be usable
+			if !fileExists(dbPath) {
+				return errorResult(fmt.Sprintf("failed to build test database: %v\n%s", buildErr, buildOutput)), nil, nil
+			}
+			// DB exists despite test failures — continue with query but warn
+		}
+	}
+
+	// Query the persistent DB (offline mode)
 	cmd := exec.CommandContext(ctx, "go", "run", "github.com/danicat/testquery@latest",
-		"query", "--pkg", pkg, "--format", "table", args.Query)
+		"query", "--db", dbFile, "--format", "table", args.Query)
 	cmd.Dir = absDir
 	out, runErr := cmd.CombinedOutput()
 
@@ -62,10 +86,9 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 	}
 
 	if runErr != nil {
-		// tq may exit non-zero if tests fail, but still produce useful output
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("⚠️ Query completed (some tests may have failed):\n\n%s", output)},
+				&mcp.TextContent{Text: fmt.Sprintf("⚠️ Query completed with warnings:\n\n%s", output)},
 			},
 		}, nil, nil
 	}
@@ -83,6 +106,11 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 			&mcp.TextContent{Text: output},
 		},
 	}, nil, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func filterNoise(s string) string {

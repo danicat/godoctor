@@ -142,11 +142,38 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 				}
 
 				if d, err := godoc.Load(ctx, pkgPath, ""); err == nil {
+					var entry strings.Builder
 					summary := strings.ReplaceAll(d.Description, "\n", " ")
 					if len(summary) > 200 {
 						summary = summary[:197] + "..."
 					}
-					packageDocs = append(packageDocs, fmt.Sprintf("- **%s**: %s", pkgPath, summary))
+					entry.WriteString(fmt.Sprintf("- **%s**: %s", pkgPath, summary))
+
+					// Show top exported symbols (functions and types)
+					var symbols []string
+					for j, t := range d.Types {
+						if j >= 3 {
+							break
+						}
+						name := strings.Split(t, "\n")[0]
+						symbols = append(symbols, name)
+					}
+					for j, fn := range d.Funcs {
+						if j >= 5 {
+							break
+						}
+						sig := strings.Split(fn, "\n")[0]
+						symbols = append(symbols, sig)
+					}
+					if len(symbols) > 0 {
+						entry.WriteString("\n  ```go\n")
+						for _, s := range symbols {
+							entry.WriteString(fmt.Sprintf("  %s\n", s))
+						}
+						entry.WriteString("  ```")
+					}
+
+					packageDocs = append(packageDocs, entry.String())
 				}
 			}
 		}

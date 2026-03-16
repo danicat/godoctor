@@ -187,17 +187,24 @@ func (h *Handler) Tool(ctx context.Context, _ *mcp.CallToolRequest, args Params)
 
 	systemPrompt := constructSystemPrompt(args.Hint)
 
-	// Construct the request using the new SDK
+	// Construct the request using SystemInstruction for proper role separation
 	contents := []*genai.Content{
 		{
 			Parts: []*genai.Part{
-				{Text: systemPrompt},
 				{Text: args.FileContent},
 			},
 		},
 	}
 
-	resp, err := h.generator.GenerateContent(ctx, modelName, contents, nil)
+	config := &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{
+				{Text: systemPrompt},
+			},
+		},
+	}
+
+	resp, err := h.generator.GenerateContent(ctx, modelName, contents, config)
 	if err != nil {
 		return &mcp.CallToolResult{
 			IsError: true,
