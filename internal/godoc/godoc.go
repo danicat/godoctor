@@ -30,6 +30,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/textdist"
 	"golang.org/x/tools/go/packages"
 )
 
@@ -583,7 +584,7 @@ func findFuzzyMatches(query string, candidates []string) []string {
 		}
 
 		// Levenshtein distance < 3 (allow small typos)
-		dist := levenshtein(lowerQuery, strings.ToLower(c))
+		dist := textdist.Levenshtein(lowerQuery, strings.ToLower(c))
 		if dist <= 2 {
 			matches = append(matches, c)
 		}
@@ -593,42 +594,6 @@ func findFuzzyMatches(query string, candidates []string) []string {
 		return matches[:5]
 	}
 	return matches
-}
-
-func levenshtein(s1, s2 string) int {
-	r1, r2 := []rune(s1), []rune(s2)
-	n, m := len(r1), len(r2)
-	if n > m {
-		r1, r2 = r2, r1
-		n, m = m, n
-	}
-
-	currentRow := make([]int, n+1)
-	for i := 0; i <= n; i++ {
-		currentRow[i] = i
-	}
-
-	for i := 1; i <= m; i++ {
-		previousRow := currentRow
-		currentRow = make([]int, n+1)
-		currentRow[0] = i
-		for j := 1; j <= n; j++ {
-			add, del, change := previousRow[j]+1, currentRow[j-1]+1, previousRow[j-1]
-			if r1[j-1] != r2[i-1] {
-				change++
-			}
-
-			minVal := add
-			if del < minVal {
-				minVal = del
-			}
-			if change < minVal {
-				minVal = change
-			}
-			currentRow[j] = minVal
-		}
-	}
-	return currentRow[n]
 }
 
 func fetchAndRetryStructured(ctx context.Context, pkgPath, symbolName string, originalErr error) (*Doc, error) {

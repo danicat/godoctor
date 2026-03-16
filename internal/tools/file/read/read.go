@@ -62,9 +62,19 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 		sb.WriteString("\n```\n")
 
 		if len(imports) > 0 {
-			sb.WriteString("\n## Imports\n")
+			var thirdParty []string
 			for _, imp := range imports {
-				sb.WriteString(fmt.Sprintf("- %s\n", imp))
+				// Filter stdlib: third-party imports have a dot in the first path component
+				clean := strings.Trim(imp, "\"")
+				if parts := strings.Split(clean, "/"); len(parts) > 0 && strings.Contains(parts[0], ".") {
+					thirdParty = append(thirdParty, imp)
+				}
+			}
+			if len(thirdParty) > 0 {
+				sb.WriteString("\n## Third-Party Imports\n")
+				for _, imp := range thirdParty {
+					sb.WriteString(fmt.Sprintf("- %s\n", imp))
+				}
 			}
 		}
 

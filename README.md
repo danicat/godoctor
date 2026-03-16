@@ -29,36 +29,49 @@ GoDoctor organizes its capabilities into domain-specific tools to streamline dev
 
 ## Installation
 
-### For Gemini CLI Users (Recommended)
+### For Claude Code Users
 
-If you use the [Gemini CLI](https://github.com/google/gemini-cli), you can install GoDoctor as an extension. This is the easiest way for most Go developers to use it.
+1.  **Install the binary:**
+    ```bash
+    go install github.com/danicat/godoctor/cmd/godoctor@latest
+    ```
+
+2.  **Add GoDoctor as an MCP server:**
+    ```bash
+    claude mcp add --transport stdio --scope user godoctor -- godoctor
+    ```
+
+3.  **(Optional) Add agent instructions to your project:**
+    ```bash
+    godoctor --agents >> CLAUDE.md
+    ```
+    This appends tool usage guidance to your `CLAUDE.md` so Claude knows how to use each tool effectively.
+
+### For Gemini CLI Users
+
+If you use the [Gemini CLI](https://github.com/google/gemini-cli), you can install GoDoctor as an extension:
 
 ```bash
 gemini extensions install https://github.com/danicat/godoctor
 ```
 
-### For GoDoctor Developers
+### From Source
 
 1.  **Clone the repository:**
     ```bash
     git clone https://github.com/danicat/godoctor.git
     cd godoctor
     ```
-2.  **Build the project:**
+2.  **Build and install:**
     ```bash
-    make build
+    make install
     ```
-3.  **Run the server (Stdio mode):**
-    ```bash
-    ./bin/godoctor
-    ```
-
 
 ## Configuration
 
-### 1. Authentication
+### 1. Authentication (Optional)
 
-GoDoctor requires access to Google's Generative AI models.
+Most GoDoctor tools work without any authentication. The `code_review` tool requires access to Google's Generative AI models for cross-model code review. If no credentials are found, `code_review` is automatically disabled and all other tools continue to work normally.
 
 **Option 1: Gemini API (Personal)**
 Set the `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) environment variable.

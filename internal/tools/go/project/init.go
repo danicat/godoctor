@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/danicat/godoctor/internal/godoc"
+	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -48,14 +49,14 @@ func (r *stdRunner) Run(ctx context.Context, dir, name string, args ...string) (
 var CommandRunner Runner = &stdRunner{}
 
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	// 1. Create Directory
-	if err := os.MkdirAll(args.Path, 0755); err != nil {
-		return errorResult(fmt.Sprintf("failed to create directory: %v", err)), nil, nil
+	absPath, err := roots.Global.Validate(args.Path)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
 	}
 
-	absPath, err := filepath.Abs(args.Path)
-	if err != nil {
-		return errorResult(fmt.Sprintf("failed to get absolute path: %v", err)), nil, nil
+	// 1. Create Directory
+	if err := os.MkdirAll(absPath, 0755); err != nil {
+		return errorResult(fmt.Sprintf("failed to create directory: %v", err)), nil, nil
 	}
 
 	// 2. go mod init
@@ -69,8 +70,9 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Successfully initialized Go project at `%s`\n", args.Path))
+	sb.WriteString(fmt.Sprintf("✅ Successfully initialized Go project at `%s`\n", absPath))
 	sb.WriteString(fmt.Sprintf("- Module: `%s`\n", args.ModulePath))
+	sb.WriteString(fmt.Sprintf("- Created: `%s/go.mod`\n", absPath))
 
 	// 3. Install dependencies
 	if len(args.Dependencies) > 0 {

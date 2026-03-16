@@ -24,17 +24,23 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Packages []string `json:"packages" jsonschema:"Packages to get (e.g. example.com/pkg@latest)"`
+	Packages []string `json:"packages,omitempty" jsonschema:"Packages to get (e.g. example.com/pkg@latest)"`
+	Package  string   `json:"package,omitempty" jsonschema:"Single package to get (convenience alias for packages)"`
 	Update   bool     `json:"update,omitempty" jsonschema:"If true, adds -u flag to update modules"`
 	Args     []string `json:"args,omitempty" jsonschema:"Additional arguments (e.g. -t, -v)"`
 }
 
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	// Allow single package string as convenience
+	if args.Package != "" && len(args.Packages) == 0 {
+		args.Packages = []string{args.Package}
+	}
+
 	if len(args.Packages) == 0 {
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: "at least one package must be specified"},
+				&mcp.TextContent{Text: "at least one package must be specified (use 'package' for a single package or 'packages' for multiple)"},
 			},
 		}, nil, nil
 	}

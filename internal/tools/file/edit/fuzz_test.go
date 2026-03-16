@@ -9,8 +9,8 @@ func FuzzFindBestMatch(f *testing.F) {
 	f.Add("func main() {}", "func main")
 	f.Add("some long content with newlines\nand tabs\t", "content")
 	f.Add("", "")
-	
-f.Fuzz(func(t *testing.T, content, search string) {
+
+	f.Fuzz(func(t *testing.T, content, search string) {
 		// 1. Should not panic
 		start, end, score := findBestMatch(content, search)
 
@@ -40,24 +40,24 @@ f.Fuzz(func(t *testing.T, content, search string) {
 // FuzzFindBestMatch_Exact checks that exact substrings are ALWAYS found.
 func FuzzFindBestMatch_Exact(f *testing.F) {
 	f.Add("prefix", "target", "suffix")
-	
-f.Fuzz(func(t *testing.T, prefix, target, suffix string) {
+
+	f.Fuzz(func(t *testing.T, prefix, target, suffix string) {
 		// Normalize inputs to ensure we are testing the matching logic, not whitespace logic
 		// (Since findBestMatch ignores whitespace, constructing inputs with whitespace might
 		// cause the 'target' to be split or merged in unexpected ways in the 'content')
-		
+
 		// To keep it simple: we only assert that if we construct a string, it MUST be found.
 		// But we strip whitespace from target to ensure it's a valid search.
 		normTarget := normalize(target)
 		if normTarget == "" {
-			return 
+			return
 		}
-		
+
 		content := prefix + target + suffix
-		
+
 		// If target is unique in content (simplification), score should be 1.0
 		// If target appears multiple times (e.g. prefix contains target), we still expect 1.0.
-		
+
 		_, _, score := findBestMatch(content, target)
 		if score < 0.99 { // Float epsilon
 			// Dump info

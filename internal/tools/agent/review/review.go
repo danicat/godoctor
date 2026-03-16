@@ -146,8 +146,8 @@ func NewHandler(ctx context.Context, defaultModel string, opts ...Option) (*Hand
 			}
 
 			if apiKey == "" {
-				return nil, fmt.Errorf("%w: set GOOGLE_API_KEY (or GEMINI_API_KEY) " +
-					"for Gemini API, or set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT " +
+				return nil, fmt.Errorf("%w: set GOOGLE_API_KEY (or GEMINI_API_KEY) "+
+					"for Gemini API, or set GOOGLE_GENAI_USE_VERTEXAI=true with GOOGLE_CLOUD_PROJECT "+
 					"and GOOGLE_CLOUD_LOCATION for Vertex AI", ErrAuthFailed)
 			}
 

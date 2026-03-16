@@ -32,7 +32,7 @@ func (r *mockRunner) RunWithOutput(ctx context.Context, dir, name string, args .
 			output = v
 		}
 	}
-	
+
 	var err error
 	for k, v := range r.errors {
 		if strings.Contains(cmd, k) {
@@ -50,7 +50,7 @@ func TestHandler_Success(t *testing.T) {
 	// Setup Mock
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
-	
+
 	CommandRunner = &mockRunner{
 		outputs: map[string]string{
 			"go build": "",
@@ -65,8 +65,8 @@ func TestHandler_Success(t *testing.T) {
 	if res.IsError {
 		t.Error("Expected success, got error result")
 	}
-	
-out := res.Content[0].(*mcp.TextContent).Text
+
+	out := res.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(out, "Build: ✅ PASS") {
 		t.Errorf("Expected build success in output, got:\n%s", out)
 	}
@@ -79,7 +79,7 @@ func TestHandler_BuildFail(t *testing.T) {
 	// Setup Mock
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
-	
+
 	CommandRunner = &mockRunner{
 		outputs: map[string]string{
 			"go build": "syntax error",
@@ -90,12 +90,12 @@ func TestHandler_BuildFail(t *testing.T) {
 	}
 
 	res, _, _ := Handler(context.Background(), nil, Params{})
-	
+
 	if !res.IsError {
 		t.Error("Expected error result for build failure")
 	}
-	
-out := res.Content[0].(*mcp.TextContent).Text
+
+	out := res.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(out, "Build: ❌ FAILED") {
 		t.Errorf("Expected build failure in output, got:\n%s", out)
 	}

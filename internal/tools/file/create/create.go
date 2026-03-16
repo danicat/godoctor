@@ -61,16 +61,28 @@ func toolHandler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.C
 	}
 
 	// 4. Post-Check Verification (GO ONLY)
-	if strings.HasSuffix(args.Filename, ".go") {
+	isGo := strings.HasSuffix(args.Filename, ".go")
+	if isGo {
 		fset := token.NewFileSet()
 		_, err := parser.ParseFile(fset, args.Filename, nil, parser.ParseComments)
 		if err != nil {
 			warning = fmt.Sprintf("\n\n**WARNING:** Post-write syntax check failed: %v", err)
 		}
 	}
-					return &mcp.CallToolResult{
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Successfully wrote `%s` (%d bytes)", args.Filename, len(finalContent)))
+	if isGo {
+		sb.WriteString("\n- ✅ goimports (auto-format + import management)")
+		sb.WriteString("\n- ✅ syntax verification")
+	}
+	if warning != "" {
+		sb.WriteString(warning)
+	}
+
+	return &mcp.CallToolResult{
 		Content: []mcp.Content{
-			&mcp.TextContent{Text: fmt.Sprintf("Successfully wrote %s%s", args.Filename, warning)},
+			&mcp.TextContent{Text: sb.String()},
 		},
 	}, nil, nil
 }

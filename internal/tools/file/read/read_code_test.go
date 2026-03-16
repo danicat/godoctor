@@ -62,7 +62,7 @@ func main() {
 	}
 
 	output := res.Content[0].(*mcp.TextContent).Text
-	
+
 	// Check for Imported Packages section
 	if !strings.Contains(output, "## Imported Packages") {
 		t.Errorf("expected Imported Packages section, got: %s", output)

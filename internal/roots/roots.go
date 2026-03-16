@@ -117,14 +117,14 @@ func (s *State) Validate(path string) (string, error) {
 	// If no roots are registered, default to CWD
 	if len(roots) == 0 {
 		cwd, _ := filepath.Abs(".")
-		if strings.HasPrefix(absPath, cwd) {
+		if absPath == cwd || strings.HasPrefix(absPath, cwd+string(filepath.Separator)) {
 			return absPath, nil
 		}
 		return "", fmt.Errorf("access denied: path %s is outside the current working directory", path)
 	}
 
 	for _, root := range roots {
-		if strings.HasPrefix(absPath, root) {
+		if absPath == root || strings.HasPrefix(absPath, root+string(filepath.Separator)) {
 			return absPath, nil
 		}
 	}

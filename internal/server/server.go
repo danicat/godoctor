@@ -143,17 +143,6 @@ func (s *Server) RegisterHandlers() error {
 			if !s.registeredTools[t.name] {
 				t.register(s.mcpServer)
 				s.registeredTools[t.name] = true
-
-				// Track domain groups
-				if strings.HasPrefix(t.name, "go_") {
-					s.registeredTools["go"] = true
-				}
-				if strings.HasPrefix(t.name, "file_") {
-					s.registeredTools["file"] = true
-				}
-				if strings.HasPrefix(t.name, "symbol_") {
-					s.registeredTools["symbol"] = true
-				}
 			}
 		}
 	}

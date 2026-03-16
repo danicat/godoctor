@@ -66,7 +66,7 @@ func TestResourceHandler(t *testing.T) {
 				},
 			}
 			result, err := ResourceHandler(ctx, req)
-			
+
 			if tc.wantErr {
 				if err == nil {
 					t.Error("Expected error, got nil")

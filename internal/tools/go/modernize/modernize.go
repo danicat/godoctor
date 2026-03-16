@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -33,14 +33,14 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 	if dir == "" {
 		dir = "."
 	}
-	
-	absDir, err := filepath.Abs(dir)
+
+	absDir, err := roots.Global.Validate(dir)
 	if err != nil {
-		return errorResult(fmt.Sprintf("failed to resolve absolute path: %v", err)), nil, nil
+		return errorResult(err.Error()), nil, nil
 	}
 
 	toolPath := "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest"
-	
+
 	// 1. Always run in check mode first to identify what needs fixing
 	checkCmd := exec.CommandContext(ctx, "go", "run", toolPath, "./...")
 	checkCmd.Dir = absDir
@@ -52,19 +52,18 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 		return errorResult(fmt.Sprintf("modernize check failed to run: %v", checkErr)), nil, nil
 	}
 
-	// Clean up diagnostics string: remove trailing exit status messages
+	// Clean up diagnostics string: remove noise lines
 	diagnostics = strings.TrimSpace(diagnostics)
-	if strings.Contains(diagnostics, "exit status") {
-		lines := strings.Split(diagnostics, "\n")
-		var filtered []string
-		for _, line := range lines {
-			if !strings.Contains(line, "exit status") {
-				filtered = append(filtered, line)
-			}
+	lines := strings.Split(diagnostics, "\n")
+	var filtered []string
+	for _, line := range lines {
+		// Strip "go: downloading ..." and "exit status" noise
+		if strings.HasPrefix(line, "go: downloading ") || strings.Contains(line, "exit status") {
+			continue
 		}
-		diagnostics = strings.Join(filtered, "\n")
+		filtered = append(filtered, line)
 	}
-	diagnostics = strings.TrimSpace(diagnostics)
+	diagnostics = strings.TrimSpace(strings.Join(filtered, "\n"))
 
 	// 2. If nothing to fix, we're done
 	if diagnostics == "" {
@@ -80,7 +79,7 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 		fixCmd := exec.CommandContext(ctx, "go", "run", toolPath, "-fix", "./...")
 		fixCmd.Dir = absDir
 		fixOut, fixErr := fixCmd.CombinedOutput()
-		
+
 		if fixErr != nil {
 			// If fix failed, report the error and the output
 			return &mcp.CallToolResult{

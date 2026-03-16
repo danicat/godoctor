@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/danicat/godoctor/internal/roots"
+	"github.com/danicat/godoctor/internal/textdist"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/danicat/godoctor/internal/tools/shared"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -248,16 +249,13 @@ func findBestMatch(content, search string) (int, int, float64) {
 
 	// Scan with stride
 	for i := 0; i <= searchLen-seedLen; i += step {
-		// fmt.Printf("Checking seed i=%d: '%s'\n", i, string(searchRunes[i:i+seedLen]))
 		checkSeed(i)
 	}
 
 	// Ensure we check the tail (critical for short strings with typo at start)
 	if searchLen >= seedLen {
 		tailOffset := searchLen - seedLen
-		// Avoid double checking if tail aligns with step
 		if tailOffset%step != 0 {
-			// fmt.Printf("Checking tail seed i=%d: '%s'\n", tailOffset, string(searchRunes[tailOffset:tailOffset+seedLen]))
 			checkSeed(tailOffset)
 		}
 	}
@@ -319,48 +317,15 @@ func similarity(s1, s2 string) float64 {
 	if s1 == s2 {
 		return 1.0
 	}
-	d := levenshtein(s1, s2)
-	maxLen := len(s1)
-	if len(s2) > maxLen {
-		maxLen = len(s2)
+	d := textdist.Levenshtein(s1, s2)
+	maxLen := len([]rune(s1))
+	if l2 := len([]rune(s2)); l2 > maxLen {
+		maxLen = l2
 	}
 	if maxLen == 0 {
 		return 1.0
 	}
 	return 1.0 - float64(d)/float64(maxLen)
-}
-
-func levenshtein(s1, s2 string) int {
-	r1, r2 := []rune(s1), []rune(s2)
-	n, m := len(r1), len(r2)
-	if n > m {
-		r1, r2 = r2, r1
-		n, m = m, n
-	}
-	currentRow := make([]int, n+1)
-	for i := 0; i <= n; i++ {
-		currentRow[i] = i
-	}
-	for i := 1; i <= m; i++ {
-		previousRow := currentRow
-		currentRow = make([]int, n+1)
-		currentRow[0] = i
-		for j := 1; j <= n; j++ {
-			add, del, change := previousRow[j]+1, currentRow[j-1]+1, previousRow[j-1]
-			if r1[j-1] != r2[i-1] {
-				change++
-			}
-			min := add
-			if del < min {
-				min = del
-			}
-			if change < min {
-				min = change
-			}
-			currentRow[j] = min
-		}
-	}
-	return currentRow[n]
 }
 
 func errorResult(msg string) *mcp.CallToolResult {

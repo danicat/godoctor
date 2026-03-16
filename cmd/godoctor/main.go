@@ -63,7 +63,6 @@ func run(ctx context.Context, args []string) error {
 	}
 
 	if cfg.Version {
-
 		fmt.Println(version)
 		return nil
 	}
@@ -94,9 +93,6 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 	srv := server.New(cfg, version)
-	if err := srv.RegisterHandlers(); err != nil {
-		return err
-	}
 
 	if cfg.ListenAddr != "" {
 		return srv.ServeHTTP(ctx, cfg.ListenAddr)

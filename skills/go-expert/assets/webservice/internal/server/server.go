@@ -12,7 +12,7 @@ func (h Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err := h(w, r); err != nil {
 		// Log the error (slog or standard log)
 		log.Printf("HTTP error: %v", err)
-		
+
 		// Return generic error to user
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}

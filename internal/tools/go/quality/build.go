@@ -4,9 +4,11 @@ package quality
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/danicat/godoctor/internal/tools/shared"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -64,6 +66,11 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	if dir == "" {
 		dir = "."
 	}
+	absDir, err := roots.Global.Validate(dir)
+	if err != nil {
+		return result(err.Error(), true), nil, nil
+	}
+	dir = absDir
 	pkgs := args.Packages
 	if pkgs == "" {
 		pkgs = "./..."
@@ -110,12 +117,11 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	// 3. Tests
 	if runTests {
 		sb.WriteString("### 🧪 Tests: ")
-		
+
 		// Create a temporary file for coverage
 		covFile := "coverage.out"
 		defer func() {
-			// Best effort cleanup, ignoring errors
-			_ = CommandRunner.Run(ctx, dir, "rm", covFile)
+			_ = os.Remove(covFile)
 		}()
 
 		// -v for verbose, -coverprofile for coverage
@@ -131,7 +137,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 
 		// Process coverage
 		sb.WriteString("#### Coverage\n")
-		
+
 		// 1. Get Total Coverage from go tool cover -func
 		funcOut, funcErr := CommandRunner.RunWithOutput(ctx, dir, "go", "tool", "cover", "-func="+covFile)
 		if funcErr == nil {
@@ -161,7 +167,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 				if len(parts) >= 5 {
 					pkg := parts[1]
 					covStr := parts[4] // "50.0%"
-					
+
 					// Omit 0.0% coverage? User said "Omit packages with 0% coverage"
 					// Usually it says "coverage: [no statements]" if 0? No, it says "0.0% of statements"
 					if covStr != "0.0%" && covStr != "[no" {
@@ -206,10 +212,6 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 func formatOutput(out string) string {
 	if out == "" {
 		return ""
-	}
-	// Cap output to prevent massive context context usage
-	if len(out) > 5000 {
-		out = out[:2500] + "\n... [truncated] ...\n" + out[len(out)-2500:]
 	}
 	return "```text\n" + strings.TrimSpace(out) + "\n```\n"
 }

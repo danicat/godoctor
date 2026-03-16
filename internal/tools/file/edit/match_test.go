@@ -2,6 +2,8 @@ package edit
 
 import (
 	"testing"
+
+	"github.com/danicat/godoctor/internal/textdist"
 )
 
 func TestFindBestMatch(t *testing.T) {
@@ -35,11 +37,11 @@ func TestFindBestMatch(t *testing.T) {
 		},
 		{
 			// Re-adding the problematic test case
-			name: "Long Block with Typo (Seeding)",
-			content: "func long() {\n\tline1()\n\tline2()\n\tline3()\n\tline4()\n}",
+			name:        "Long Block with Typo (Seeding)",
+			content:     "func long() {\n\tline1()\n\tline2()\n\tline3()\n\tline4()\n}",
 			search:      "func long() { line1() line2() line3-typo() line4() }",
 			expectMatch: true,
-			minScore:    0.85, 
+			minScore:    0.85,
 		},
 		{
 			name:        "Short String (< 16 chars)",
@@ -110,7 +112,7 @@ func TestFindBestMatch(t *testing.T) {
 			if score < tt.minScore {
 				t.Errorf("score %.2f < minScore %.2f. Bounds: %d-%d", score, tt.minScore, start, end)
 			}
-			
+
 			if start > end {
 				t.Errorf("invalid bounds start > end: %d-%d", start, end)
 			}
@@ -128,10 +130,10 @@ func TestNormalize(t *testing.T) {
 }
 
 func TestLevenshtein(t *testing.T) {
-	if d := levenshtein("abc", "abd"); d != 1 {
-		t.Errorf("levenshtein(abc, abd) = %d, want 1", d)
+	if d := textdist.Levenshtein("abc", "abd"); d != 1 {
+		t.Errorf("Levenshtein(abc, abd) = %d, want 1", d)
 	}
-	if d := levenshtein("abc", "abc"); d != 0 {
-		t.Errorf("levenshtein(abc, abc) = %d, want 0", d)
+	if d := textdist.Levenshtein("abc", "abc"); d != 0 {
+		t.Errorf("Levenshtein(abc, abc) = %d, want 0", d)
 	}
 }

@@ -49,14 +49,20 @@ func Get(cfg *config.Config) string {
 
 	// 5. Utilities
 	sb.WriteString("### 🛠️ Utilities\n")
-	if isEnabled("verify_build") {
-		sb.WriteString(toolnames.Registry["verify_build"].Instruction + "\n")
+	if isEnabled("smart_build") {
+		sb.WriteString(toolnames.Registry["smart_build"].Instruction + "\n")
 	}
-	if isEnabled("verify_tests") {
-		sb.WriteString(toolnames.Registry["verify_tests"].Instruction + "\n")
+	if isEnabled("read_docs") {
+		sb.WriteString(toolnames.Registry["read_docs"].Instruction + "\n")
 	}
-	if isEnabled("go_docs") {
-		sb.WriteString(toolnames.Registry["go_docs"].Instruction + "\n")
+	if isEnabled("add_dependency") {
+		sb.WriteString(toolnames.Registry["add_dependency"].Instruction + "\n")
+	}
+	if isEnabled("project_init") {
+		sb.WriteString(toolnames.Registry["project_init"].Instruction + "\n")
+	}
+	if isEnabled("code_review") {
+		sb.WriteString(toolnames.Registry["code_review"].Instruction + "\n")
 	}
 
 	return sb.String()

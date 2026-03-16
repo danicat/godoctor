@@ -18,6 +18,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/danicat/godoctor/internal/textdist"
 )
 
 func TestGetDocumentation_StdLib(t *testing.T) {
@@ -94,7 +96,7 @@ func TestLevenshtein(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := levenshtein(tt.s1, tt.s2)
+		got := textdist.Levenshtein(tt.s1, tt.s2)
 		if got != tt.want {
 			t.Errorf("levenshtein(%q, %q) = %d, want %d", tt.s1, tt.s2, got, tt.want)
 		}
@@ -103,12 +105,12 @@ func TestLevenshtein(t *testing.T) {
 
 func TestFindFuzzyMatches(t *testing.T) {
 	candidates := []string{"Println", "Printf", "Sprintf", "Stringer", "Scan", "fmt"}
-	
+
 	tests := []struct {
 		query string
 		want  []string
 	}{
-		{"Prntln", []string{"Println"}},                     // Typo
+		{"Prntln", []string{"Println"}},                      // Typo
 		{"printf", []string{"Println", "Printf", "Sprintf"}}, // Case insensitivity + close matches
 		{"sprint", []string{"Printf", "Sprintf"}},            // Partial/Close
 		{"ftm", []string{"fmt"}},                             // Package typo
@@ -117,12 +119,12 @@ func TestFindFuzzyMatches(t *testing.T) {
 
 	for _, tt := range tests {
 		got := findFuzzyMatches(tt.query, candidates)
-		
+
 		if len(got) != len(tt.want) {
 			t.Errorf("findFuzzyMatches(%q) got %v, want %v", tt.query, got, tt.want)
 			continue
 		}
-		
+
 		for i := range got {
 			if got[i] != tt.want[i] {
 				t.Errorf("findFuzzyMatches(%q) index %d: got %q, want %q", tt.query, i, got[i], tt.want[i])
