@@ -1,0 +1,50 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "replace",
+        "hooks": [
+          {
+            "name": "godoctor-block-replace",
+            "type": "command",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
+            "description": "Blocks the native replace tool to enforce smart_edit usage."
+          }
+        ]
+      },
+      {
+        "matcher": "read_file",
+        "hooks": [
+          {
+            "name": "godoctor-block-read",
+            "type": "command",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
+            "description": "Blocks the native read tool to enforce smart_read usage."
+          }
+        ]
+      },
+      {
+        "matcher": "write_file",
+        "hooks": [
+          {
+            "name": "godoctor-block-write",
+            "type": "command",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
+            "description": "Blocks the native write tool to enforce file_create usage."
+          }
+        ]
+      },
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "godoctor-block-shell",
+            "type": "command",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
+            "description": "Blocks inefficient shell usage (go build, sed, grep) to enforce MCP tool usage."
+          }
+        ]
+      }
+    ]
+  }
+}
