@@ -59,8 +59,9 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 	// selene exits with code 1 if mutations survive
 	if runErr != nil {
 		return &mcp.CallToolResult{
+			IsError: true,
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("🧬 Mutation testing results:\n\n%s", output)},
+				&mcp.TextContent{Text: fmt.Sprintf("🧬 Mutation testing results:\n%v\n%s", runErr, output)},
 			},
 		}, nil, nil
 	}

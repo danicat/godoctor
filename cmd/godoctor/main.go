@@ -24,6 +24,7 @@ import (
 	"syscall"
 
 	"github.com/danicat/godoctor/internal/config"
+	"github.com/danicat/godoctor/internal/hooks"
 	"github.com/danicat/godoctor/internal/instructions"
 	"github.com/danicat/godoctor/internal/server"
 	"github.com/danicat/godoctor/internal/toolnames"
@@ -34,6 +35,10 @@ var (
 )
 
 func main() {
+	if len(os.Args) >= 3 && os.Args[1] == "hooks" && os.Args[2] == "intercept" {
+		hooks.Intercept()
+		return
+	}
 	os.Exit(runMain())
 }
 

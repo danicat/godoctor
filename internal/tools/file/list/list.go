@@ -69,7 +69,7 @@ func tryGitLsFiles(ctx context.Context, absRoot string, maxDepth int) (*mcp.Call
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Listing files in %s (Depth: %d, git-aware)\n\n", absRoot, maxDepth))
+	fmt.Fprintf(&sb, "Listing files in %s (Depth: %d, git-aware)\n\n", absRoot, maxDepth)
 
 	fileCount := 0
 	dirsSeen := make(map[string]bool)
@@ -87,7 +87,7 @@ func tryGitLsFiles(ctx context.Context, absRoot string, maxDepth int) (*mcp.Call
 		}
 
 		if fileCount >= maxFiles {
-			sb.WriteString(fmt.Sprintf("\n(Limit of %d files reached, output truncated)\n", maxFiles))
+			fmt.Fprintf(&sb, "\n(Limit of %d files reached, output truncated)\n", maxFiles)
 			return &mcp.CallToolResult{
 				Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
 			}, true
@@ -101,16 +101,16 @@ func tryGitLsFiles(ctx context.Context, absRoot string, maxDepth int) (*mcp.Call
 				d := strings.Join(parts[:i+1], "/")
 				if !dirsSeen[d] {
 					dirsSeen[d] = true
-					sb.WriteString(fmt.Sprintf("%s/\n", d))
+					fmt.Fprintf(&sb, "%s/\n", d)
 				}
 			}
 		}
 
-		sb.WriteString(fmt.Sprintf("%s\n", line))
+		fmt.Fprintf(&sb, "%s\n", line)
 		fileCount++
 	}
 
-	sb.WriteString(fmt.Sprintf("\nFound %d files, %d directories.\n", fileCount, len(dirsSeen)))
+	fmt.Fprintf(&sb, "\nFound %d files, %d directories.\n", fileCount, len(dirsSeen))
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
 	}, true
@@ -119,7 +119,7 @@ func tryGitLsFiles(ctx context.Context, absRoot string, maxDepth int) (*mcp.Call
 // walkDir is the fallback directory walker for non-git directories.
 func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Listing files in %s (Depth: %d)\n\n", absRoot, maxDepth))
+	fmt.Fprintf(&sb, "Listing files in %s (Depth: %d)\n\n", absRoot, maxDepth)
 
 	fileCount := 0
 	dirCount := 0
@@ -128,7 +128,7 @@ func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 
 	err := filepath.WalkDir(absRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			sb.WriteString(fmt.Sprintf("Warning: skipping %s: %v\n", path, err))
+			fmt.Fprintf(&sb, "Warning: skipping %s: %v\n", path, err)
 			return nil
 		}
 
@@ -155,10 +155,10 @@ func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 		}
 
 		if d.IsDir() {
-			sb.WriteString(fmt.Sprintf("%s/\n", relPath))
+			fmt.Fprintf(&sb, "%s/\n", relPath)
 			dirCount++
 		} else {
-			sb.WriteString(fmt.Sprintf("%s\n", relPath))
+			fmt.Fprintf(&sb, "%s\n", relPath)
 			fileCount++
 		}
 
@@ -166,13 +166,13 @@ func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 	})
 
 	if err != nil {
-		sb.WriteString(fmt.Sprintf("\nError walking: %v\n", err))
+		fmt.Fprintf(&sb, "\nError walking: %v\n", err)
 	}
 
 	if limitReached {
-		sb.WriteString(fmt.Sprintf("\n(Limit of %d files reached, output truncated)\n", maxFiles))
+		fmt.Fprintf(&sb, "\n(Limit of %d files reached, output truncated)\n", maxFiles)
 	} else {
-		sb.WriteString(fmt.Sprintf("\nFound %d files, %d directories.\n", fileCount, dirCount))
+		fmt.Fprintf(&sb, "\nFound %d files, %d directories.\n", fileCount, dirCount)
 	}
 
 	return &mcp.CallToolResult{

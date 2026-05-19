@@ -49,11 +49,11 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 			return errorResult(fmt.Sprintf("failed to generate outline: %v", err)), nil, nil
 		}
 		var sb strings.Builder
-		sb.WriteString(fmt.Sprintf("# File: %s (Outline)\n\n", absPath))
+		fmt.Fprintf(&sb, "# File: %s (Outline)\n\n", absPath)
 		if len(errs) > 0 {
 			sb.WriteString("## Analysis (Problems)\n")
 			for _, e := range errs {
-				sb.WriteString(fmt.Sprintf("- ⚠️ %v\n", e))
+				fmt.Fprintf(&sb, "- ⚠️ %v\n", e)
 			}
 			sb.WriteString("\n")
 		}
@@ -73,7 +73,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 			if len(thirdParty) > 0 {
 				sb.WriteString("\n## Third-Party Imports\n")
 				for _, imp := range thirdParty {
-					sb.WriteString(fmt.Sprintf("- %s\n", imp))
+					fmt.Fprintf(&sb, "- %s\n", imp)
 				}
 			}
 		}
@@ -117,7 +117,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 
 	var contentWithLines strings.Builder
 	for i, line := range lines {
-		contentWithLines.WriteString(fmt.Sprintf("%4d | %s\n", startLine+i, line))
+		fmt.Fprintf(&contentWithLines, "%4d | %s\n", startLine+i, line)
 	}
 
 	isPartial := args.StartLine > 1 || args.EndLine > 0
@@ -147,7 +147,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 					if len(summary) > 200 {
 						summary = summary[:197] + "..."
 					}
-					entry.WriteString(fmt.Sprintf("- **%s**: %s", pkgPath, summary))
+					fmt.Fprintf(&entry, "- **%s**: %s", pkgPath, summary)
 
 					// Show top exported symbols (functions and types)
 					var symbols []string
@@ -168,7 +168,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 					if len(symbols) > 0 {
 						entry.WriteString("\n  ```go\n")
 						for _, s := range symbols {
-							entry.WriteString(fmt.Sprintf("  %s\n", s))
+							fmt.Fprintf(&entry, "  %s\n", s)
 						}
 						entry.WriteString("  ```")
 					}
@@ -185,7 +185,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 	if isPartial {
 		rangeInfo = fmt.Sprintf(" (Lines %d-%d)", startLine, startLine+len(lines)-1)
 	}
-	sb.WriteString(fmt.Sprintf("# File: %s%s\n\n", args.Filename, rangeInfo))
+	fmt.Fprintf(&sb, "# File: %s%s\n\n", args.Filename, rangeInfo)
 
 	sb.WriteString("```")
 	if isGo {
@@ -210,7 +210,7 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 	if len(diags) > 0 {
 		sb.WriteString("## Analysis (Problems)\n")
 		for _, d := range diags {
-			sb.WriteString(fmt.Sprintf("- ⚠️ %s\n", d))
+			fmt.Fprintf(&sb, "- ⚠️ %s\n", d)
 		}
 		sb.WriteString("\n")
 	}
@@ -220,6 +220,63 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 			&mcp.TextContent{Text: sb.String()},
 		},
 	}, nil, nil
+}
+
+func performLightAnalysis(ctx context.Context, filename string, content []byte) ([]string, []string) {
+	var diags []string
+	var packageDocs []string
+
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, filename, content, parser.ParseComments)
+	if err != nil {
+		diags = append(diags, err.Error())
+		return diags, packageDocs
+	}
+
+	for i, imp := range f.Imports {
+		if i >= 10 {
+			packageDocs = append(packageDocs, "... (more imports)")
+			break
+		}
+		pkgPath := strings.Trim(imp.Path.Value, "\"")
+
+		if parts := strings.Split(pkgPath, "/"); len(parts) > 0 && !strings.Contains(parts[0], ".") {
+			continue
+		}
+
+		if d, err := godoc.Load(ctx, pkgPath, ""); err == nil {
+			var entry strings.Builder
+			summary := strings.ReplaceAll(d.Description, "\n", " ")
+			if len(summary) > 200 {
+				summary = summary[:197] + "..."
+			}
+			fmt.Fprintf(&entry, "- **%s**: %s", pkgPath, summary)
+
+			var symbols []string
+			for j, t := range d.Types {
+				if j >= 3 {
+					break
+				}
+				symbols = append(symbols, strings.Split(t, "\n")[0])
+			}
+			for j, fn := range d.Funcs {
+				if j >= 5 {
+					break
+				}
+				symbols = append(symbols, strings.Split(fn, "\n")[0])
+			}
+			if len(symbols) > 0 {
+				entry.WriteString("\n  ```go\n")
+				for _, s := range symbols {
+					fmt.Fprintf(&entry, "  %s\n", s)
+				}
+				entry.WriteString("  ```")
+			}
+
+			packageDocs = append(packageDocs, entry.String())
+		}
+	}
+	return diags, packageDocs
 }
 
 func errorResult(msg string) *mcp.CallToolResult {

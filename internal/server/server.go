@@ -26,7 +26,6 @@ import (
 	"github.com/danicat/godoctor/internal/tools/file/read"
 	"github.com/danicat/godoctor/internal/tools/go/docs"
 	"github.com/danicat/godoctor/internal/tools/go/get"
-	"github.com/danicat/godoctor/internal/tools/go/modernize"
 	"github.com/danicat/godoctor/internal/tools/go/mutation"
 	"github.com/danicat/godoctor/internal/tools/go/project"
 	"github.com/danicat/godoctor/internal/tools/go/quality"
@@ -106,7 +105,9 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 
 	go func() {
 		<-ctx.Done()
-		srv.Shutdown(context.Background())
+		if err := srv.Shutdown(context.Background()); err != nil {
+			log.Printf("MCP HTTP Server shutdown error: %v", err)
+		}
 	}()
 
 	return srv.ListenAndServe()
@@ -127,7 +128,6 @@ func (s *Server) RegisterHandlers() error {
 		{name: "smart_read", register: read.Register},
 		{name: "smart_edit", register: edit.Register},
 		{name: "file_create", register: create.Register},
-		{name: "modernize_code", register: modernize.Register},
 		{name: "list_files", register: list.Register},
 
 		{name: "smart_build", register: quality.Register},

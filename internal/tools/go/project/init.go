@@ -4,15 +4,14 @@ package project
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
-
 	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 // Register registers the tool with the server.
@@ -36,7 +35,6 @@ type Params struct {
 type Runner interface {
 	Run(ctx context.Context, dir, name string, args ...string) (string, error)
 }
-
 type stdRunner struct{}
 
 func (r *stdRunner) Run(ctx context.Context, dir, name string, args ...string) (string, error) {
@@ -53,39 +51,30 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
-
 	// 1. Create Directory
 	if err := os.MkdirAll(absPath, 0755); err != nil {
 		return errorResult(fmt.Sprintf("failed to create directory: %v", err)), nil, nil
 	}
-
 	// 2. go mod init
 	// Check if go.mod already exists
 	if _, err := os.Stat(filepath.Join(absPath, "go.mod")); err == nil {
 		return errorResult("project already initialized (go.mod exists)"), nil, nil
 	}
-
 	if out, err := CommandRunner.Run(ctx, absPath, "go", "mod", "init", args.ModulePath); err != nil {
 		return errorResult(fmt.Sprintf("failed to init module: %v\nOutput: %s", err, out)), nil, nil
 	}
-
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("✅ Successfully initialized Go project at `%s`\n", absPath))
-	sb.WriteString(fmt.Sprintf("- Module: `%s`\n", args.ModulePath))
-	sb.WriteString(fmt.Sprintf("- Created: `%s/go.mod`\n", absPath))
-
+	fmt.Fprintf(&sb, "✅ Successfully initialized Go project at `%s`\n", absPath)
+	fmt.Fprintf(&sb, "- Module: `%s`\n", args.ModulePath)
+	fmt.Fprintf(&sb, "- Created: `%s/go.mod`\n", absPath)
 	// 3. Install dependencies
 	if len(args.Dependencies) > 0 {
 		sb.WriteString("- Dependencies:\n")
-
 		docsNeeded := make(map[string]bool)
-
 		for _, dep := range args.Dependencies {
 			pkgPath := strings.Split(dep, "@")[0]
-
 			if out, err := CommandRunner.Run(ctx, absPath, "go", "get", dep); err != nil {
-				sb.WriteString(fmt.Sprintf("  - ⚠️ Failed to get `%s`: %v\n", dep, out))
-
+				fmt.Fprintf(&sb, "  - ⚠️ Failed to get `%s`: %v\n", dep, out)
 				// Deduplicate by guessing module root
 				parts := strings.Split(pkgPath, "/")
 				if len(parts) >= 3 && strings.Contains(parts[0], ".") {
@@ -97,13 +86,14 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 					docsNeeded[pkgPath] = true
 				}
 			} else {
-				sb.WriteString(fmt.Sprintf("  - ✅ `%s` installed\n", dep))
+				fmt.Fprintf(&sb, "  - ✅ `%s` installed\n", dep)
 				docsNeeded[pkgPath] = true
 			}
 		}
 		// Final tidy
-		CommandRunner.Run(ctx, absPath, "go", "mod", "tidy")
-
+		if _, err := CommandRunner.Run(ctx, absPath, "go", "mod", "tidy"); err != nil {
+			fmt.Fprintf(&sb, "  - ⚠️ `go mod tidy` failed: %v\n", err)
+		}
 		// Process docs (deduplicated)
 		for pkgPath := range docsNeeded {
 			if docContent, _ := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
@@ -111,16 +101,13 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 				sb.WriteString(docContent)
 			}
 		}
-
 	}
-
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: sb.String()},
 		},
 	}, nil, nil
 }
-
 func errorResult(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
 		IsError: true,

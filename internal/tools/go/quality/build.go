@@ -30,7 +30,7 @@ type Params struct {
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to build (default: ./...)"`
 	RunTests *bool  `json:"run_tests,omitempty" jsonschema:"Run unit tests after build (default: true)"`
 	RunLint  *bool  `json:"run_lint,omitempty" jsonschema:"Run linter after tests (default: true)"`
-	AutoFix  *bool  `json:"auto_fix,omitempty" jsonschema:"Run go mod tidy / go fmt before build (default: true)"`
+	AutoFix  *bool  `json:"auto_fix,omitempty" jsonschema:"Run go mod tidy, modernize code, and go fmt before build (default: true)"`
 }
 
 // Runner defines the interface for running commands.
@@ -91,122 +91,157 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# Smart Build Report (`%s`)\n\n", pkgs))
+	fmt.Fprintf(&sb, "# Smart Build Report (`%s`)\n\n", pkgs)
 
-	// 1. Auto-Fix
 	if autoFix {
-		if err := CommandRunner.Run(ctx, dir, "go", "mod", "tidy"); err != nil {
-			sb.WriteString(fmt.Sprintf("### ⚠️ Auto-Fix: `go mod tidy` Failed\n> %v\n\n", err))
-		}
-		if err := CommandRunner.Run(ctx, dir, "gofmt", "-w", "."); err != nil {
-			// gofmt might fail if syntax is very broken, which build will catch
+		runAutoFix(ctx, dir, &sb)
+	}
+
+	if err := runBuild(ctx, dir, pkgs, &sb); err != nil {
+		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
+		return result(sb.String(), true), nil, nil
+	}
+
+	if runTests {
+		if err := runTestsPhase(ctx, dir, pkgs, &sb); err != nil {
+			//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
+			return result(sb.String(), true), nil, nil
 		}
 	}
 
-	// 2. Build
+	if runLint {
+		if err := runLinterPhase(ctx, dir, pkgs, &sb); err != nil {
+			//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
+			return result(sb.String(), true), nil, nil
+		}
+	}
+
+	return result(sb.String(), false), nil, nil
+}
+
+func runAutoFix(ctx context.Context, dir string, sb *strings.Builder) {
+	if err := CommandRunner.Run(ctx, dir, "go", "mod", "tidy"); err != nil {
+		fmt.Fprintf(sb, "### ⚠️ Auto-Fix: `go mod tidy` Failed\n> %v\n\n", err)
+	}
+
+	// Run Modernize directly from the CLI tool
+	runAnalyzer := func(cmd string) {
+		out, err := CommandRunner.RunWithOutput(ctx, dir, "go", "run", cmd, "-fix", "./...")
+		// These analyzers return exit code 3 if they found an issue and fixed it.
+		// Exit code 1 means a genuine failure (e.g. compile error).
+		if err != nil {
+			// We don't want to fail the whole build for a lint fix error, just warn the user.
+			if !strings.Contains(err.Error(), "exit status 3") {
+				fmt.Fprintf(sb, "  - ⚠️ Modernize `%s` Warning: %v\n    %s\n", cmd, err, strings.TrimSpace(out))
+			}
+		}
+	}
+
+	runAnalyzer("golang.org/x/tools/go/analysis/passes/defers/cmd/defers@latest")
+	runAnalyzer("golang.org/x/tools/go/analysis/passes/errorsas/cmd/errorsas@latest")
+	runAnalyzer("golang.org/x/tools/go/analysis/passes/sortslice/cmd/sortslice@latest")
+	runAnalyzer("golang.org/x/tools/go/analysis/passes/timeformat/cmd/timeformat@latest")
+
+	if err := CommandRunner.Run(ctx, dir, "gofmt", "-w", "."); err != nil {
+		// gofmt might fail if syntax is very broken, which build will catch
+	}
+}
+
+func runBuild(ctx context.Context, dir, pkgs string, sb *strings.Builder) error {
 	sb.WriteString("### 🛠️ Build: ")
 	buildOut, buildErr := CommandRunner.RunWithOutput(ctx, dir, "go", "build", pkgs)
 	if buildErr != nil {
 		sb.WriteString("❌ FAILED\n\n")
 		sb.WriteString(formatOutput(buildOut))
 		sb.WriteString(shared.GetDocHintFromOutput(buildOut))
-		return result(sb.String(), true), nil, nil
+		return buildErr
+	}
+	sb.WriteString("✅ PASS\n\n")
+	return nil
+}
+
+func runTestsPhase(ctx context.Context, dir, pkgs string, sb *strings.Builder) error {
+	sb.WriteString("### 🧪 Tests: ")
+
+	// Create a temporary file for coverage
+	covFile := "coverage.out"
+	defer func() {
+		_ = os.Remove(covFile)
+	}()
+
+	// -v for verbose, -coverprofile for coverage
+	testArgs := []string{"test", "-v", "-coverprofile=" + covFile, pkgs}
+	testOut, testErr := CommandRunner.RunWithOutput(ctx, dir, "go", testArgs...)
+
+	if testErr != nil {
+		sb.WriteString("❌ FAILED\n\n")
+		sb.WriteString(formatOutput(testOut))
+		return testErr
 	}
 	sb.WriteString("✅ PASS\n\n")
 
-	// 3. Tests
-	if runTests {
-		sb.WriteString("### 🧪 Tests: ")
+	// Process coverage
+	sb.WriteString("#### Coverage\n")
 
-		// Create a temporary file for coverage
-		covFile := "coverage.out"
-		defer func() {
-			_ = os.Remove(covFile)
-		}()
-
-		// -v for verbose, -coverprofile for coverage
-		testArgs := []string{"test", "-v", "-coverprofile=" + covFile, pkgs}
-		testOut, testErr := CommandRunner.RunWithOutput(ctx, dir, "go", testArgs...)
-
-		if testErr != nil {
-			sb.WriteString("❌ FAILED\n\n")
-			sb.WriteString(formatOutput(testOut))
-			return result(sb.String(), true), nil, nil
-		}
-		sb.WriteString("✅ PASS\n\n")
-
-		// Process coverage
-		sb.WriteString("#### Coverage\n")
-
-		// 1. Get Total Coverage from go tool cover -func
-		funcOut, funcErr := CommandRunner.RunWithOutput(ctx, dir, "go", "tool", "cover", "-func="+covFile)
-		if funcErr == nil {
-			lines := strings.Split(strings.TrimSpace(funcOut), "\n")
-			if len(lines) > 0 {
-				lastLine := lines[len(lines)-1]
-				if strings.HasPrefix(lastLine, "total:") {
-					// Format: "total: (statements) 80.0%"
-					parts := strings.Fields(lastLine)
-					if len(parts) >= 3 {
-						sb.WriteString(fmt.Sprintf("- **Total Project Coverage**: %s\n", parts[len(parts)-1]))
-					}
+	// 1. Get Total Coverage from go tool cover -func
+	funcOut, funcErr := CommandRunner.RunWithOutput(ctx, dir, "go", "tool", "cover", "-func="+covFile)
+	if funcErr == nil {
+		lines := strings.Split(strings.TrimSpace(funcOut), "\n")
+		if len(lines) > 0 {
+			lastLine := lines[len(lines)-1]
+			if strings.HasPrefix(lastLine, "total:") {
+				// Format: "total: (statements) 80.0%"
+				parts := strings.Fields(lastLine)
+				if len(parts) >= 3 {
+					fmt.Fprintf(sb, "- **Total Project Coverage**: %s\n", parts[len(parts)-1])
 				}
 			}
 		}
+	}
 
-		// 2. Parse per-package coverage from test output
-		// Format: "ok  \tgithub.com/org/repo/pkg\t0.123s\tcoverage: 50.0% of statements"
-		// or "?   \tgithub.com/org/repo/pkg\t[no test files]"
-		lines := strings.Split(testOut, "\n")
-		hasCoverage := false
-		for _, line := range lines {
-			if strings.Contains(line, "\tcoverage: ") {
-				// Extract package and coverage
-				parts := strings.Fields(line)
-				// parts usually: [ok, pkgname, time, coverage:, 50.0%, of, statements]
-				if len(parts) >= 5 {
-					pkg := parts[1]
-					covStr := parts[4] // "50.0%"
-
-					// Omit 0.0% coverage? User said "Omit packages with 0% coverage"
-					// Usually it says "coverage: [no statements]" if 0? No, it says "0.0% of statements"
-					if covStr != "0.0%" && covStr != "[no" {
-						if !hasCoverage {
-							sb.WriteString("- **Packages**:\n")
-							hasCoverage = true
-						}
-						sb.WriteString(fmt.Sprintf("  - `%s`: %s\n", pkg, covStr))
+	// 2. Parse per-package coverage from test output
+	lines := strings.Split(testOut, "\n")
+	hasCoverage := false
+	for _, line := range lines {
+		if strings.Contains(line, "\tcoverage: ") {
+			parts := strings.Fields(line)
+			if len(parts) >= 5 {
+				pkg := parts[1]
+				covStr := parts[4] // "50.0%"
+				if covStr != "0.0%" && covStr != "[no" {
+					if !hasCoverage {
+						sb.WriteString("- **Packages**:\n")
+						hasCoverage = true
 					}
+					fmt.Fprintf(sb, "  - `%s`: %s\n", pkg, covStr)
 				}
 			}
 		}
-		sb.WriteString("\n")
+	}
+	sb.WriteString("\n")
+	return nil
+}
+
+func runLinterPhase(ctx context.Context, dir, pkgs string, sb *strings.Builder) error {
+	sb.WriteString("### 🧹 Lint: ")
+
+	lintCmd := "golangci-lint"
+	lintArgs := []string{"run", pkgs}
+
+	if _, err := CommandRunner.LookPath("golangci-lint"); err != nil {
+		lintCmd = "go"
+		lintArgs = []string{"vet", pkgs}
+		sb.WriteString("(using `go vet`) ")
 	}
 
-	// 4. Lint
-	if runLint {
-		sb.WriteString("### 🧹 Lint: ")
-
-		// Check for golangci-lint
-		lintCmd := "golangci-lint"
-		lintArgs := []string{"run", pkgs}
-
-		if _, err := CommandRunner.LookPath("golangci-lint"); err != nil {
-			lintCmd = "go"
-			lintArgs = []string{"vet", pkgs}
-			sb.WriteString("(using `go vet`) ")
-		}
-
-		lintOut, lintErr := CommandRunner.RunWithOutput(ctx, dir, lintCmd, lintArgs...)
-		if lintErr != nil {
-			sb.WriteString("⚠️ ISSUES FOUND\n\n")
-			sb.WriteString(formatOutput(lintOut))
-			return result(sb.String(), true), nil, nil
-		}
-		sb.WriteString("✅ PASS\n")
+	lintOut, lintErr := CommandRunner.RunWithOutput(ctx, dir, lintCmd, lintArgs...)
+	if lintErr != nil {
+		sb.WriteString("⚠️ ISSUES FOUND\n\n")
+		sb.WriteString(formatOutput(lintOut))
+		return lintErr
 	}
-
-	return result(sb.String(), false), nil, nil
+	sb.WriteString("✅ PASS\n")
+	return nil
 }
 
 func formatOutput(out string) string {

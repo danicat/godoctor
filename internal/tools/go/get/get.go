@@ -4,12 +4,11 @@ package get
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"strings"
-
 	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"os/exec"
+	"strings"
 )
 
 // Register registers the tool with the server.
@@ -35,7 +34,6 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	if args.Package != "" && len(args.Packages) == 0 {
 		args.Packages = []string{args.Package}
 	}
-
 	if len(args.Packages) == 0 {
 		return &mcp.CallToolResult{
 			IsError: true,
@@ -44,40 +42,32 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 			},
 		}, nil, nil
 	}
-
 	cmdArgs := []string{"get"}
 	if args.Update {
 		cmdArgs = append(cmdArgs, "-u")
 	}
 	cmdArgs = append(cmdArgs, args.Args...)
 	cmdArgs = append(cmdArgs, args.Packages...)
-
 	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
 	// Run in current directory
 	output, err := cmd.CombinedOutput()
-
 	var sb strings.Builder
 	isError := false
-
 	if err != nil {
 		isError = true
-		sb.WriteString(fmt.Sprintf("go get failed: %v\nOutput:\n%s\n", err, string(output)))
+		fmt.Fprintf(&sb, "go get failed: %v\nOutput:\n%s\n", err, string(output))
 	} else {
-		sb.WriteString(fmt.Sprintf("Successfully ran 'go get %s'\n", strings.Join(args.Packages, " ")))
+		fmt.Fprintf(&sb, "Successfully ran 'go get %s'\n", strings.Join(args.Packages, " "))
 	}
-
 	// Auto-fetch documentation for each package (even on failure, to provide context)
 	for _, pkg := range args.Packages {
 		// Strip version suffix if present (e.g., @latest, @v1.2.3)
 		pkgPath := strings.Split(pkg, "@")[0]
-
 		if docContent, _ := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
 			sb.WriteString("\n")
 			sb.WriteString(docContent)
 		}
-
 	}
-
 	return &mcp.CallToolResult{
 		IsError: isError,
 		Content: []mcp.Content{

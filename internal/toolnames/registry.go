@@ -51,8 +51,8 @@ var Registry = map[string]ToolDef{
 	"smart_build": {
 		Name:        "smart_build",
 		Title:       "Smart Build",
-		Description: "The primary build tool. Enforces a quality gate pipeline: Tidy -> Format -> Build -> Test -> Lint. Ensures code is production-ready.",
-		Instruction: "*   **`smart_build`**: Compile and verify code.\n    *   **Usage:** `smart_build(packages=\"./...\", auto_fix=true)`\n    *   **Outcome:** A comprehensive report on build status, test results, and lint issues.",
+		Description: "The primary build tool. Enforces a quality gate pipeline: Tidy -> Modernize -> Format -> Build -> Test -> Lint. Automatically upgrades legacy patterns.",
+		Instruction: "*   **`smart_build`**: Compile and verify code.\n    *   **Usage:** `smart_build(packages=\"./...\", auto_fix=true)`\n    *   **Pipeline:** Runs `go mod tidy`, modernizes code (if `auto_fix` is true), formats, builds, tests, and lints.\n    *   **Outcome:** A comprehensive report on build status, test results, and lint issues.",
 	},
 	"add_dependency": {
 		Name:        "add_dependency",
@@ -65,12 +65,6 @@ var Registry = map[string]ToolDef{
 		Title:       "Initialize Project",
 		Description: "Bootstraps a new Go project by creating the directory, initializing the Go module, and installing essential dependencies. Reduces boilerplate and ensures a standard project structure.",
 		Instruction: "*   **`project_init`**: Bootstrap a new Go project.\n    *   **Usage:** `project_init(path=\"my-app\", module_path=\"github.com/user/my-app\", dependencies=[\"github.com/go-chi/chi/v5\"])`\n    *   **Outcome:** A valid Go module with requested dependencies and a skeleton structure.",
-	},
-	"modernize_code": {
-		Name:        "modernize_code",
-		Title:       "Modernize Code",
-		Description: "Analyzes the codebase for outdated Go patterns and automatically refactors them to modern standards. Improves maintainability and performance by applying idiomatic upgrades.",
-		Instruction: "*   **`modernize_code`**: Automatically upgrade legacy patterns.\n    *   **Usage:** `modernize_code(dir=\".\", fix=true)`\n    *   **Outcome:** Source code refactored to modern Go standards.",
 	},
 
 	// --- TESTING ---

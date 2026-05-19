@@ -15,10 +15,9 @@ GoDoctor organizes its capabilities into domain-specific tools to streamline dev
 *   **`smart_edit`**: Perform targeted code modifications using Levenshtein distance matching. Automatically handles formatting and checks syntax before finalizing.
 
 ### 🛠️ Go Toolchain Integration
-*   **`smart_build`**: **The Universal Quality Gate.** Compiles the project, runs tests, and checks for linting issues in a single atomic step. Automatically runs `go mod tidy` and `gofmt`.
+*   **`smart_build`**: **The Universal Quality Gate.** A complete pipeline that tidies modules, automatically modernizes legacy Go patterns, formats, compiles, runs tests, and lints in a single atomic step.
 *   **`add_dependency`**: Manage module dependencies and immediately fetch documentation for the new package.
 *   **`read_docs`**: Query documentation for any package or symbol in the Go ecosystem.
-*   **`modernize_code`**: Automatically upgrade legacy Go patterns to modern standards.
 
 
 ### 🤖 Expert Assistance
@@ -119,3 +118,5 @@ godoctor --list-tools
 
 Apache 2.0
 
+### 🛡️ Hook System (Gemini CLI)
+When installed in Gemini CLI, GoDoctor features a built-in intelligent hook system that intercepts raw, inefficient shell operations (like `go build`, `sed`, `cat`) or native tools (like `replace`, `read_file`) and forces the agent to use GoDoctor's context-aware, robust tools (`smart_build`, `smart_edit`, `smart_read`). This ensures the quality gate pipeline is respected and cognitive drift is minimized.

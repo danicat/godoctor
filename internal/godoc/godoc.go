@@ -157,7 +157,8 @@ func GetDocumentationWithFallback(ctx context.Context, pkgPath string) (string, 
 		parentPath := strings.Join(parts[:i], "/")
 		doc, err := Load(ctx, parentPath, "")
 		if err == nil && doc.Package != "" {
-			return fmt.Sprintf("> ℹ️ **Note:** Could not find `%s`. Showing documentation for parent module `%s` instead.\n\n%s", pkgPath, parentPath, Render(doc)), nil
+			note := fmt.Sprintf("> ℹ️ **Note:** Could not find `%s`. Showing documentation for parent module `%s` instead.\n\n%s", pkgPath, parentPath, Render(doc))
+			return note, nil
 		}
 	}
 
@@ -208,6 +209,7 @@ func resolvePackageDir(ctx context.Context, pkgPath string) (string, error) {
 
 func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, requestedPath string) (*Doc, error) {
 	fset := token.NewFileSet()
+	//nolint:staticcheck // SA1019: parser.ParseDir is used for fast parsing of comments without type-checking
 	pkgs, err := parser.ParseDir(fset, pkgDir, nil, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("parser.ParseDir failed: %w", err)
@@ -242,7 +244,8 @@ func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, reque
 		// If no files found, but we have subpackages, return a module overview
 		if len(result.SubPackages) > 0 {
 			result.Package = "module_root"
-			result.Description = fmt.Sprintf("Module root for %s. No Go source files found in the root directory, but sub-packages exist.", importPath)
+			desc := fmt.Sprintf("Module root for %s. No Go source files found in the root directory, but sub-packages exist.", importPath)
+			result.Description = desc
 			return result, nil
 		}
 		return nil, fmt.Errorf("no files found in package %s", importPath)
@@ -465,22 +468,22 @@ func bufferCode(fset *token.FileSet, node any) string {
 func Render(doc *Doc) string {
 	var buf strings.Builder
 
-	buf.WriteString(fmt.Sprintf("# %s\n\n", doc.ImportPath))
+	fmt.Fprintf(&buf, "# %s\n\n", doc.ImportPath)
 
 	if doc.ResolvedPath != "" {
 		if strings.HasPrefix(doc.ResolvedPath, doc.ImportPath) {
-			buf.WriteString(fmt.Sprintf("> ℹ️ **Note:** Could not find `%s`. Showing documentation for parent module `%s` instead.\n\n", doc.ResolvedPath, doc.ImportPath))
+			fmt.Fprintf(&buf, "> ℹ️ **Note:** Could not find `%s`. Showing documentation for parent module `%s` instead.\n\n", doc.ResolvedPath, doc.ImportPath)
 		} else {
-			buf.WriteString(fmt.Sprintf("> **Note:** Redirected from %s\n\n", doc.ResolvedPath))
+			fmt.Fprintf(&buf, "> **Note:** Redirected from %s\n\n", doc.ResolvedPath)
 		}
 	}
 
 	if doc.SymbolName != "" {
-		buf.WriteString(fmt.Sprintf("## %s %s\n\n", doc.Type, doc.SymbolName))
+		fmt.Fprintf(&buf, "## %s %s\n\n", doc.Type, doc.SymbolName)
 	}
 
 	if doc.SourcePath != "" {
-		buf.WriteString(fmt.Sprintf("Defined in: `%s:%d`\n\n", doc.SourcePath, doc.Line))
+		fmt.Fprintf(&buf, "Defined in: `%s:%d`\n\n", doc.SourcePath, doc.Line)
 	}
 
 	if doc.Definition != "" {
@@ -492,70 +495,17 @@ func Render(doc *Doc) string {
 	buf.WriteString(doc.Description)
 	buf.WriteString("\n\n")
 
-	if len(doc.Examples) > 0 {
-		buf.WriteString("### Examples\n\n")
-		for _, ex := range doc.Examples {
-			name := ex.Name
-			if name == "" {
-				name = "Package Example"
-			}
-			buf.WriteString(fmt.Sprintf("#### %s\n\n", name))
-			buf.WriteString("```go\n")
-			buf.WriteString(ex.Code)
-			buf.WriteString("\n```\n")
-			if ex.Output != "" {
-				buf.WriteString("\n**Output:**\n```\n")
-				buf.WriteString(ex.Output)
-				buf.WriteString("\n```\n")
-			}
-			buf.WriteString("\n")
-		}
-	}
+	renderExamples(&buf, doc.Examples)
 
 	// Render Symbol Lists (if available and not focusing on a single symbol)
 	if doc.SymbolName == "" {
-		if len(doc.Consts) > 0 {
-			buf.WriteString("### Constants\n\n")
-			buf.WriteString("```go\n")
-			for _, c := range doc.Consts {
-				buf.WriteString(c)
-				buf.WriteString("\n")
-			}
-			buf.WriteString("```\n\n")
-		}
-		if len(doc.Vars) > 0 {
-			buf.WriteString("### Variables\n\n")
-			buf.WriteString("```go\n")
-			for _, v := range doc.Vars {
-				buf.WriteString(v)
-				buf.WriteString("\n")
-			}
-			buf.WriteString("```\n\n")
-		}
-		if len(doc.Funcs) > 0 {
-			buf.WriteString("### Functions\n\n")
-			buf.WriteString("```go\n")
-			for _, f := range doc.Funcs {
-				buf.WriteString(f)
-				buf.WriteString("\n\n")
-			}
-			buf.WriteString("```\n\n")
-		}
-		if len(doc.Types) > 0 {
-			buf.WriteString("### Types\n\n")
-			buf.WriteString("```go\n")
-			for _, t := range doc.Types {
-				buf.WriteString(t)
-				buf.WriteString("\n\n")
-			}
-			buf.WriteString("```\n\n")
-		}
+		renderSymbolLists(&buf, doc)
 	}
 
 	if len(doc.References) > 0 {
 		buf.WriteString("### Usages\n\n")
 		for _, ref := range doc.References {
-			buf.WriteString(fmt.Sprintf("- %s\n", ref))
+			fmt.Fprintf(&buf, "- %s\n", ref)
 		}
 		buf.WriteString("\n")
 	}
@@ -563,13 +513,75 @@ func Render(doc *Doc) string {
 	if len(doc.SubPackages) > 0 {
 		buf.WriteString("### Sub-packages\n\n")
 		for _, sub := range doc.SubPackages {
-			buf.WriteString(fmt.Sprintf("- %s\n", sub))
+			fmt.Fprintf(&buf, "- %s\n", sub)
 		}
 		buf.WriteString("\n")
 	}
 
-	buf.WriteString(fmt.Sprintf("[View on pkg.go.dev](%s)\n", doc.PkgGoDevURL))
+	fmt.Fprintf(&buf, "[View on pkg.go.dev](%s)\n", doc.PkgGoDevURL)
 	return buf.String()
+}
+
+func renderExamples(buf *strings.Builder, examples []Example) {
+	if len(examples) == 0 {
+		return
+	}
+	buf.WriteString("### Examples\n\n")
+	for _, ex := range examples {
+		name := ex.Name
+		if name == "" {
+			name = "Package Example"
+		}
+		fmt.Fprintf(buf, "#### %s\n\n", name)
+		buf.WriteString("```go\n")
+		buf.WriteString(ex.Code)
+		buf.WriteString("\n```\n")
+		if ex.Output != "" {
+			buf.WriteString("\n**Output:**\n```\n")
+			buf.WriteString(ex.Output)
+			buf.WriteString("\n```\n")
+		}
+		buf.WriteString("\n")
+	}
+}
+
+func renderSymbolLists(buf *strings.Builder, doc *Doc) {
+	if len(doc.Consts) > 0 {
+		buf.WriteString("### Constants\n\n")
+		buf.WriteString("```go\n")
+		for _, c := range doc.Consts {
+			buf.WriteString(c)
+			buf.WriteString("\n")
+		}
+		buf.WriteString("```\n\n")
+	}
+	if len(doc.Vars) > 0 {
+		buf.WriteString("### Variables\n\n")
+		buf.WriteString("```go\n")
+		for _, v := range doc.Vars {
+			buf.WriteString(v)
+			buf.WriteString("\n")
+		}
+		buf.WriteString("```\n\n")
+	}
+	if len(doc.Funcs) > 0 {
+		buf.WriteString("### Functions\n\n")
+		buf.WriteString("```go\n")
+		for _, f := range doc.Funcs {
+			buf.WriteString(f)
+			buf.WriteString("\n\n")
+		}
+		buf.WriteString("```\n\n")
+	}
+	if len(doc.Types) > 0 {
+		buf.WriteString("### Types\n\n")
+		buf.WriteString("```go\n")
+		for _, t := range doc.Types {
+			buf.WriteString(t)
+			buf.WriteString("\n\n")
+		}
+		buf.WriteString("```\n\n")
+	}
 }
 
 func findFuzzyMatches(query string, candidates []string) []string {

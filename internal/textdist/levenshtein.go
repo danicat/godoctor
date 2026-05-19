@@ -23,14 +23,14 @@ func Levenshtein(s1, s2 string) int {
 			if r1[j-1] != r2[i-1] {
 				change++
 			}
-			min := add
-			if del < min {
-				min = del
+			minVal := add
+			if del < minVal {
+				minVal = del
 			}
-			if change < min {
-				min = change
+			if change < minVal {
+				minVal = change
 			}
-			currentRow[j] = min
+			currentRow[j] = minVal
 		}
 	}
 	return currentRow[n]

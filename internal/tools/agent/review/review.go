@@ -272,7 +272,7 @@ func renderReviewMarkdown(suggestions []Suggestion) string {
 	}
 
 	var buf strings.Builder
-	buf.WriteString(fmt.Sprintf("## Code Review\n\nFound %d issues.\n\n", len(suggestions)))
+	fmt.Fprintf(&buf, "## Code Review\n\nFound %d issues.\n\n", len(suggestions))
 
 	for _, s := range suggestions {
 		icon := "ℹ️"
@@ -285,8 +285,8 @@ func renderReviewMarkdown(suggestions []Suggestion) string {
 			icon = "💡"
 		}
 
-		buf.WriteString(fmt.Sprintf("### %s Line %d: %s\n", icon, s.LineNumber, s.Finding))
-		buf.WriteString(fmt.Sprintf("**Severity:** %s\n\n", s.Severity))
+		fmt.Fprintf(&buf, "### %s Line %d: %s\n", icon, s.LineNumber, s.Finding)
+		fmt.Fprintf(&buf, "**Severity:** %s\n\n", s.Severity)
 		buf.WriteString(s.Comment)
 		buf.WriteString("\n\n---\n\n")
 	}

@@ -48,12 +48,12 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 
 	// Build Markdown Response
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# File: %s\n\n", args.Filename))
+	fmt.Fprintf(&sb, "# File: %s\n\n", args.Filename)
 
 	if len(errs) > 0 {
 		sb.WriteString("## Analysis (Problems)\n")
 		for _, e := range errs {
-			sb.WriteString(fmt.Sprintf("- ⚠️ %v\n", e))
+			fmt.Fprintf(&sb, "- ⚠️ %v\n", e)
 		}
 		sb.WriteString("\n")
 	}
@@ -83,7 +83,7 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 			doc, err := godoc.Load(ctx, pkgPath, "")
 
 			if err == nil && doc != nil {
-				sb.WriteString(fmt.Sprintf("### %s\n", pkgPath))
+				fmt.Fprintf(&sb, "### %s\n", pkgPath)
 				sb.WriteString(doc.Description + "\n\n")
 
 				// List top 5 funcs as a hint

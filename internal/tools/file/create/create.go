@@ -71,7 +71,7 @@ func toolHandler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.C
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Successfully wrote `%s` (%d bytes)", args.Filename, len(finalContent)))
+	fmt.Fprintf(&sb, "Successfully wrote `%s` (%d bytes)", args.Filename, len(finalContent))
 	if isGo {
 		sb.WriteString("\n- ✅ goimports (auto-format + import management)")
 		sb.WriteString("\n- ✅ syntax verification")

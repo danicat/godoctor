@@ -63,7 +63,7 @@ func GetSnippet(content string, lineNum int) string {
 		if i == lineNum {
 			prefix = "-> "
 		}
-		sb.WriteString(fmt.Sprintf("%s%d | %s\n", prefix, i, lines[i-1]))
+		fmt.Fprintf(&sb, "%s%d | %s\n", prefix, i, lines[i-1])
 	}
 	return sb.String()
 }

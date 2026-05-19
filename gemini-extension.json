@@ -3,6 +3,7 @@
   "version": "0.11.0",
   "description": "AI-powered Go development assistant.",
   "contextFileName": "GODOCTOR.md",
+  "hooksFileName": "hooks.json",
   "mcpServers": {
     "godoctor": {
       "command": "${extensionPath}/bin/godoctor",
