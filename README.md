@@ -1,100 +1,159 @@
 # GoDoctor
 
-**GoDoctor** is an intelligent, AI-powered Model Context Protocol (MCP) server designed to assist Go developers. It provides a comprehensive suite of tools for navigating, editing, analyzing, and modernizing Go codebases.
+GoDoctor is a Model Context Protocol (MCP) server and CLI extension for Go development. It provides structured tools to help coding agents navigate, edit, build, and test Go codebases safely.
 
-## Features
+## User Instructions
 
-GoDoctor organizes its capabilities into domain-specific tools to streamline development workflows.
+### Installation
 
-### 🔍 Navigation & Discovery
-*   **`list_files`**: Explore the project hierarchy recursively to understand the architecture.
-*   **`smart_read`**: **The Universal Reader.** Inspects file content, structure (outline), or specific snippets. Parses AST and appends definitions of referenced types.
-*   **`describe_symbol`**: Deep semantic analysis of declarations, comments, and references.
+#### Antigravity and Agy CLI
+Install the plugin directly from GitHub:
+```bash
+agy plugin install https://github.com/danicat/godoctor
+```
 
-### ✏️ Smart Editing
-*   **`smart_edit`**: Perform targeted, atomic code modifications across multiple files. Natively handles file creation, formatting, and syntax validation under a transactional compiler gate.
-
-### 🛠️ Go Toolchain & Quality Gate
-*   **`smart_build`**: **The Universal Quality Gate.** A complete pipeline that tidies modules, automatically modernizes legacy Go patterns, formats, compiles, runs tests, and lints in a single atomic step.
-*   **`add_dependency`**: Manage module dependencies and immediately fetch documentation for the new package.
-*   **`read_docs`**: Query documentation for any package or symbol in the Go ecosystem.
-
-### 🧪 Testing
-*   **`mutation_test`**: Assess test suite coverage quality by injecting artificial mutations.
-*   **`test_query`**: Execute SQL queries over test coverage results and execution timelines.
-
-
-## Installation
-
-### For Claude Code Users
-
-1.  **Install the binary:**
-    ```bash
-    go install github.com/danicat/godoctor/cmd/godoctor@latest
-    ```
-
-2.  **Add GoDoctor as an MCP server:**
-    ```bash
-    claude mcp add --transport stdio --scope user godoctor -- godoctor
-    ```
-
-3.  **(Optional) Add agent instructions to your project:**
-    ```bash
-    godoctor --agents >> CLAUDE.md
-    ```
-    This appends tool usage guidance to your `CLAUDE.md` so Claude knows how to use each tool effectively.
-
-### For Gemini CLI Users
-
-If you use the [Gemini CLI](https://github.com/google/gemini-cli), you can install GoDoctor as an extension:
-
+#### Gemini CLI
+Install the extension from GitHub:
 ```bash
 gemini extensions install https://github.com/danicat/godoctor
 ```
 
-### From Source
+#### Claude Code
+1. Install the binary globally:
+   ```bash
+   go install github.com/danicat/godoctor/cmd/godoctor@latest
+   ```
+2. Register the MCP server:
+   ```bash
+   claude mcp add --transport stdio --scope user godoctor -- godoctor
+   ```
+3. Append agent instructions to your project:
+   ```bash
+   godoctor --agents >> CLAUDE.md
+   ```
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/danicat/godoctor.git
-    cd godoctor
-    ```
-2.  **Build and install:**
-    ```bash
-    make install
-    ```
+### Usage Instructions
 
-## Configuration
+Once installed, GoDoctor runs automatically in the background of your agent-compatible client. The client agent will discover and call the exposed tools during Go programming tasks.
 
-### Command-Line Flags
-
-| Flag | Description | Default |
-| :--- | :--- | :--- |
-| `--model` | Default Gemini model to use for AI tasks. | `gemini-2.5-pro` |
-| `--allow` | Comma-separated list of tools to explicitly **enable** (whitelist mode). | `""` |
-| `--disable` | Comma-separated list of tools to explicitly **disable**. | `""` |
-| `--listen` | Address to listen on for HTTP transport (e.g., `:8080`). | `""` (Stdio) |
-| `--list-tools`| List all available tools and their descriptions, then exit. | `false` |
-| `--agents` | Print LLM agent instructions and exit. | `false` |
-| `--version` | Print version and exit. | `false` |
-
-## Agent Integration
-
-To get the optimal system prompt for your AI agent:
-
+To manually print system instructions for an LLM agent:
 ```bash
 godoctor --agents
 ```
 
-To see which tools are currently active:
-
+To see the list of active tools:
 ```bash
 godoctor --list-tools
+```
+
+### Specific Documentation
+
+#### Command Interception (Hooks)
+When running inside the Antigravity or Gemini CLI, GoDoctor intercepts standard terminal commands (such as `go build`, `cat`, or `sed`) and raw file tools. It redirects the agent to GoDoctor's specialized tools (`smart_build`, `smart_read`, and `smart_edit`). This prevents syntax errors and conserves context window tokens.
+
+#### Configuration (Command-line Flags)
+
+| Flag | Description | Default |
+| :--- | :--- | :--- |
+| `--allow` | Comma-separated whitelist of tools to enable. | `""` |
+| `--disable` | Comma-separated list of tools to disable. | `""` |
+| `--listen` | Address for HTTP transport (defaults to standard input/output). | `""` |
+| `--list-tools` | Prints all registered tools and exits. | `false` |
+| `--agents` | Prints system instructions for LLM agents and exits. | `false` |
+| `--version` | Prints the version and exits. | `false` |
+
+#### Features and Tools
+
+GoDoctor provides tools divided into four functional areas:
+
+##### Code Navigation
+* `list_files` lists files in the workspace while avoiding version control directories.
+* `smart_read` reads files, extracts code outlines, and appends definitions of referenced types.
+* `describe_symbol` provides semantic detail for any symbol, including declaration signatures, comments, and references.
+
+##### Code Editing
+* `smart_edit` handles atomic modifications across multiple files. It formats the code and automatically rolls back changes if the compiler detects a syntax error.
+
+##### Go Toolchain Integration
+* `smart_build` manages module tidying, code modernization, formatting, compiling, testing, and linting.
+* `add_dependency` installs Go modules and pulls their documentation.
+* `read_docs` fetches API documentation for packages and symbols.
+
+##### Testing
+* `mutation_test` runs Selene mutation tests to check test coverage quality.
+* `test_query` queries test results and coverage data using SQL.
+
+## Developer Instructions
+
+### Building
+
+Build the project from source using the Makefile:
+```bash
+git clone https://github.com/danicat/godoctor.git
+cd godoctor
+make build
+```
+This compiles the server binary to `bin/godoctor`.
+
+To install the binary globally to your `$GOPATH/bin`:
+```bash
+make install
+```
+
+### Testing
+
+Run the test suite:
+```bash
+make test
+```
+
+To run tests and generate a coverage report:
+```bash
+make test-cov
+```
+
+### Running Locally
+
+Run the compiled binary directly to test behavior:
+```bash
+./bin/godoctor
+```
+
+Check active tools:
+```bash
+./bin/godoctor --list-tools
+```
+
+### Releasing
+
+GoDoctor relies on Git tags for versioning. Build versions are dynamically injected at compile time using `git describe`.
+
+To release a new version:
+
+1. Update the version string in `gemini-extension.json`:
+   ```bash
+   make bump-version VERSION=0.16.2
+   ```
+
+2. Commit the manifest changes:
+   ```bash
+   git add gemini-extension.json
+   git commit -m "chore: bump version to 0.16.2"
+   ```
+
+3. Create and push a new Git tag:
+   ```bash
+   git tag v0.16.2
+   git push origin v0.16.2
+   ```
+
+The release pipeline will automatically run GoReleaser when a new tag is pushed.
+
+To test the GoReleaser configuration locally, generate a snapshot release:
+```bash
+make snapshot
 ```
 
 ## License
 
 Apache 2.0
-
-### 🛡️ Hook System (Gemini CLI)
-When installed in Gemini CLI, GoDoctor features a built-in intelligent hook system that intercepts raw, inefficient shell operations (like `go build`, `sed`, `cat`) or native tools (like `replace`, `read_file`) and forces the agent to use GoDoctor's context-aware, robust tools (`smart_build`, `smart_edit`, `smart_read`). This ensures the quality gate pipeline is respected and cognitive drift is minimized.
