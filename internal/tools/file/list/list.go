@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -27,12 +26,17 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Path  string `json:"path" jsonschema:"The root path to list (default: .)"`
+	Path  string `json:"path" jsonschema:"The absolute root path to list. You MUST pass the absolute path in multi-root workspaces."`
 	Depth int    `json:"depth,omitempty" jsonschema:"Maximum recursion depth (0 for default of 5, 1 for non-recursive)"`
 }
 
-func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	absRoot, err := roots.Global.Validate(args.Path)
+func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
+	}
+
+	absRoot, err := roots.Global.Validate(session, args.Path)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}
@@ -42,81 +46,10 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		maxDepth = 5
 	}
 
-	// Try git ls-files first for .gitignore-aware listing
-	if result, ok := tryGitLsFiles(ctx, absRoot, maxDepth); ok {
-		return result, nil, nil
-	}
-
-	// Fallback to manual walk
 	return walkDir(absRoot, maxDepth)
 }
 
-// tryGitLsFiles attempts to list files using git ls-files, which respects .gitignore.
-func tryGitLsFiles(ctx context.Context, absRoot string, maxDepth int) (*mcp.CallToolResult, bool) {
-	// Check if we're in a git repo
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	cmd.Dir = absRoot
-	if _, err := cmd.Output(); err != nil {
-		return nil, false
-	}
-
-	// Use git ls-files for tracked + untracked (but not ignored) files
-	cmd = exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard")
-	cmd.Dir = absRoot
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, false
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Listing files in %s (Depth: %d, git-aware)\n\n", absRoot, maxDepth)
-
-	fileCount := 0
-	dirsSeen := make(map[string]bool)
-	const maxFiles = 1000
-
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-
-		// Depth filter
-		depth := strings.Count(line, "/") + 1
-		if depth > maxDepth {
-			continue
-		}
-
-		if fileCount >= maxFiles {
-			fmt.Fprintf(&sb, "\n(Limit of %d files reached, output truncated)\n", maxFiles)
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
-			}, true
-		}
-
-		// Track directories
-		dir := filepath.Dir(line)
-		if dir != "." {
-			parts := strings.Split(dir, "/")
-			for i := range parts {
-				d := strings.Join(parts[:i+1], "/")
-				if !dirsSeen[d] {
-					dirsSeen[d] = true
-					fmt.Fprintf(&sb, "%s/\n", d)
-				}
-			}
-		}
-
-		fmt.Fprintf(&sb, "%s\n", line)
-		fileCount++
-	}
-
-	fmt.Fprintf(&sb, "\nFound %d files, %d directories.\n", fileCount, len(dirsSeen))
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{&mcp.TextContent{Text: sb.String()}},
-	}, true
-}
-
-// walkDir is the fallback directory walker for non-git directories.
+// walkDir is the directory walker that lists all files and directories, ignoring only `.git`.
 func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "Listing files in %s (Depth: %d)\n\n", absRoot, maxDepth)
@@ -145,7 +78,8 @@ func walkDir(absRoot string, maxDepth int) (*mcp.CallToolResult, any, error) {
 			return nil
 		}
 
-		if d.IsDir() && (d.Name() == ".git" || d.Name() == ".idea" || d.Name() == ".vscode" || d.Name() == "node_modules") {
+		// Strictly exclude ONLY .git to prevent infinite recursion/extraneous noise
+		if d.IsDir() && d.Name() == ".git" {
 			return filepath.SkipDir
 		}
 

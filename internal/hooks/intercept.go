@@ -44,7 +44,7 @@ func Intercept() {
 		deny("Optimization Hook: Raw reads are blocked. You MUST use GoDoctor's `smart_read` to inspect Go code. It provides structural outlines and context-aware scoping.", "🛑 Blocked raw read")
 		return
 	case "write_file":
-		deny("Optimization Hook: Raw file creation is blocked. You MUST use GoDoctor's `file_create` to scaffold new files, or `smart_edit` to append content.", "🛑 Blocked raw write")
+		deny("Optimization Hook: Raw file creation is blocked. You MUST use GoDoctor's `smart_edit` tool which handles atomic file creation natively.", "🛑 Blocked raw write")
 		return
 	case "run_shell_command":
 		handleShellCommand(payload.ToolInput)

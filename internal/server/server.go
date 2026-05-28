@@ -19,14 +19,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	// Tools
-	"github.com/danicat/godoctor/internal/tools/agent/review"
-	"github.com/danicat/godoctor/internal/tools/file/create"
 	"github.com/danicat/godoctor/internal/tools/file/edit"
 	"github.com/danicat/godoctor/internal/tools/file/list"
 	"github.com/danicat/godoctor/internal/tools/file/read"
 	"github.com/danicat/godoctor/internal/tools/go/docs"
 	"github.com/danicat/godoctor/internal/tools/go/get"
 	"github.com/danicat/godoctor/internal/tools/go/mutation"
+	"github.com/danicat/godoctor/internal/tools/go/navigation"
 	"github.com/danicat/godoctor/internal/tools/go/project"
 	"github.com/danicat/godoctor/internal/tools/go/quality"
 	"github.com/danicat/godoctor/internal/tools/go/testquery"
@@ -46,6 +45,9 @@ func New(cfg *config.Config, version string) *Server {
 		Version: version,
 	}, &mcp.ServerOptions{
 		Instructions: instructions.Get(cfg),
+		InitializedHandler: func(ctx context.Context, req *mcp.InitializedRequest) {
+			roots.Global.Sync(ctx, req.Session)
+		},
 		RootsListChangedHandler: func(ctx context.Context, req *mcp.RootsListChangedRequest) {
 			roots.Global.Sync(ctx, req.Session)
 		},
@@ -122,12 +124,8 @@ func (s *Server) RegisterHandlers() error {
 
 	availableTools := []toolDef{
 		{name: "read_docs", register: docs.Register},
-		{name: "code_review", register: func(srv *mcp.Server) {
-			review.Register(srv, s.cfg.DefaultModel)
-		}},
 		{name: "smart_read", register: read.Register},
 		{name: "smart_edit", register: edit.Register},
-		{name: "file_create", register: create.Register},
 		{name: "list_files", register: list.Register},
 
 		{name: "smart_build", register: quality.Register},
@@ -136,6 +134,7 @@ func (s *Server) RegisterHandlers() error {
 		{name: "add_dependency", register: get.Register},
 		{name: "mutation_test", register: mutation.Register},
 		{name: "test_query", register: testquery.Register},
+		{name: "describe_symbol", register: navigation.Register},
 	}
 
 	validTools := make(map[string]bool)

@@ -13,8 +13,7 @@ type Config struct {
 	ListenAddr    string
 	Version       bool
 	Agents        bool
-	ListTools     bool // List available tools for the selected profile and exit
-	DefaultModel  string
+	ListTools     bool            // List available tools for the selected profile and exit
 	AllowedTools  map[string]bool // If non-empty, ONLY these tools are allowed
 	DisabledTools map[string]bool // These tools are explicitly disabled
 }
@@ -27,7 +26,6 @@ func Load(args []string) (*Config, error) {
 	listToolsFlag := fs.Bool("list-tools", false, "list available tools and exit")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., 127.0.0.1:8080)")
 
-	defaultModel := fs.String("model", "gemini-2.5-pro", "default Gemini model to use")
 	allowFlag := fs.String("allow", "", "comma-separated list of tools to explicitly allow")
 	disableFlag := fs.String("disable", "", "comma-separated list of tools to disable")
 
@@ -54,7 +52,6 @@ func Load(args []string) (*Config, error) {
 		Version:       *versionFlag,
 		Agents:        *agentsFlag,
 		ListTools:     *listToolsFlag,
-		DefaultModel:  *defaultModel,
 		AllowedTools:  parseList(*allowFlag),
 		DisabledTools: parseList(*disableFlag),
 	}

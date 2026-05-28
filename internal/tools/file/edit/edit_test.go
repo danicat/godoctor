@@ -90,7 +90,7 @@ func TestEdit_Broken(t *testing.T) {
 	}
 
 	// Register temp dir as a root
-	roots.Global.Add(tmpDir)
+	roots.Global.Add(nil, tmpDir)
 
 	filePath := filepath.Join(tmpDir, "main.go")
 	if err := os.WriteFile(filePath, []byte("package main\n\nfunc main() {}"), 0644); err != nil {

@@ -11,6 +11,7 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/godoc"
@@ -136,7 +137,7 @@ func GetOutline(file string) (string, []string, []error, error) {
 		return "", nil, errs, fmt.Errorf("failed to parse file: %w", err)
 	}
 
-	// 3. Extract imports
+	// 1. Extract imports (always reliable via Go parser)
 	var imports []string
 	for _, imp := range targetFile.Imports {
 		if imp.Path != nil {
@@ -144,10 +145,16 @@ func GetOutline(file string) (string, []string, []error, error) {
 		}
 	}
 
-	// 4. Create Outline
+	// 2. Try generating outline via gopls symbols (compiler-accurate)
+	cmd := exec.Command("gopls", "symbols", file)
+	goplsOut, cmdErr := cmd.CombinedOutput()
+	if cmdErr == nil && len(strings.TrimSpace(string(goplsOut))) > 0 {
+		return string(goplsOut), imports, errs, nil
+	}
+
+	// 3. Fallback to custom AST Outlinizer if gopls fails or is empty
 	outline := outlinize(targetFile)
 
-	// 5. Format Output
 	var buf bytes.Buffer
 	config := &printer.Config{Mode: printer.TabIndent | printer.UseSpaces, Tabwidth: 8}
 	if err := config.Fprint(&buf, fset, outline); err != nil {

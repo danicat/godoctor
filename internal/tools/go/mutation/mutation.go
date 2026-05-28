@@ -24,16 +24,20 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Dir string `json:"dir,omitempty" jsonschema:"Directory to run mutation testing in (default: current)"`
+	Dir string `json:"dir,omitempty" jsonschema:"The absolute directory path to run mutation testing in. Always pass absolute paths in multi-root workspaces."`
 }
 
-func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
+	}
 	dir := args.Dir
 	if dir == "" {
 		dir = "."
 	}
 
-	absDir, err := roots.Global.Validate(dir)
+	absDir, err := roots.Global.Validate(session, dir)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}

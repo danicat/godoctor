@@ -11,3 +11,8 @@ bin/
 testquery.db
 coverage.out
 
+# Local tools and CLI
+.antigravitycli/
+scratch/
+agents/
+

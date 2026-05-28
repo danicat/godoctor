@@ -1,7 +1,7 @@
 {
   "name": "godoctor",
-  "version": "0.15.0",
-  "description": "AI-powered Go development assistant.",
+  "version": "0.16.0",
+  "description": "Compiler-gated Go development assistant.",
   "contextFileName": "GODOCTOR.md",
   "hooksFileName": "hooks.json",
   "mcpServers": {

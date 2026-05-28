@@ -21,15 +21,24 @@ func Get(cfg *config.Config) string {
 
 	// 1. Persona
 	sb.WriteString("# Go Smart Tooling Guide\n\n")
+	sb.WriteString("⚠️ **CRITICAL: MULTI-ROOT WORKSPACE ENVIRONMENT**\n")
+	sb.WriteString("This environment has multiple project roots registered. To ensure " +
+		"that your requests are performed on the correct target project (and do not " +
+		"fallback to the GoDoctor project folder), **YOU MUST ALWAYS USE ABSOLUTE PATHS** " +
+		"for all file, directory, or path parameters. Never pass relative paths " +
+		"(e.g., '.', '', or relative paths like 'pkg/main.go'). Always pass the " +
+		"absolute path of the target workspace root or files.\n\n")
 
 	// 2. Navigation
 	sb.WriteString("### 🔍 Navigation: Save Tokens & Context\n")
 	if isEnabled("smart_read") {
 		sb.WriteString(toolnames.Registry["smart_read"].Instruction + "\n")
 	}
-
 	if isEnabled("list_files") {
 		sb.WriteString(toolnames.Registry["list_files"].Instruction + "\n")
+	}
+	if isEnabled("describe_symbol") {
+		sb.WriteString(toolnames.Registry["describe_symbol"].Instruction + "\n")
 	}
 	sb.WriteString("\n")
 
@@ -40,14 +49,7 @@ func Get(cfg *config.Config) string {
 	}
 	sb.WriteString("\n")
 
-	// 4. Modernization & Upgrades
-	sb.WriteString("### 🚀 Modernization & Upgrades\n")
-	if isEnabled("modernize_code") {
-		sb.WriteString(toolnames.Registry["modernize_code"].Instruction + "\n")
-	}
-	sb.WriteString("\n")
-
-	// 5. Utilities
+	// 4. Utilities
 	sb.WriteString("### 🛠️ Utilities\n")
 	if isEnabled("smart_build") {
 		sb.WriteString(toolnames.Registry["smart_build"].Instruction + "\n")
@@ -61,12 +63,9 @@ func Get(cfg *config.Config) string {
 	if isEnabled("project_init") {
 		sb.WriteString(toolnames.Registry["project_init"].Instruction + "\n")
 	}
-	if isEnabled("code_review") {
-		sb.WriteString(toolnames.Registry["code_review"].Instruction + "\n")
-	}
 	sb.WriteString("\n")
 
-	// 6. Testing
+	// 5. Testing
 	sb.WriteString("### 🧪 Testing\n")
 	if isEnabled("mutation_test") {
 		sb.WriteString(toolnames.Registry["mutation_test"].Instruction + "\n")

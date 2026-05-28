@@ -19,12 +19,12 @@ func TestServer_RegisterHandlers_DisableTools(t *testing.T) {
 		},
 		{
 			name:          "disable valid tool",
-			disabledTools: map[string]bool{"code_review": true},
+			disabledTools: map[string]bool{"smart_read": true},
 			wantErr:       false,
 		},
 		{
-			name:          "disable previously experimental tool",
-			disabledTools: map[string]bool{"file_create": true},
+			name:          "disable another valid tool",
+			disabledTools: map[string]bool{"smart_edit": true},
 			wantErr:       false,
 		},
 		{

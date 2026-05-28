@@ -4,11 +4,13 @@ package get
 import (
 	"context"
 	"fmt"
-	"github.com/danicat/godoctor/internal/godoc"
-	"github.com/danicat/godoctor/internal/toolnames"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"os/exec"
 	"strings"
+
+	"github.com/danicat/godoctor/internal/godoc"
+	"github.com/danicat/godoctor/internal/roots"
+	"github.com/danicat/godoctor/internal/toolnames"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Register registers the tool with the server.
@@ -23,13 +25,14 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
+	Dir      string   `json:"dir,omitempty" jsonschema:"The absolute directory path to run go get in. Always pass absolute paths in multi-root workspaces."`
 	Packages []string `json:"packages,omitempty" jsonschema:"Packages to get (e.g. example.com/pkg@latest)"`
 	Package  string   `json:"package,omitempty" jsonschema:"Single package to get (convenience alias for packages)"`
 	Update   bool     `json:"update,omitempty" jsonschema:"If true, adds -u flag to update modules"`
 	Args     []string `json:"args,omitempty" jsonschema:"Additional arguments (e.g. -t, -v)"`
 }
 
-func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	// Allow single package string as convenience
 	if args.Package != "" && len(args.Packages) == 0 {
 		args.Packages = []string{args.Package}
@@ -42,6 +45,27 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 			},
 		}, nil, nil
 	}
+
+	dir := args.Dir
+	if dir == "" {
+		dir = "."
+	}
+
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
+	}
+
+	absDir, valErr := roots.Global.Validate(session, dir)
+	if valErr != nil {
+		return &mcp.CallToolResult{
+			IsError: true,
+			Content: []mcp.Content{
+				&mcp.TextContent{Text: valErr.Error()},
+			},
+		}, nil, nil
+	}
+
 	cmdArgs := []string{"get"}
 	if args.Update {
 		cmdArgs = append(cmdArgs, "-u")
@@ -49,7 +73,8 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	cmdArgs = append(cmdArgs, args.Args...)
 	cmdArgs = append(cmdArgs, args.Packages...)
 	cmd := exec.CommandContext(ctx, "go", cmdArgs...)
-	// Run in current directory
+	cmd.Dir = absDir
+
 	output, err := cmd.CombinedOutput()
 	var sb strings.Builder
 	isError := false

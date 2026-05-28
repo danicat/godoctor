@@ -27,6 +27,7 @@ archives:
         format: zip
     files:
       - gemini-extension.json
+      - hooks.json
       - GODOCTOR.md
       - README.md
       - LICENSE

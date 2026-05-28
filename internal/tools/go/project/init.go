@@ -26,7 +26,7 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Path         string   `json:"path" jsonschema:"Target directory for the project"`
+	Path         string   `json:"path" jsonschema:"Absolute target directory for the project. Always pass absolute paths in multi-root workspaces."`
 	ModulePath   string   `json:"module_path" jsonschema:"Go module path (e.g., github.com/user/repo)"`
 	Dependencies []string `json:"dependencies,omitempty" jsonschema:"Initial dependencies to install"`
 }
@@ -46,8 +46,12 @@ func (r *stdRunner) Run(ctx context.Context, dir, name string, args ...string) (
 
 var CommandRunner Runner = &stdRunner{}
 
-func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	absPath, err := roots.Global.Validate(args.Path)
+func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
+	}
+	absPath, err := roots.Global.Validate(session, args.Path)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}

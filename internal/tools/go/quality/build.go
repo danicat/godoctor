@@ -26,11 +26,8 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Dir      string `json:"dir,omitempty" jsonschema:"Directory to build in (default: current)"`
+	Dir      string `json:"dir,omitempty" jsonschema:"The absolute directory path to build in. Always pass absolute paths in multi-root workspaces."`
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to build (default: ./...)"`
-	RunTests *bool  `json:"run_tests,omitempty" jsonschema:"Run unit tests after build (default: true)"`
-	RunLint  *bool  `json:"run_lint,omitempty" jsonschema:"Run linter after tests (default: true)"`
-	AutoFix  *bool  `json:"auto_fix,omitempty" jsonschema:"Run go mod tidy, modernize code, and go fmt before build (default: true)"`
 }
 
 // Runner defines the interface for running commands.
@@ -61,12 +58,16 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 
 var CommandRunner Runner = &stdRunner{}
 
-func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
+	}
 	dir := args.Dir
 	if dir == "" {
 		dir = "."
 	}
-	absDir, err := roots.Global.Validate(dir)
+	absDir, err := roots.Global.Validate(session, dir)
 	if err != nil {
 		return result(err.Error(), true), nil, nil
 	}
@@ -76,44 +77,24 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		pkgs = "./..."
 	}
 
-	// Defaults
-	runTests := true
-	if args.RunTests != nil {
-		runTests = *args.RunTests
-	}
-	runLint := true
-	if args.RunLint != nil {
-		runLint = *args.RunLint
-	}
-	autoFix := true
-	if args.AutoFix != nil {
-		autoFix = *args.AutoFix
-	}
-
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Smart Build Report (`%s`)\n\n", pkgs)
 
-	if autoFix {
-		runAutoFix(ctx, dir, &sb)
-	}
+	runAutoFix(ctx, dir, &sb)
 
 	if err := runBuild(ctx, dir, pkgs, &sb); err != nil {
 		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
 		return result(sb.String(), true), nil, nil
 	}
 
-	if runTests {
-		if err := runTestsPhase(ctx, dir, pkgs, &sb); err != nil {
-			//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
-			return result(sb.String(), true), nil, nil
-		}
+	if err := runTestsPhase(ctx, dir, pkgs, &sb); err != nil {
+		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
+		return result(sb.String(), true), nil, nil
 	}
 
-	if runLint {
-		if err := runLinterPhase(ctx, dir, pkgs, &sb); err != nil {
-			//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
-			return result(sb.String(), true), nil, nil
-		}
+	if err := runLinterPhase(ctx, dir, pkgs, &sb); err != nil {
+		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
+		return result(sb.String(), true), nil, nil
 	}
 
 	return result(sb.String(), false), nil, nil

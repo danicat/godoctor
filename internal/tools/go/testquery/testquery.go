@@ -26,7 +26,7 @@ func Register(server *mcp.Server) {
 
 // Params defines the input parameters.
 type Params struct {
-	Dir     string `json:"dir,omitempty" jsonschema:"Directory to analyze (default: current)"`
+	Dir     string `json:"dir,omitempty" jsonschema:"The absolute directory path to analyze. Always pass absolute paths in multi-root workspaces."`
 	Query   string `json:"query" jsonschema:"SQL query to run against test results (e.g. SELECT * FROM all_tests WHERE action = 'fail')"`
 	Pkg     string `json:"pkg,omitempty" jsonschema:"Go package pattern to analyze (default: ./...)"`
 	Rebuild bool   `json:"rebuild,omitempty" jsonschema:"Force rebuild of the test database before querying. Use after code changes. First call always builds."`
@@ -34,7 +34,11 @@ type Params struct {
 
 const dbFile = "testquery.db"
 
-func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
+	}
 	if args.Query == "" {
 		return errorResult("query cannot be empty"), nil, nil
 	}
@@ -44,7 +48,7 @@ func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp
 		dir = "."
 	}
 
-	absDir, err := roots.Global.Validate(dir)
+	absDir, err := roots.Global.Validate(session, dir)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}

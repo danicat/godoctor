@@ -8,22 +8,20 @@ GoDoctor organizes its capabilities into domain-specific tools to streamline dev
 
 ### 🔍 Navigation & Discovery
 *   **`list_files`**: Explore the project hierarchy recursively to understand the architecture.
-*   **`smart_read`**: **The Universal Reader.** Inspects file content, structure (outline), or specific snippets. Includes documentation for imported packages.
+*   **`smart_read`**: **The Universal Reader.** Inspects file content, structure (outline), or specific snippets. Parses AST and appends definitions of referenced types.
+*   **`describe_symbol`**: Deep semantic analysis of declarations, comments, and references.
 
 ### ✏️ Smart Editing
-*   **`file_create`**: Initialize a new source file with proper boilerplate and import organization.
-*   **`smart_edit`**: Perform targeted code modifications using Levenshtein distance matching. Automatically handles formatting and checks syntax before finalizing.
+*   **`smart_edit`**: Perform targeted, atomic code modifications across multiple files. Natively handles file creation, formatting, and syntax validation under a transactional compiler gate.
 
-### 🛠️ Go Toolchain Integration
+### 🛠️ Go Toolchain & Quality Gate
 *   **`smart_build`**: **The Universal Quality Gate.** A complete pipeline that tidies modules, automatically modernizes legacy Go patterns, formats, compiles, runs tests, and lints in a single atomic step.
 *   **`add_dependency`**: Manage module dependencies and immediately fetch documentation for the new package.
 *   **`read_docs`**: Query documentation for any package or symbol in the Go ecosystem.
 
-
-### 🤖 Expert Assistance
-
-
-*   **`code_review`**: Submit code for expert AI analysis focusing on correctness and idiomatic style.
+### 🧪 Testing
+*   **`mutation_test`**: Assess test suite coverage quality by injecting artificial mutations.
+*   **`test_query`**: Execute SQL queries over test coverage results and execution timelines.
 
 
 ## Installation
@@ -68,27 +66,7 @@ gemini extensions install https://github.com/danicat/godoctor
 
 ## Configuration
 
-### 1. Authentication (Optional)
-
-Most GoDoctor tools work without any authentication. The `code_review` tool requires access to Google's Generative AI models for cross-model code review. If no credentials are found, `code_review` is automatically disabled and all other tools continue to work normally.
-
-**Option 1: Gemini API (Personal)**
-Set the `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) environment variable.
-
-```bash
-export GEMINI_API_KEY="your-api-key"
-```
-
-**Option 2: Vertex AI (Enterprise)**
-Set the following environment variables:
-
-```bash
-export GOOGLE_GENAI_USE_VERTEXAI=true
-export GOOGLE_CLOUD_PROJECT="your-project-id"
-export GOOGLE_CLOUD_LOCATION="us-central1"
-```
-
-### 2. Command-Line Flags
+### Command-Line Flags
 
 | Flag | Description | Default |
 | :--- | :--- | :--- |

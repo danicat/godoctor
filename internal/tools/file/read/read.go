@@ -1,15 +1,17 @@
-// Package read_code implements the code reading and symbol extraction tool.
+// Package read implements the code reading and symbol extraction tool with unconditional type enrichment.
 package read
 
 import (
 	"context"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"strings"
+	"sync"
 
-	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/danicat/godoctor/internal/tools/file/outline"
@@ -17,9 +19,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Register registers the read_code tool with the server.
+// Register registers the smart_read tool with the server.
 func Register(server *mcp.Server) {
-	def := toolnames.Registry["smart_read"] // Using new name mapping
+	def := toolnames.Registry["smart_read"]
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        def.Name,
 		Title:       def.Title,
@@ -27,57 +29,70 @@ func Register(server *mcp.Server) {
 	}, readCodeHandler)
 }
 
-// Params defines the input parameters for the read_code tool.
+// Params defines the input parameters for the smart_read tool.
 type Params struct {
-	Filename  string `json:"filename" jsonschema:"The path to the file to read"`
-	Outline   bool   `json:"outline,omitempty" jsonschema:"Optional: if true, returns the structure (AST) only"`
-	StartLine int    `json:"start_line,omitempty" jsonschema:"Optional: start reading from this line number"`
-	EndLine   int    `json:"end_line,omitempty" jsonschema:"Optional: stop reading at this line number"`
+	Filenames []string `json:"filenames,omitempty" jsonschema:"The absolute paths to the Go files to read. You MUST use absolute paths in multi-root workspaces."`
+	Filename  string   `json:"filename,omitempty" jsonschema:"Deprecated: use filenames instead"`
+	Outline   bool     `json:"outline,omitempty" jsonschema:"Optional: if true, returns the structure (AST) only"`
+	StartLine int      `json:"start_line,omitempty" jsonschema:"Optional: start reading from this line number"`
+	EndLine   int      `json:"end_line,omitempty" jsonschema:"Optional: stop reading at this line number"`
 }
 
-func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	absPath, err := roots.Global.Validate(args.Filename)
-	if err != nil {
-		return errorResult(err.Error()), nil, nil
+func readCodeHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	var session *mcp.ServerSession
+	if req != nil {
+		session = req.Session
 	}
-	args.Filename = absPath
+	filenames := args.Filenames
+	if len(filenames) == 0 && args.Filename != "" {
+		filenames = []string{args.Filename}
+	}
 
-	// 0. Outline Mode (if requested and no line range specified)
+	if len(filenames) == 0 {
+		return errorResult("at least one filename must be specified"), nil, nil
+	}
+
+	// 0. Outline Mode
 	if args.Outline && args.StartLine == 0 {
-		out, imports, errs, err := outline.GetOutline(absPath)
-		if err != nil {
-			return errorResult(fmt.Sprintf("failed to generate outline: %v", err)), nil, nil
-		}
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "# File: %s (Outline)\n\n", absPath)
-		if len(errs) > 0 {
-			sb.WriteString("## Analysis (Problems)\n")
-			for _, e := range errs {
-				fmt.Fprintf(&sb, "- ⚠️ %v\n", e)
+		for _, filename := range filenames {
+			absPath, err := roots.Global.Validate(session, filename)
+			if err != nil {
+				return errorResult(err.Error()), nil, nil
 			}
-			sb.WriteString("\n")
-		}
-		sb.WriteString("```go\n")
-		sb.WriteString(out)
-		sb.WriteString("\n```\n")
+			out, imports, errs, err := outline.GetOutline(absPath)
+			if err != nil {
+				return errorResult(fmt.Sprintf("failed to generate outline for %s: %v", filename, err)), nil, nil
+			}
+			fmt.Fprintf(&sb, "# File: %s (Outline)\n\n", absPath)
+			if len(errs) > 0 {
+				sb.WriteString("## Analysis (Problems)\n")
+				for _, e := range errs {
+					fmt.Fprintf(&sb, "- ⚠️ %v\n", e)
+				}
+				sb.WriteString("\n")
+			}
+			sb.WriteString("```go\n")
+			sb.WriteString(out)
+			sb.WriteString("\n```\n\n")
 
-		if len(imports) > 0 {
-			var thirdParty []string
-			for _, imp := range imports {
-				// Filter stdlib: third-party imports have a dot in the first path component
-				clean := strings.Trim(imp, "\"")
-				if parts := strings.Split(clean, "/"); len(parts) > 0 && strings.Contains(parts[0], ".") {
-					thirdParty = append(thirdParty, imp)
+			if len(imports) > 0 {
+				var thirdParty []string
+				for _, imp := range imports {
+					clean := strings.Trim(imp, "\"")
+					if parts := strings.Split(clean, "/"); len(parts) > 0 && strings.Contains(parts[0], ".") {
+						thirdParty = append(thirdParty, imp)
+					}
+				}
+				if len(thirdParty) > 0 {
+					sb.WriteString("## Third-Party Imports\n")
+					for _, imp := range thirdParty {
+						fmt.Fprintf(&sb, "- %s\n", imp)
+					}
+					sb.WriteString("\n")
 				}
 			}
-			if len(thirdParty) > 0 {
-				sb.WriteString("\n## Third-Party Imports\n")
-				for _, imp := range thirdParty {
-					fmt.Fprintf(&sb, "- %s\n", imp)
-				}
-			}
 		}
-
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				&mcp.TextContent{Text: sb.String()},
@@ -85,134 +100,74 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 		}, nil, nil
 	}
 
-	// 1. Read Content
-	//nolint:gosec // G304: File path provided by user is validated against roots.
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		return errorResult(fmt.Sprintf("failed to read file: %v", err)), nil, nil
-	}
+	// 1. Multi-File Read Content
+	var sb strings.Builder
+	var allTypesEnrichment strings.Builder
 
-	var diags []string
-	var packageDocs []string
-	isGo := strings.HasSuffix(args.Filename, ".go")
-	original := string(content)
-
-	// 2. Partial Read & Line Numbering
-	startLine := args.StartLine
-	if startLine <= 0 {
-		startLine = 1
-	}
-	endLine := args.EndLine
-
-	startOffset, endOffset, err := shared.GetLineOffsets(original, startLine, endLine)
-	if err != nil {
-		return errorResult(fmt.Sprintf("line range error: %v", err)), nil, nil
-	}
-
-	viewContent := original[startOffset:endOffset]
-	lines := strings.Split(viewContent, "\n")
-	if len(lines) > 0 && lines[len(lines)-1] == "" && !strings.HasSuffix(viewContent, "\n") {
-		lines = lines[:len(lines)-1]
-	}
-
-	var contentWithLines strings.Builder
-	for i, line := range lines {
-		fmt.Fprintf(&contentWithLines, "%4d | %s\n", startLine+i, line)
-	}
-
-	isPartial := args.StartLine > 1 || args.EndLine > 0
-
-	// 3. Light Analysis (GO ONLY)
-	if isGo && !isPartial {
-		fset := token.NewFileSet()
-		f, err := parser.ParseFile(fset, args.Filename, content, parser.ParseComments)
+	for _, filename := range filenames {
+		absPath, err := roots.Global.Validate(session, filename)
 		if err != nil {
-			diags = append(diags, err.Error())
-		} else {
-			for i, imp := range f.Imports {
-				if i >= 10 {
-					packageDocs = append(packageDocs, "... (more imports)")
-					break
-				}
-				pkgPath := strings.Trim(imp.Path.Value, "\"")
+			return errorResult(err.Error()), nil, nil
+		}
 
-				// Skip standard library packages (heuristically: no dot in first path component)
-				if parts := strings.Split(pkgPath, "/"); len(parts) > 0 && !strings.Contains(parts[0], ".") {
-					continue
-				}
+		//nolint:gosec // G304: File path provided by user is validated against roots.
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			return errorResult(fmt.Sprintf("failed to read file %s: %v", filename, err)), nil, nil
+		}
 
-				if d, err := godoc.Load(ctx, pkgPath, ""); err == nil {
-					var entry strings.Builder
-					summary := strings.ReplaceAll(d.Description, "\n", " ")
-					if len(summary) > 200 {
-						summary = summary[:197] + "..."
-					}
-					fmt.Fprintf(&entry, "- **%s**: %s", pkgPath, summary)
+		isGo := strings.HasSuffix(absPath, ".go")
+		original := string(content)
 
-					// Show top exported symbols (functions and types)
-					var symbols []string
-					for j, t := range d.Types {
-						if j >= 3 {
-							break
-						}
-						name := strings.Split(t, "\n")[0]
-						symbols = append(symbols, name)
-					}
-					for j, fn := range d.Funcs {
-						if j >= 5 {
-							break
-						}
-						sig := strings.Split(fn, "\n")[0]
-						symbols = append(symbols, sig)
-					}
-					if len(symbols) > 0 {
-						entry.WriteString("\n  ```go\n")
-						for _, s := range symbols {
-							fmt.Fprintf(&entry, "  %s\n", s)
-						}
-						entry.WriteString("  ```")
-					}
+		startLine := args.StartLine
+		if startLine <= 0 {
+			startLine = 1
+		}
+		endLine := args.EndLine
 
-					packageDocs = append(packageDocs, entry.String())
-				}
+		startOffset, endOffset, err := shared.GetLineOffsets(original, startLine, endLine)
+		if err != nil {
+			return errorResult(fmt.Sprintf("line range error for %s: %v", filename, err)), nil, nil
+		}
+
+		viewContent := original[startOffset:endOffset]
+		lines := strings.Split(viewContent, "\n")
+		if len(lines) > 0 && lines[len(lines)-1] == "" && !strings.HasSuffix(viewContent, "\n") {
+			lines = lines[:len(lines)-1]
+		}
+
+		var contentWithLines strings.Builder
+		for i, line := range lines {
+			fmt.Fprintf(&contentWithLines, "%4d | %s\n", startLine+i, line)
+		}
+
+		isPartial := args.StartLine > 1 || args.EndLine > 0
+		rangeInfo := ""
+		if isPartial {
+			rangeInfo = fmt.Sprintf(" (Lines %d-%d)", startLine, startLine+len(lines)-1)
+		}
+		fmt.Fprintf(&sb, "# File: %s%s\n\n", absPath, rangeInfo)
+
+		sb.WriteString("```")
+		if isGo {
+			sb.WriteString("go")
+		}
+		sb.WriteString("\n")
+		sb.WriteString(contentWithLines.String())
+		sb.WriteString("```\n\n")
+
+		if isGo {
+			// Type enrichment
+			enrichment := enrichTypes(ctx, absPath, content)
+			if enrichment != "" {
+				allTypesEnrichment.WriteString(enrichment)
 			}
 		}
 	}
 
-	// 4. Output Formatting
-	var sb strings.Builder
-	rangeInfo := ""
-	if isPartial {
-		rangeInfo = fmt.Sprintf(" (Lines %d-%d)", startLine, startLine+len(lines)-1)
-	}
-	fmt.Fprintf(&sb, "# File: %s%s\n\n", args.Filename, rangeInfo)
-
-	sb.WriteString("```")
-	if isGo {
-		sb.WriteString("go")
-	}
-	sb.WriteString("\n")
-	sb.WriteString(contentWithLines.String())
-	sb.WriteString("```\n\n")
-
-	if isPartial {
-		sb.WriteString("*Note: Partial read - analysis skipped.*\n\n")
-	}
-
-	if len(packageDocs) > 0 {
-		sb.WriteString("## Imported Packages\n")
-		for _, pd := range packageDocs {
-			sb.WriteString(pd + "\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	if len(diags) > 0 {
-		sb.WriteString("## Analysis (Problems)\n")
-		for _, d := range diags {
-			fmt.Fprintf(&sb, "- ⚠️ %s\n", d)
-		}
-		sb.WriteString("\n")
+	if allTypesEnrichment.Len() > 0 {
+		sb.WriteString("## Type Specifications\n")
+		sb.WriteString(allTypesEnrichment.String())
 	}
 
 	return &mcp.CallToolResult{
@@ -222,61 +177,124 @@ func readCodeHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (
 	}, nil, nil
 }
 
-func performLightAnalysis(ctx context.Context, filename string, content []byte) ([]string, []string) {
-	var diags []string
-	var packageDocs []string
+func getInterestingTypePos(n ast.Expr) token.Pos {
+	if n == nil {
+		return token.NoPos
+	}
+	switch node := n.(type) {
+	case *ast.Ident:
+		switch node.Name {
+		case "string", "int", "int8", "int16", "int32", "int64",
+			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
+			"float32", "float64", "complex64", "complex128",
+			"bool", "byte", "rune", "error", "any":
+			return token.NoPos
+		}
+		return node.Pos()
+	case *ast.SelectorExpr:
+		return node.Sel.Pos()
+	case *ast.StarExpr:
+		return getInterestingTypePos(node.X)
+	case *ast.ArrayType:
+		return getInterestingTypePos(node.Elt)
+	case *ast.MapType:
+		pos := getInterestingTypePos(node.Value)
+		if pos != token.NoPos {
+			return pos
+		}
+		return getInterestingTypePos(node.Key)
+	}
+	return token.NoPos
+}
 
+func enrichTypes(ctx context.Context, filename string, content []byte) string {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, filename, content, parser.ParseComments)
 	if err != nil {
-		diags = append(diags, err.Error())
-		return diags, packageDocs
+		return ""
 	}
 
-	for i, imp := range f.Imports {
-		if i >= 10 {
-			packageDocs = append(packageDocs, "... (more imports)")
-			break
+	visitedPositions := make(map[string]bool)
+	var posList []token.Position
+
+	ast.Inspect(f, func(n ast.Node) bool {
+		if n == nil {
+			return true
 		}
-		pkgPath := strings.Trim(imp.Path.Value, "\"")
-
-		if parts := strings.Split(pkgPath, "/"); len(parts) > 0 && !strings.Contains(parts[0], ".") {
-			continue
+		var typeExpr ast.Expr
+		switch node := n.(type) {
+		case *ast.TypeSpec:
+			typeExpr = node.Name
+		case *ast.Field:
+			typeExpr = node.Type
+		case *ast.ValueSpec:
+			typeExpr = node.Type
+		case *ast.CompositeLit:
+			typeExpr = node.Type
 		}
 
-		if d, err := godoc.Load(ctx, pkgPath, ""); err == nil {
-			var entry strings.Builder
-			summary := strings.ReplaceAll(d.Description, "\n", " ")
-			if len(summary) > 200 {
-				summary = summary[:197] + "..."
-			}
-			fmt.Fprintf(&entry, "- **%s**: %s", pkgPath, summary)
-
-			var symbols []string
-			for j, t := range d.Types {
-				if j >= 3 {
-					break
+		if typeExpr != nil {
+			pos := getInterestingTypePos(typeExpr)
+			if pos.IsValid() {
+				position := fset.Position(pos)
+				key := fmt.Sprintf("%d:%d", position.Line, position.Column)
+				if !visitedPositions[key] {
+					visitedPositions[key] = true
+					posList = append(posList, position)
 				}
-				symbols = append(symbols, strings.Split(t, "\n")[0])
 			}
-			for j, fn := range d.Funcs {
-				if j >= 5 {
-					break
-				}
-				symbols = append(symbols, strings.Split(fn, "\n")[0])
-			}
-			if len(symbols) > 0 {
-				entry.WriteString("\n  ```go\n")
-				for _, s := range symbols {
-					fmt.Fprintf(&entry, "  %s\n", s)
-				}
-				entry.WriteString("  ```")
-			}
-
-			packageDocs = append(packageDocs, entry.String())
 		}
+		return true
+	})
+
+	if len(posList) == 0 {
+		return ""
 	}
-	return diags, packageDocs
+
+	var mu sync.Mutex
+	var typeDefinitions []string
+	var uniqueDefs = make(map[string]bool)
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
+
+	for _, pos := range posList {
+		wg.Add(1)
+		go func(position token.Position) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			posStr := fmt.Sprintf("%s:%d:%d", filename, position.Line, position.Column)
+			cmd := exec.CommandContext(ctx, "gopls", "definition", posStr)
+			out, err := cmd.CombinedOutput()
+			if err == nil {
+				defStr := strings.TrimSpace(string(out))
+				if defStr != "" && (strings.Contains(defStr, "struct {") || strings.Contains(defStr, "interface {") || strings.Contains(defStr, "func(")) {
+					mu.Lock()
+					if !uniqueDefs[defStr] {
+						uniqueDefs[defStr] = true
+						typeDefinitions = append(typeDefinitions, defStr)
+					}
+					mu.Unlock()
+				}
+			}
+		}(pos)
+	}
+	wg.Wait()
+
+	if len(typeDefinitions) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<types>\n")
+	for _, def := range typeDefinitions {
+		sb.WriteString(def)
+		sb.WriteString("\n\n")
+	}
+	sb.WriteString("</types>\n")
+	return sb.String()
 }
 
 func errorResult(msg string) *mcp.CallToolResult {

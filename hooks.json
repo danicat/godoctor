@@ -30,7 +30,7 @@
             "name": "godoctor-block-write",
             "type": "command",
             "command": "${extensionPath}/bin/godoctor hooks intercept",
-            "description": "Blocks the native write tool to enforce file_create usage."
+            "description": "Blocks the native write tool to enforce smart_edit usage."
           }
         ]
       },
