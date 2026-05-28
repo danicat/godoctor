@@ -14,7 +14,7 @@ builds:
       - windows
       - darwin
     main: ./cmd/godoctor
-    binary: godoctor
+    binary: bin/godoctor
     ldflags:
       - -s -w -X main.version={{.Version}}
 
@@ -27,7 +27,7 @@ archives:
         format: zip
     files:
       - gemini-extension.json
-      - hooks.json
+      - hooks/hooks.json
       - GODOCTOR.md
       - README.md
       - LICENSE

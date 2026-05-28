@@ -6,17 +6,24 @@ GoDoctor is a Model Context Protocol (MCP) server and CLI extension for Go devel
 
 ### Installation
 
-#### Antigravity and Agy CLI
-Install the plugin directly from GitHub:
+#### Antigravity CLI
+GoDoctor ships as a Gemini CLI-compatible extension. Install using the `gemini` command (included with Antigravity CLI), then import into `agy`:
+
 ```bash
-agy plugin install https://github.com/danicat/godoctor
+# Step 1: install the extension (downloads the pre-compiled binary from the GitHub release)
+gemini extensions install https://github.com/danicat/godoctor
+
+# Step 2: import into Antigravity CLI
+agy plugin import gemini
 ```
 
-#### Gemini CLI
-Install the extension from GitHub:
+After import, GoDoctor is active in all future `agy` sessions. Skills, hooks, and the MCP server are all registered automatically.
+
+#### Gemini CLI (standalone)
 ```bash
 gemini extensions install https://github.com/danicat/godoctor
 ```
+
 
 #### Claude Code
 1. Install the binary globally:
@@ -49,7 +56,7 @@ godoctor --list-tools
 ### Specific Documentation
 
 #### Command Interception (Hooks)
-When running inside the Antigravity or Gemini CLI, GoDoctor intercepts standard terminal commands (such as `go build`, `cat`, or `sed`) and raw file tools. It redirects the agent to GoDoctor's specialized tools (`smart_build`, `smart_read`, and `smart_edit`). This prevents syntax errors and conserves context window tokens.
+When running inside the Antigravity or Gemini CLI, GoDoctor intercepts standard terminal commands (such as `go build`, `cat`, or `sed`) and raw file tools **when they operate on Go source files (`.go`)**. It redirects the agent to GoDoctor's specialized tools (`smart_build`, `smart_read`, and `smart_edit`). Non-Go files (Python, TypeScript, Markdown, etc.) are unaffected and pass through normally. This prevents syntax errors and conserves context window tokens.
 
 #### Configuration (Command-line Flags)
 

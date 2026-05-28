@@ -7,7 +7,7 @@
           {
             "name": "godoctor-block-replace",
             "type": "command",
-            "command": "${extensionPath}/godoctor hooks intercept",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
             "description": "Blocks the native replace tool to enforce smart_edit usage."
           }
         ]
@@ -18,7 +18,7 @@
           {
             "name": "godoctor-block-read",
             "type": "command",
-            "command": "${extensionPath}/godoctor hooks intercept",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
             "description": "Blocks the native read tool to enforce smart_read usage."
           }
         ]
@@ -29,7 +29,7 @@
           {
             "name": "godoctor-block-write",
             "type": "command",
-            "command": "${extensionPath}/godoctor hooks intercept",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
             "description": "Blocks the native write tool to enforce smart_edit usage."
           }
         ]
@@ -40,7 +40,7 @@
           {
             "name": "godoctor-block-shell",
             "type": "command",
-            "command": "${extensionPath}/godoctor hooks intercept",
+            "command": "${extensionPath}/bin/godoctor hooks intercept",
             "description": "Blocks inefficient shell usage (go build, sed, grep) to enforce MCP tool usage."
           }
         ]
