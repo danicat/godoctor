@@ -1,12 +1,12 @@
 {
   "name": "godoctor",
-  "version": "0.16.2",
+  "version": "0.16.3",
   "description": "Compiler-gated Go development assistant.",
   "contextFileName": "GODOCTOR.md",
   "hooksFileName": "hooks.json",
   "mcpServers": {
     "godoctor": {
-      "command": "${extensionPath}/bin/godoctor",
+      "command": "${extensionPath}/godoctor",
       "args": []
     }
   }

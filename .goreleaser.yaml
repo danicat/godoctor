@@ -14,7 +14,7 @@ builds:
       - windows
       - darwin
     main: ./cmd/godoctor
-    binary: bin/godoctor
+    binary: godoctor
     ldflags:
       - -s -w -X main.version={{.Version}}
 
