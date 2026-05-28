@@ -25,7 +25,7 @@ Activate this skill whenever:
 
 ---
 
-## 3. The 14-Point Pre-Release Checklist
+## 3. The 15-Point Pre-Release Checklist
 
 Before performing any Git operations to finalize a release, you **must** run and check off every single item on this list:
 
@@ -40,16 +40,17 @@ Before performing any Git operations to finalize a release, you **must** run and
 - [ ] **6. Version Bumps:** Are versions bumped correctly across all manifests, config files, and registry files (e.g. `gemini-extension.json`, `go.mod`, `plugin.json` or equivalent)?
 - [ ] **7. Release Files Alignment:** Are all release-specific packaging files (e.g., `.goreleaser.yaml` or build script lists) fully updated to include all newly introduced files and exclude deleted ones?
 - [ ] **8. Software & Model Versions:** Are all external software, library dependencies, and LLM model identifiers verified to be up to date and correct in the real world (using the `latest-version` skill)?
+- [ ] **9. CI/CD & Release Workflow Audit:** Did you check the CI/CD workflow configurations (such as `.github/workflows/` or build pipeline scripts) to verify automated release triggers? Ensure the correct Git release tags are prepared, created, and pushed to the remote repository so the packaging run does not fail.
 
 ### Documentation & Decisions
-- [ ] **9. README Precision:** Is the `README.md` file completely up to date, mapping the exact current list of features, setup requirements, installation details, and CLI options?
-- [ ] **10. Context-Sensitive Files:** Are all context-sensitive system prompt guides (such as `GODOCTOR.md` or CLAUDE.md) updated to reflect the absolute latest tool registries and boundaries?
-- [ ] **11. General Documentation:** Are all other developer guides, operational runbooks, and documentation files fully aligned and clear?
-- [ ] **12. Decision Records:** Are all architectural decisions fully documented? Ensure all key choices have active, numbered ADRs under `design/adr/` (with superseded decisions cleanly archived).
+- [ ] **10. README Precision:** Is the `README.md` file completely up to date, mapping the exact current list of features, setup requirements, installation details, and CLI options?
+- [ ] **11. Context-Sensitive Files:** Are all context-sensitive system prompt guides (such as `GODOCTOR.md` or CLAUDE.md) updated to reflect the absolute latest tool registries and boundaries?
+- [ ] **12. General Documentation:** Are all other developer guides, operational runbooks, and documentation files fully aligned and clear?
+- [ ] **13. Decision Records:** Are all architectural decisions fully documented? Ensure all key choices have active, numbered ADRs under `design/adr/` (with superseded decisions cleanly archived).
 
 ### Security & Compliance
-- [ ] **13. Security Review:** Have you conducted a security review for common attack vectors? (e.g., input sanitization, safe command execution, access control restrictions on paths, session separation).
-- [ ] **14. Credential Leak Check:** Have you checked that absolutely no credentials, API keys, private keys, or passwords are leaked, either in environment files (`.env`), temporary files, or inline within the source code?
+- [ ] **14. Security Review:** Have you conducted a security review for common attack vectors? (e.g., input sanitization, safe command execution, access control restrictions on paths, session separation).
+- [ ] **15. Credential Leak Check:** Have you checked that absolutely no credentials, API keys, private keys, or passwords are leaked, either in environment files (`.env`), temporary files, or inline within the source code?
 
 ---
 
@@ -58,4 +59,4 @@ Before performing any Git operations to finalize a release, you **must** run and
 If **any** checklist item fails, you must **HALT the release process immediately**. 
 1. Fix the underlying issue (e.g. correct the broken test, fix the linter warning, update the doc).
 2. Rerun the failed check.
-3. Once all 14 boxes are checked `[x]`, you are formally authorized to proceed with the Git commit, version tagging, and publishing sequence.
+3. Once all 15 boxes are checked `[x]`, you are formally authorized to proceed with the Git commit, version tagging, and publishing sequence.
