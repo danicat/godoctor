@@ -43,8 +43,16 @@ Whenever operating on Go codebases (`.go` files, `go.mod`, Go toolchains), codin
 - **`read_docs`**: Directly fetches package and symbol documentation from Go doc servers.
 
 ### 🧪 Quality Engineering & Testing (`test_query` & `mutation_test`)
-- **`test_query`**: Query test results and coverage data using SQL against `testquery.db`. Isolate uncovered code paths (`SELECT * FROM all_coverage WHERE count = 0`), panics, or historic test failures.
-- **`mutation_test`**: Runs Selene mutation testing to inject subtle code mutations (swapped operators, flipped conditions) to objectively verify test assertion strength.
+
+#### SQL Coverage Analysis (`test_query`)
+Execute SQL queries against `testquery.db` to isolate uncovered code paths (`SELECT * FROM all_coverage WHERE count = 0`), panics, or historic test failures.
+> [!NOTE]
+> For complete database schemas (`all_tests`, `all_coverage`, `test_coverage`, `all_code`, `metadata`) and SQL examples, inspect [`references/testquery-schema.md`](file:///Users/petruzalek/projects/godoctor/skills/godoctor/references/testquery-schema.md).
+
+#### Selene Mutation Testing (`mutation_test`)
+Execute `mutation_test` using Selene to introduce subtle AST code mutations (swapped operators, inverted conditionals, boundary tweaks) into Go source code.
+> [!NOTE]
+> For mutation operator types, mutation scores, and mutant survival workflows, inspect [`references/selene-mutation-testing.md`](file:///Users/petruzalek/projects/godoctor/skills/godoctor/references/selene-mutation-testing.md).
 
 ---
 
