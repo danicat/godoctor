@@ -28,8 +28,6 @@ archives:
     files:
       - plugin.json
       - mcp_config.json
-      - hooks.json
-      - rules/**/*
       - README.md
       - LICENSE
       - skills/**/*
