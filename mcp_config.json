@@ -2,9 +2,7 @@
   "mcpServers": {
     "godoctor": {
       "command": "__PLUGIN_PATH__/bin/godoctor",
-      "args": [],
-      "cwd": "",
-      "env": null
+      "args": []
     }
   }
 }

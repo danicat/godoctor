@@ -1,9 +1,5 @@
 {
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "godoctor",
-  "version": "0.20.3",
-  "description": "Specialized agentic coding suite for Go codebases.",
-  "author": {
-    "name": "Daniela Petruzalek"
-  },
-  "license": "Apache-2.0"
+  "description": "Specialized agentic coding suite for Go codebases."
 }

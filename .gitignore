@@ -14,7 +14,6 @@ coverage.out
 # Local tools and CLI
 .antigravitycli/
 scratch/
-agents/
 .agents/
 
 # Build artifacts

@@ -231,7 +231,6 @@ else
   }
 
   replace_path "${INSTALL_DIR}/mcp_config.json" "${INSTALL_DIR}"
-  replace_path "${INSTALL_DIR}/hooks.json" "${INSTALL_DIR}"
 
   echo "✅ Success! GoDoctor has been successfully installed in '${TARGET_MODE}' mode (${INSTALL_SCOPE}) to [${INSTALL_DIR}]."
 fi

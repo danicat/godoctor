@@ -45,9 +45,6 @@ godoctor --list-tools
 
 ### Specific Documentation
 
-#### Command Interception (Hooks)
-When running inside the Antigravity CLI, GoDoctor intercepts standard terminal commands (such as `go build`, `cat`, or `sed`) and raw file tools **when they operate on Go source files (`.go`)**. It redirects the agent to GoDoctor's specialized tools (`smart_build`, `smart_read`, and `smart_edit`). Non-Go files (Python, TypeScript, Markdown, etc.) are unaffected and pass through normally. This prevents syntax errors and conserves context window tokens.
-
 #### Configuration (Command-line Flags)
 
 | Flag | Description | Default |
@@ -126,10 +123,8 @@ make bump-version VERSION=0.21.0
 ```
 
 This single command automatically:
-1. Updates `"version"` in `plugin.json`.
-2. Stages and commits `plugin.json` (`chore: bump version to 0.21.0`).
-3. Creates the matching Git release tag (`v0.21.0`).
-4. Pushes `main` branch and tags to GitHub (`git push origin main --tags`), triggering the automated GoReleaser CI/CD pipeline.
+1. Creates the matching Git release tag (`v0.21.0`).
+2. Pushes tags to GitHub (`git push origin main --tags`), triggering the automated GoReleaser CI/CD pipeline.
 
 #### Local Snapshot Testing (Optional)
 To test the GoReleaser build configuration locally without creating a release tag:
