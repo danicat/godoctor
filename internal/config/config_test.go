@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 )
 
@@ -54,3 +56,98 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestIsToolEnabledAndDisableTool(t *testing.T) {
+	cfg := &Config{
+		AllowedTools: map[string]bool{
+			"tool1": true,
+			"tool2": true,
+		},
+	}
+
+	if !cfg.IsToolEnabled("tool1") {
+		t.Errorf("expected tool1 to be enabled")
+	}
+	if cfg.IsToolEnabled("tool3") {
+		t.Errorf("expected tool3 to be disabled (not in whitelist)")
+	}
+
+	cfg.DisableTool("tool1")
+	if cfg.IsToolEnabled("tool1") {
+		t.Errorf("expected tool1 to be disabled after DisableTool")
+	}
+}
+
+func TestConfig_ConcurrentAccess(t *testing.T) {
+	cfg := &Config{}
+
+	var wg sync.WaitGroup
+	numGoroutines := 100
+
+	// Concurrent readers
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			toolName := fmt.Sprintf("tool_%d", id%10)
+			_ = cfg.IsToolEnabled(toolName)
+		}(i)
+	}
+
+	// Concurrent writers
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			toolName := fmt.Sprintf("tool_%d", id%10)
+			cfg.DisableTool(toolName)
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Verify disabled tools
+	for i := 0; i < 10; i++ {
+		toolName := fmt.Sprintf("tool_%d", i)
+		if cfg.IsToolEnabled(toolName) {
+			t.Errorf("expected %s to be disabled after concurrent DisableTool", toolName)
+		}
+	}
+}
+
+func TestIsToolEnabled_DefaultBehavior(t *testing.T) {
+	// Test when AllowedTools is empty (default mode)
+	cfg := &Config{}
+	if !cfg.IsToolEnabled("any_tool") {
+		t.Errorf("expected any_tool to be enabled when AllowedTools is empty")
+	}
+
+	cfg.DisableTool("any_tool")
+	if cfg.IsToolEnabled("any_tool") {
+		t.Errorf("expected any_tool to be disabled after DisableTool")
+	}
+}
+
+func TestLoad_Flags(t *testing.T) {
+	cfg, err := Load([]string{"-version", "-agents", "-list-tools", "-listen", "127.0.0.1:8080", "-allow", "toolA,toolB"})
+	if err != nil {
+		t.Fatalf("Load() unexpected error = %v", err)
+	}
+	if !cfg.Version {
+		t.Errorf("expected Version to be true")
+	}
+	if !cfg.Agents {
+		t.Errorf("expected Agents to be true")
+	}
+	if !cfg.ListTools {
+		t.Errorf("expected ListTools to be true")
+	}
+	if cfg.ListenAddr != "127.0.0.1:8080" {
+		t.Errorf("ListenAddr = %q, want 127.0.0.1:8080", cfg.ListenAddr)
+	}
+	if !cfg.AllowedTools["toolA"] || !cfg.AllowedTools["toolB"] {
+		t.Errorf("AllowedTools missing toolA or toolB: %v", cfg.AllowedTools)
+	}
+}
+
+

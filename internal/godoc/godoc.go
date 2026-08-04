@@ -101,6 +101,9 @@ func Extract(pkg *packages.Package, symbolName string) (*Doc, error) {
 	if err != nil {
 		return nil, fmt.Errorf("doc.NewFromFiles failed: %w", err)
 	}
+	if targetPkg == nil {
+		return nil, errors.New("doc.NewFromFiles returned nil package")
+	}
 
 	if symbolName == "" {
 		result.Description = targetPkg.Doc
@@ -215,11 +218,11 @@ func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, reque
 	fset := token.NewFileSet()
 	//nolint:staticcheck // SA1019: parser.ParseDir is used for fast parsing of comments without type-checking
 	pkgs, err := parser.ParseDir(fset, pkgDir, nil, parser.ParseComments)
-	if err != nil {
+	files := collectFiles(pkgs)
+	if err != nil && len(files) == 0 {
 		return nil, fmt.Errorf("parser.ParseDir failed: %w", err)
 	}
 
-	files := collectFiles(pkgs)
 	result := initializeDoc(ctx, importPath, requestedPath, pkgDir)
 
 	if len(files) == 0 {
@@ -229,6 +232,9 @@ func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, reque
 	targetPkg, err := doc.NewFromFiles(fset, files, importPath)
 	if err != nil {
 		return nil, fmt.Errorf("doc.NewFromFiles failed: %w", err)
+	}
+	if targetPkg == nil {
+		return nil, errors.New("doc.NewFromFiles returned nil package")
 	}
 
 	setPackageName(result, targetPkg, importPath)
@@ -245,8 +251,13 @@ func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, reque
 func collectFiles(pkgs map[string]*ast.Package) []*ast.File {
 	var files []*ast.File
 	for _, pkg := range pkgs {
+		if pkg == nil {
+			continue
+		}
 		for _, file := range pkg.Files {
-			files = append(files, file)
+			if file != nil {
+				files = append(files, file)
+			}
 		}
 	}
 	return files
@@ -351,7 +362,13 @@ func findSymbol(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 }
 
 func checkFuncs(fset *token.FileSet, pkg *doc.Package, symName string, result *Doc, add func(string)) bool {
+	if pkg == nil {
+		return false
+	}
 	for _, f := range pkg.Funcs {
+		if f == nil {
+			continue
+		}
 		if f.Name == symName {
 			populateFunc(fset, pkg, f, result)
 			return true
@@ -362,10 +379,18 @@ func checkFuncs(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 }
 
 func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *Doc, add func(string)) bool {
+	if pkg == nil {
+		return false
+	}
 	for _, t := range pkg.Types {
+		if t == nil {
+			continue
+		}
 		if t.Name == symName {
 			result.Type = "type"
-			result.Definition = bufferCode(fset, t.Decl)
+			if t.Decl != nil {
+				result.Definition = bufferCode(fset, t.Decl)
+			}
 			result.Description = t.Doc
 			result.Examples = extractExamples(fset, t.Examples)
 			return true
@@ -373,6 +398,9 @@ func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 		add(t.Name)
 
 		for _, f := range t.Funcs {
+			if f == nil {
+				continue
+			}
 			if f.Name == symName {
 				populateFunc(fset, pkg, f, result)
 				return true
@@ -381,9 +409,14 @@ func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 		}
 
 		for _, m := range t.Methods {
+			if m == nil {
+				continue
+			}
 			if m.Name == symName {
 				result.Type = "method"
-				result.Definition = bufferCode(fset, m.Decl)
+				if m.Decl != nil {
+					result.Definition = bufferCode(fset, m.Decl)
+				}
 				result.Description = m.Doc
 				result.Examples = extractExamples(fset, m.Examples)
 				return true
@@ -395,11 +428,19 @@ func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 }
 
 func checkVars(fset *token.FileSet, pkg *doc.Package, symName string, result *Doc, add func(string)) bool {
+	if pkg == nil {
+		return false
+	}
 	for _, v := range pkg.Vars {
+		if v == nil {
+			continue
+		}
 		for _, name := range v.Names {
 			if name == symName {
 				result.Type = "var"
-				result.Definition = bufferCode(fset, v.Decl)
+				if v.Decl != nil {
+					result.Definition = bufferCode(fset, v.Decl)
+				}
 				result.Description = v.Doc
 				return true
 			}
@@ -410,11 +451,19 @@ func checkVars(fset *token.FileSet, pkg *doc.Package, symName string, result *Do
 }
 
 func checkConsts(fset *token.FileSet, pkg *doc.Package, symName string, result *Doc, add func(string)) bool {
+	if pkg == nil {
+		return false
+	}
 	for _, c := range pkg.Consts {
+		if c == nil {
+			continue
+		}
 		for _, name := range c.Names {
 			if name == symName {
 				result.Type = "const"
-				result.Definition = bufferCode(fset, c.Decl)
+				if c.Decl != nil {
+					result.Definition = bufferCode(fset, c.Decl)
+				}
 				result.Description = c.Doc
 				return true
 			}
@@ -425,8 +474,13 @@ func checkConsts(fset *token.FileSet, pkg *doc.Package, symName string, result *
 }
 
 func populateFunc(fset *token.FileSet, pkg *doc.Package, f *doc.Func, result *Doc) {
+	if f == nil {
+		return
+	}
 	result.Type = "function"
-	result.Definition = bufferCode(fset, f.Decl)
+	if f.Decl != nil {
+		result.Definition = bufferCode(fset, f.Decl)
+	}
 
 	if typeDef := findReturnTypeDefinition(fset, pkg, f); typeDef != "" {
 		result.Definition += "\n\n" + typeDef
@@ -437,23 +491,37 @@ func populateFunc(fset *token.FileSet, pkg *doc.Package, f *doc.Func, result *Do
 }
 
 func findReturnTypeDefinition(fset *token.FileSet, pkg *doc.Package, f *doc.Func) string {
-	if f.Decl.Type.Results == nil || len(f.Decl.Type.Results.List) == 0 {
+	if f == nil || f.Decl == nil || f.Decl.Type == nil || f.Decl.Type.Results == nil || len(f.Decl.Type.Results.List) == 0 {
 		return ""
 	}
 
 	// Get the first return value type
+	if f.Decl.Type.Results.List[0] == nil {
+		return ""
+	}
 	retType := f.Decl.Type.Results.List[0].Type
+	if retType == nil {
+		return ""
+	}
 
 	var typeName string
 
 	// Handle pointers (*Type) or values (Type)
 	switch t := retType.(type) {
 	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok {
+		if ident, ok := t.X.(*ast.Ident); ok && ident != nil {
 			typeName = ident.Name
 		}
 	case *ast.Ident:
 		typeName = t.Name
+	case *ast.ArrayType:
+		if ident, ok := t.Elt.(*ast.Ident); ok && ident != nil {
+			typeName = ident.Name
+		} else if star, ok := t.Elt.(*ast.StarExpr); ok && star != nil {
+			if ident, ok := star.X.(*ast.Ident); ok && ident != nil {
+				typeName = ident.Name
+			}
+		}
 	}
 
 	if typeName == "" {
@@ -461,9 +529,11 @@ func findReturnTypeDefinition(fset *token.FileSet, pkg *doc.Package, f *doc.Func
 	}
 
 	// Search for this type in the package
-	for _, t := range pkg.Types {
-		if t.Name == typeName {
-			return bufferCode(fset, t.Decl)
+	if pkg != nil {
+		for _, t := range pkg.Types {
+			if t != nil && t.Name == typeName && t.Decl != nil {
+				return bufferCode(fset, t.Decl)
+			}
 		}
 	}
 
@@ -473,6 +543,9 @@ func findReturnTypeDefinition(fset *token.FileSet, pkg *doc.Package, f *doc.Func
 func extractExamples(fset *token.FileSet, examples []*doc.Example) []Example {
 	result := make([]Example, 0, len(examples))
 	for _, ex := range examples {
+		if ex == nil {
+			continue
+		}
 		code := bufferCode(fset, ex.Code)
 		result = append(result, Example{
 			Name:   ex.Name,
@@ -484,6 +557,9 @@ func extractExamples(fset *token.FileSet, examples []*doc.Example) []Example {
 }
 
 func bufferCode(fset *token.FileSet, node any) string {
+	if node == nil {
+		return ""
+	}
 	var buf bytes.Buffer
 	if err := printer.Fprint(&buf, fset, node); err != nil {
 		return fmt.Sprintf("error printing code: %v", err)
@@ -763,17 +839,22 @@ func downloadPackage(ctx context.Context, tempDir, pkgPath string) (string, stri
 		// Check for vanity import error
 		matches := vanityImportRe.FindSubmatch(out)
 		if len(matches) > 1 {
-			actualPath = string(matches[1])
-			// Retry with correct path
-			retryCmd, retryErr := safeshell.CommandContext(ctx, "go", "get", actualPath)
-			if retryErr != nil {
-				return "", "", fmt.Errorf("secure validation failed for vanity path: %w", retryErr)
+			extractedPath := strings.Trim(string(matches[1]), "\"'`()[]{} \t\r\n")
+			if extractedPath != "" && extractedPath != pkgPath {
+				actualPath = extractedPath
+				// Retry with correct path
+				retryCmd, retryErr := safeshell.CommandContext(ctx, "go", "get", actualPath)
+				if retryErr != nil {
+					return "", "", fmt.Errorf("secure validation failed for vanity path: %w", retryErr)
+				}
+				retryCmd.Dir = tempDir
+				if retryOut, retryErr := retryCmd.CombinedOutput(); retryErr != nil {
+					return "", "", fmt.Errorf("go get failed after vanity retry: %v\nOutput: %s", retryErr, retryOut)
+				}
+				// Success on retry
+			} else {
+				return "", "", fmt.Errorf("go get failed: %v\nOutput: %s", err, out)
 			}
-			retryCmd.Dir = tempDir
-			if retryOut, retryErr := retryCmd.CombinedOutput(); retryErr != nil {
-				return "", "", fmt.Errorf("go get failed after vanity retry: %v\nOutput: %s", retryErr, retryOut)
-			}
-			// Success on retry
 		} else {
 			return "", "", fmt.Errorf("go get failed: %v\nOutput: %s", err, out)
 		}

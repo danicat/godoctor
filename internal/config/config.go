@@ -6,10 +6,12 @@ package config
 import (
 	"flag"
 	"strings"
+	"sync"
 )
 
 // Config holds the application configuration.
 type Config struct {
+	mu            sync.RWMutex
 	ListenAddr    string
 	Version       bool
 	Agents        bool
@@ -61,6 +63,9 @@ func Load(args []string) (*Config, error) {
 
 // IsToolEnabled checks if a tool should be enabled.
 func (c *Config) IsToolEnabled(name string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	// 1. Explicitly Disabled
 	if c.DisabledTools[name] {
 		return false
@@ -77,6 +82,9 @@ func (c *Config) IsToolEnabled(name string) bool {
 
 // DisableTool explicitly disables a tool at runtime.
 func (c *Config) DisableTool(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.DisabledTools == nil {
 		c.DisabledTools = make(map[string]bool)
 	}

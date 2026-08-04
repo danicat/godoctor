@@ -3,7 +3,9 @@ package lsp
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
 	"sync"
@@ -153,7 +155,7 @@ func ioCopy(dst writeCloser, src readCloser) (int64, error) {
 			}
 		}
 		if er != nil {
-			if er != fmt.Errorf("EOF") { // simple match
+			if !errors.Is(er, io.EOF) {
 				err = er
 			}
 			break

@@ -10,13 +10,12 @@ func Levenshtein(s1, s2 string) int {
 		r1, r2 = r2, r1
 		n, m = m, n
 	}
+	previousRow := make([]int, n+1)
 	currentRow := make([]int, n+1)
 	for i := 0; i <= n; i++ {
-		currentRow[i] = i
+		previousRow[i] = i
 	}
 	for i := 1; i <= m; i++ {
-		previousRow := currentRow
-		currentRow = make([]int, n+1)
 		currentRow[0] = i
 		for j := 1; j <= n; j++ {
 			add, del, change := previousRow[j]+1, currentRow[j-1]+1, previousRow[j-1]
@@ -26,6 +25,7 @@ func Levenshtein(s1, s2 string) int {
 			minVal := min(change, min(del, add))
 			currentRow[j] = minVal
 		}
+		previousRow, currentRow = currentRow, previousRow
 	}
-	return currentRow[n]
+	return previousRow[n]
 }

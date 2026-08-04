@@ -24,3 +24,23 @@ func TestLevenshtein(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkLevenshtein(b *testing.B) {
+	benchmarks := []struct {
+		name   string
+		s1, s2 string
+	}{
+		{"short", "kitten", "sitting"},
+		{"medium", "The quick brown fox jumps over the lazy dog", "The fast brown fox leaped over a lazy dog"},
+		{"long", "Lorem ipsum dolor sit amet, consectetur adipiscing elit.", "Lorem ipsum dolor sit amet, sed do eiusmod tempor incididunt."},
+	}
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = Levenshtein(bm.s1, bm.s2)
+			}
+		})
+	}
+}
+
