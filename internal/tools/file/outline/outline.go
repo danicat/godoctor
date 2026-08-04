@@ -14,107 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/safeshell"
-	"github.com/danicat/godoctor/internal/toolnames"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
-
-// Register registers the code_outline tool with the server.
-func Register(server *mcp.Server) {
-	def := toolnames.Registry["file_outline"]
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        def.Name,
-		Title:       def.Title,
-		Description: def.Description,
-	}, Handler)
-}
-
-// Params defines the input parameters.
-type Params struct {
-	Filename string `json:"filename" jsonschema:"Absolute path to the Go file to outline"`
-}
-
-// Handler implements the file outlining logic.
-func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	if args.Filename == "" {
-		return errorResult("filename cannot be empty"), nil, nil
-	}
-	if !strings.HasSuffix(args.Filename, ".go") {
-		return errorResult("filename must be a Go file (*.go)"), nil, nil
-	}
-
-	outline, imports, errs, err := GetOutline(ctx, args.Filename)
-	if err != nil {
-		return errorResult(fmt.Sprintf("failed to generate outline: %v", err)), nil, nil
-	}
-
-	// Build Markdown Response
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "# File: %s\n\n", args.Filename)
-
-	if len(errs) > 0 {
-		sb.WriteString("## Analysis (Problems)\n")
-		for _, e := range errs {
-			fmt.Fprintf(&sb, "- ⚠️ %v\n", e)
-		}
-		sb.WriteString("\n")
-	}
-
-	sb.WriteString("## Outline\n")
-	sb.WriteString("```go\n")
-	sb.WriteString(outline)
-	sb.WriteString("\n```\n\n")
-
-	writeExternalImportsAppendix(ctx, &sb, imports)
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: sb.String()},
-		},
-	}, nil, nil
-}
-
-func writeExternalImportsAppendix(ctx context.Context, sb *strings.Builder, imports []string) {
-	if len(imports) == 0 {
-		return
-	}
-
-	sb.WriteString("## Appendix: External Imports\n")
-
-	for _, imp := range imports {
-		pkgPath := strings.Trim(imp, "\"")
-
-		parts := strings.SplitN(pkgPath, "/", 2)
-		if !strings.Contains(parts[0], ".") {
-			continue
-		}
-
-		doc, err := godoc.Load(ctx, pkgPath, "")
-		if err == nil && doc != nil {
-			fmt.Fprintf(sb, "### %s\n", pkgPath)
-			sb.WriteString(doc.Description + "\n\n")
-
-			limit := 5
-			if len(doc.Funcs) > 0 {
-				sb.WriteString("**Exported Functions (Top 5):**\n```go\n")
-				count := 0
-				for _, f := range doc.Funcs {
-					if count >= limit {
-						break
-					}
-					lines := strings.Split(f, "\n")
-					if len(lines) > 0 {
-						sb.WriteString(lines[0] + "\n")
-					}
-					count++
-				}
-				sb.WriteString("```\n")
-			}
-			sb.WriteString("\n")
-		}
-	}
-}
 
 // GetOutline loads a file and returns its outline, list of imports, and build errors.
 func GetOutline(ctx context.Context, file string) (string, []string, []error, error) {
@@ -227,14 +128,5 @@ func processDeclOutline(decl ast.Decl, allowedComments map[*ast.CommentGroup]boo
 		return decl
 	default:
 		return decl
-	}
-}
-
-func errorResult(msg string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{
-		IsError: true,
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: msg},
-		},
 	}
 }

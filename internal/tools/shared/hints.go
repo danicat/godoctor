@@ -4,9 +4,6 @@ package shared
 import (
 	"fmt"
 	"regexp"
-	"strings"
-
-	"golang.org/x/tools/go/packages"
 )
 
 var (
@@ -15,16 +12,6 @@ var (
 	// importError match: "could not import github.com/foo/bar" or "package github.com/foo/bar is not in GOROOT"
 	importErrorRe = regexp.MustCompile(`(?:could not import|package)\s+([a-zA-Z0-9_./-]+)`)
 )
-
-// GetDocHint checks a list of package errors for API usage issues and returns a generic doc hint.
-func GetDocHint(errs []packages.Error) string {
-	for _, e := range errs {
-		if hint := generateHint(e.Msg); hint != "" {
-			return hint
-		}
-	}
-	return ""
-}
 
 // GetDocHintFromOutput checks a raw output string for API usage issues and returns a generic doc hint.
 func GetDocHintFromOutput(output string) string {
@@ -47,12 +34,4 @@ func generateHint(msg string) string {
 	}
 
 	return ""
-}
-
-// CleanError strips noisy artifacts from Go compiler errors, such as empty name quotes.
-func CleanError(msg string) string {
-	// Remove the literal '("" )' or ': ""' artifacts that confuse agents.
-	msg = strings.ReplaceAll(msg, `(invalid package name: "")`, `(invalid package name)`)
-	msg = strings.ReplaceAll(msg, `invalid package name: ""`, `invalid package name`)
-	return msg
 }
