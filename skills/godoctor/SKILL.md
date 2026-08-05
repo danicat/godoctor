@@ -28,8 +28,40 @@ For enforcing these rules natively across the entire AGY platform, run the `setu
 
 ## 2. GoDoctor MCP Tool Reference & Usage Benefits
 
-### ✏️ Editing (`smart_edit`)
-- **Usage**: Atomic, compiler-gated multi-file editor for creating or modifying Go files.
+### ✏️ Unified Editing (`smart_edit`)
+- **Unified Schema**: `smart_edit` ALWAYS uses the `edits` array parameter for all editing operations (single-file or multi-file).
+
+#### Single-File Edit Example:
+```json
+{
+  "edits": [
+    {
+      "filename": "/Users/user/project/main.go",
+      "old_content": "func main() {\n\tprintln(\"hello\")\n}",
+      "new_content": "func main() {\n\tfmt.Println(\"hello world\")\n}"
+    }
+  ]
+}
+```
+
+#### Multi-File Atomic Transaction Example:
+```json
+{
+  "edits": [
+    {
+      "filename": "/Users/user/project/pkg/service.go",
+      "old_content": "type Service struct{}",
+      "new_content": "type Service struct{\n\tName string\n}"
+    },
+    {
+      "filename": "/Users/user/project/main.go",
+      "old_content": "s := &pkg.Service{}",
+      "new_content": "s := &pkg.Service{Name: \"godoctor\"}"
+    }
+  ]
+}
+```
+
 - **Benefits**:
   - Automatically runs `gofmt`, `goimports`, and type-checks with `go vet` *before* committing edits to disk.
   - Safely rolls back changes on syntax or type errors to prevent workspace corruption and provides Levenshtein spelling suggestions.

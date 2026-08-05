@@ -49,14 +49,16 @@ type FileEdit struct {
 
 // Params defines the input parameters for the smart_edit tool.
 type Params struct {
-	Edits      []FileEdit `json:"edits,omitempty" jsonschema:"List of edits to perform atomically"`
-	Filename   string     `json:"filename,omitempty" jsonschema:"Deprecated: use absolute path in edits instead"`
-	OldContent string     `json:"old_content,omitempty" jsonschema:"Deprecated: use edits instead"`
-	NewContent string     `json:"new_content,omitempty" jsonschema:"Deprecated: use edits instead"`
-	StartLine  int        `json:"start_line,omitempty" jsonschema:"Deprecated: use edits instead"`
-	EndLine    int        `json:"end_line,omitempty" jsonschema:"Deprecated: use edits instead"`
-	Threshold  float64    `json:"threshold,omitempty" jsonschema:"Deprecated: use edits instead"`
-	Append     bool       `json:"append,omitempty" jsonschema:"Deprecated: use edits instead"`
+	Edits []FileEdit `json:"edits" jsonschema:"List of file edits to perform atomically"`
+
+	// Deprecated fields retained for runtime fallback compatibility only
+	Filename   string  `json:"filename,omitempty" jsonschema:"-"`
+	OldContent string  `json:"old_content,omitempty" jsonschema:"-"`
+	NewContent string  `json:"new_content,omitempty" jsonschema:"-"`
+	StartLine  int     `json:"start_line,omitempty" jsonschema:"-"`
+	EndLine    int     `json:"end_line,omitempty" jsonschema:"-"`
+	Threshold  float64 `json:"threshold,omitempty" jsonschema:"-"`
+	Append     bool    `json:"append,omitempty" jsonschema:"-"`
 }
 
 func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {

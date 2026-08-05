@@ -21,15 +21,16 @@ var Registry = map[string]ToolDef{
 			"formats using gofmt/goimports, and runs type verification (go vet) across the entire " +
 			"workspace. If the compiler check fails, all edits are completely rolled back to backup state, " +
 			"and Levenshtein-based spelling suggestions are returned for misspelled symbols.",
-		Instruction: "*   **`smart_edit`**: The primary tool for modifying files.\n" +
-			"    *   **Capabilities:** Atomic transactions across multiple files. Validates syntax and types " +
-			"(gofmt/goimports/go vet) *before* finalizing modifications on disk.\n" +
-			"    *   **Rollback Safety:** If any compilation errors occur, changes are rolled back completely. " +
-			"Returns type check errors along with helpful 'Did you mean?' suggestions.\n" +
-			"    *   **Usage:** `smart_edit(edits=[{\"filename\": \"/absolute/path/to/target/file.go\", " +
-			"\"old_content\": \"...\", \"new_content\": \"...\", \"start_line\": 10, \"end_line\": 15}])`\n" +
-			"    *   **CRITICAL:** In multi-root workspaces, you MUST use absolute file paths in `filename` " +
-			"to ensure the correct project is edited.",
+		Instruction: "*   **`smart_edit`**: The primary tool for modifying Go files.\n" +
+			"    *   **Unified Schema:** Always pass edits inside the `edits` array parameter.\n" +
+			"    *   **Single-File Example:** `smart_edit(edits=[{\"filename\": \"/path/file.go\", " +
+			"\"old_content\": \"old\", \"new_content\": \"new\"}])`\n" +
+			"    *   **Multi-File Example:** `smart_edit(edits=[{\"filename\": \"/A.go\", \"new_content\": \"...\"}, " +
+			"{\"filename\": \"/B.go\", \"new_content\": \"...\"}])`\n" +
+			"    *   **Capabilities:** Validates syntax and type safety (gofmt/goimports/go vet) " +
+			"*before* committing to disk.\n" +
+			"    *   **Rollback Safety:** On compilation error, all edits roll back atomically " +
+			"and return Levenshtein 'Did you mean?' suggestions.",
 	},
 	"smart_read": {
 		Name:  "smart_read",
