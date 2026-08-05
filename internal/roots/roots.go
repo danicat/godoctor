@@ -107,24 +107,7 @@ func (s *State) Get(session *mcp.ServerSession) []string {
 	return rootsCopy
 }
 
-// Delete removes all registered roots for the given session.
-func (s *State) Delete(session *mcp.ServerSession) {
-	s.mu.Lock()
-	if s.roots != nil {
-		delete(s.roots, session)
-	}
 
-	cb := s.onChange
-	var snapshot []string
-	if cb != nil {
-		snapshot = s.getAllRootsLocked()
-	}
-	s.mu.Unlock()
-
-	if cb != nil {
-		cb(snapshot)
-	}
-}
 
 // parseRootURI parses a single MCP root URI and normalizes it to a local absolute path.
 func parseRootURI(uri string) string {

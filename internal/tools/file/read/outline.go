@@ -1,5 +1,4 @@
-// Package outline implements the file outlining tool.
-package outline
+package read
 
 import (
 	"bytes"

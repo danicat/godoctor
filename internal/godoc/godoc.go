@@ -31,7 +31,6 @@ import (
 
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/danicat/godoctor/internal/textdist"
-	"golang.org/x/tools/go/packages"
 )
 
 // Load resolves an import path and returns documentation.
@@ -81,53 +80,6 @@ func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback
 	return result, nil
 }
 
-// Extract returns documentation from an already loaded packages.Package.
-// It is efficient (no I/O) as it reuses the existing AST and Type information.
-// Use this when you have a *packages.Package available.
-func Extract(pkg *packages.Package, symbolName string) (*Doc, error) {
-	if pkg == nil {
-		return nil, errors.New("package is nil")
-	}
-
-	// Transform packages.Package files into godoc Doc
-	result := &Doc{
-		ImportPath:  pkg.PkgPath,
-		Package:     pkg.Name,
-		PkgGoDevURL: fmt.Sprintf("https://pkg.go.dev/%s", pkg.PkgPath),
-	}
-
-	// Compute documentation using the syntax already loaded in the package
-	targetPkg, err := doc.NewFromFiles(pkg.Fset, pkg.Syntax, pkg.PkgPath)
-	if err != nil {
-		return nil, fmt.Errorf("doc.NewFromFiles failed: %w", err)
-	}
-	if targetPkg == nil {
-		return nil, errors.New("doc.NewFromFiles returned nil package")
-	}
-
-	if symbolName == "" {
-		result.Description = targetPkg.Doc
-		result.Definition = fmt.Sprintf("package %s // import %q", pkg.Name, pkg.PkgPath)
-		// Populate lists...
-		for _, f := range targetPkg.Funcs {
-			result.Funcs = append(result.Funcs, bufferCode(pkg.Fset, f.Decl))
-		}
-		for _, t := range targetPkg.Types {
-			result.Types = append(result.Types, bufferCode(pkg.Fset, t.Decl))
-		}
-		return result, nil
-	}
-
-	result.SymbolName = symbolName
-	result.PkgGoDevURL = fmt.Sprintf("https://pkg.go.dev/%s#%s", pkg.PkgPath, symbolName)
-
-	found, _ := findSymbol(pkg.Fset, targetPkg, symbolName, result)
-	if !found {
-		return nil, fmt.Errorf("symbol %q not found in package %s", symbolName, pkg.PkgPath)
-	}
-
-	return result, nil
-}
 
 // GetDocumentation retrieves the documentation for a package or symbol as Markdown.
 func GetDocumentation(ctx context.Context, pkgPath, symbolName string) (string, error) {

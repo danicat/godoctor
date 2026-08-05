@@ -273,21 +273,3 @@ func TestState_Sync_WithCapabilitiesAndPercentDecoding(t *testing.T) {
 	}
 }
 
-func TestState_Delete(t *testing.T) {
-	state := &State{
-		roots: make(map[*mcp.ServerSession][]string),
-	}
-	session := &mcp.ServerSession{}
-
-	state.Add(session, "test_root")
-	rts := state.Get(session)
-	if len(rts) != 1 {
-		t.Fatalf("expected 1 root, got %d", len(rts))
-	}
-
-	state.Delete(session)
-	rts = state.Get(session)
-	if len(rts) != 0 {
-		t.Errorf("expected 0 roots after Delete, got %d", len(rts))
-	}
-}

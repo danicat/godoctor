@@ -14,7 +14,6 @@ import (
 	"github.com/danicat/godoctor/internal/lsp"
 	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
-	"github.com/danicat/godoctor/internal/tools/file/outline"
 	"github.com/danicat/godoctor/internal/tools/shared"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -70,7 +69,7 @@ func handleOutlineMode(
 		if err != nil {
 			return errorResult(err.Error()), nil, nil
 		}
-		out, imports, errs, err := outline.GetOutline(ctx, absPath)
+		out, imports, errs, err := GetOutline(ctx, absPath)
 		if err != nil {
 			return errorResult(fmt.Sprintf("failed to generate outline for %s: %v", filename, err)), nil, nil
 		}

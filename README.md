@@ -33,11 +33,6 @@ This script detects your platform (OS and architecture), fetches the latest rele
 
 Once installed, GoDoctor runs automatically in the background of your agent-compatible client. The client agent will discover and call the exposed tools during Go programming tasks.
 
-To manually print system instructions for an LLM agent:
-```bash
-godoctor --agents
-```
-
 To see the list of active tools:
 ```bash
 godoctor --list-tools
@@ -53,7 +48,6 @@ godoctor --list-tools
 | `--disable` | Comma-separated list of tools to disable. | `""` |
 | `--listen` | Address for HTTP transport (defaults to standard input/output). | `""` |
 | `--list-tools` | Prints all registered tools and exits. | `false` |
-| `--agents` | Prints system instructions for LLM agents and exits. | `false` |
 | `--version` | Prints the version and exits. | `false` |
 
 #### Features and Tools
@@ -69,7 +63,7 @@ GoDoctor provides tools divided into four functional areas:
 * `smart_edit` handles atomic modifications across multiple files. It formats the code and automatically rolls back changes if the compiler detects a syntax error.
 
 ##### Go Toolchain Integration
-* `smart_build` manages module tidying, code modernization, formatting, compiling, testing, and linting.
+* `smart_build` manages module tidying, code modernization, formatting, compiling, testing, linting, and deadcode analysis.
 * `add_dependency` installs Go modules and pulls their documentation.
 * `read_docs` fetches API documentation for packages and symbols.
 
@@ -100,7 +94,7 @@ Run GoDoctor's specialized build pipeline:
 ```bash
 smart_build
 ```
-This automatically handles module tidying, code modernization, formatting (`gofmt`), compiling (`go build`), test execution (`go test`), and static linting in a single optimized operation.
+This automatically handles module tidying, code modernization, formatting (`gofmt`), compiling (`go build`), test execution (`go test`), static linting, and deadcode analysis in a single optimized operation.
 
 ### Running Locally
 

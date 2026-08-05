@@ -73,6 +73,9 @@ func TestHandler_Success(t *testing.T) {
 	if !strings.Contains(out, "Tests: ✅ PASS") {
 		t.Errorf("Expected test success in output, got:\n%s", out)
 	}
+	if !strings.Contains(out, "Deadcode: ✅ PASS") {
+		t.Errorf("Expected deadcode pass in output, got:\n%s", out)
+	}
 }
 
 func TestHandler_BuildFail(t *testing.T) {
@@ -100,3 +103,62 @@ func TestHandler_BuildFail(t *testing.T) {
 		t.Errorf("Expected build failure in output, got:\n%s", out)
 	}
 }
+
+func TestHandler_Deadcode_UnreachableCode(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	CommandRunner = &mockRunner{
+		outputs: map[string]string{
+			"go build": "",
+			"go test":  "PASS",
+			"deadcode": "main.go:10:6: unreachable func: UnusedFunc",
+		},
+	}
+
+	res, _, err := Handler(context.Background(), nil, Params{})
+	if err != nil {
+		t.Fatalf("Handler failed: %v", err)
+	}
+	if !res.IsError {
+		t.Error("Expected error result when deadcode finds unreachable code")
+	}
+
+	out := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(out, "Deadcode: ⚠️ UNREACHABLE CODE FOUND") {
+		t.Errorf("Expected deadcode warning in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "UnusedFunc") {
+		t.Errorf("Expected unreachable function in output, got:\n%s", out)
+	}
+}
+
+func TestHandler_Deadcode_Fail(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	CommandRunner = &mockRunner{
+		outputs: map[string]string{
+			"go build": "",
+			"go test":  "PASS",
+			"deadcode": "deadcode: packages contain errors",
+		},
+		errors: map[string]error{
+			"deadcode": fmt.Errorf("exit status 1"),
+		},
+	}
+
+	res, _, err := Handler(context.Background(), nil, Params{})
+	if err != nil {
+		t.Fatalf("Handler failed: %v", err)
+	}
+	if !res.IsError {
+		t.Error("Expected error result when deadcode command fails")
+	}
+
+	out := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(out, "Deadcode: ❌ FAILED") {
+		t.Errorf("Expected deadcode failure in output, got:\n%s", out)
+	}
+}
+

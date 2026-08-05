@@ -38,7 +38,7 @@ Whenever operating on Go codebases (`.go` files, `go.mod`, Go toolchains), codin
 - **`describe_symbol`**: Queries `gopls` for exact declaration signatures, line coordinates, package comments, and workspace call-sites for any symbol.
 
 ### 🛠️ Build & Package Management (`smart_build` & `add_dependency`)
-- **`smart_build`**: GoDoctor's automated build pipeline (`go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> linter).
+- **`smart_build`**: GoDoctor's automated build pipeline (`go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> linter -> deadcode).
 - **`add_dependency`**: Installs Go modules and fetches API documentation automatically.
 - **`read_docs`**: Directly fetches package and symbol documentation from Go doc servers.
 
@@ -88,5 +88,5 @@ Execute `mutation_test` using Selene to introduce subtle AST code mutations (swa
 
 1. **Explore**: Use `list_files`, `smart_read` (Outline mode), or `describe_symbol` to inspect type signatures and project structure.
 2. **Implement/Edit**: Use `smart_edit` to create or modify Go source files.
-3. **Build & Test**: Execute `smart_build` to run full compilation, tests, formatting, and linting.
+3. **Build & Test**: Execute `smart_build` to run full compilation, tests, formatting, linting, and deadcode analysis.
 4. **Audit Quality**: Use `test_query` or `mutation_test` to verify coverage gaps and test assertion strength.

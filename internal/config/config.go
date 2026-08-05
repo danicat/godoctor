@@ -14,7 +14,6 @@ type Config struct {
 	mu            sync.RWMutex
 	ListenAddr    string
 	Version       bool
-	Agents        bool
 	ListTools     bool            // List available tools for the selected profile and exit
 	AllowedTools  map[string]bool // If non-empty, ONLY these tools are allowed
 	DisabledTools map[string]bool // These tools are explicitly disabled
@@ -24,7 +23,6 @@ type Config struct {
 func Load(args []string) (*Config, error) {
 	fs := flag.NewFlagSet("godoctor", flag.ContinueOnError)
 	versionFlag := fs.Bool("version", false, "print the version and exit")
-	agentsFlag := fs.Bool("agents", false, "print LLM agent instructions and exit")
 	listToolsFlag := fs.Bool("list-tools", false, "list available tools and exit")
 	listenAddr := fs.String("listen", "", "listen address for HTTP transport (e.g., 127.0.0.1:8080)")
 
@@ -52,7 +50,6 @@ func Load(args []string) (*Config, error) {
 	cfg := &Config{
 		ListenAddr:    *listenAddr,
 		Version:       *versionFlag,
-		Agents:        *agentsFlag,
 		ListTools:     *listToolsFlag,
 		AllowedTools:  parseList(*allowFlag),
 		DisabledTools: parseList(*disableFlag),
@@ -80,13 +77,3 @@ func (c *Config) IsToolEnabled(name string) bool {
 	return true
 }
 
-// DisableTool explicitly disables a tool at runtime.
-func (c *Config) DisableTool(name string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.DisabledTools == nil {
-		c.DisabledTools = make(map[string]bool)
-	}
-	c.DisabledTools[name] = true
-}

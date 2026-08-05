@@ -108,6 +108,11 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 		return result(sb.String(), true), nil, nil
 	}
 
+	if err := runDeadcodePhase(ctx, workspaceDir, pkgs, &sb); err != nil {
+		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
+		return result(sb.String(), true), nil, nil
+	}
+
 	return result(sb.String(), false), nil, nil
 }
 
@@ -343,6 +348,28 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 		sb.WriteString(formatOutput(lintOut))
 		return lintErr
 	}
+	sb.WriteString("✅ PASS\n")
+	return nil
+}
+
+func runDeadcodePhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) error {
+	sb.WriteString("### 💀 Deadcode: ")
+
+	deadcodeArgs := append([]string{"run", "golang.org/x/tools/cmd/deadcode@latest"}, strings.Fields(pkgs)...)
+	deadcodeOut, deadcodeErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", deadcodeArgs...)
+	if deadcodeErr != nil {
+		sb.WriteString("❌ FAILED\n\n")
+		sb.WriteString(formatOutput(deadcodeOut))
+		return deadcodeErr
+	}
+
+	trimmedOut := strings.TrimSpace(deadcodeOut)
+	if trimmedOut != "" {
+		sb.WriteString("⚠️ UNREACHABLE CODE FOUND\n\n")
+		sb.WriteString(formatOutput(deadcodeOut))
+		return fmt.Errorf("unreachable code found:\n%s", trimmedOut)
+	}
+
 	sb.WriteString("✅ PASS\n")
 	return nil
 }

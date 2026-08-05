@@ -73,12 +73,12 @@ var Registry = map[string]ToolDef{
 		Name:  "smart_build",
 		Title: "Smart Build",
 		Description: "GoDoctor's specialized build pipeline: Tidy -> Modernize -> Format -> Build -> " +
-			"Test -> Lint. Runs `go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> " +
-			"linter to verify workspace health.",
+			"Test -> Lint -> Deadcode. Runs `go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> " +
+			"linter -> deadcode to verify workspace health.",
 		Instruction: "*   **`smart_build`**: GoDoctor's specialized build pipeline.\n" +
 			"    *   **Usage:** `smart_build(dir=\"/absolute/path/to/target-workspace\", packages=\"./...\")`\n" +
 			"    *   **Pipeline:** Automatically runs `go mod tidy` -> modernization -> `gofmt` -> " +
-			"`go build` -> `go test` -> linter.\n" +
+			"`go build` -> `go test` -> linter -> deadcode.\n" +
 			"    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the " +
 			"target workspace root to `dir`.",
 	},

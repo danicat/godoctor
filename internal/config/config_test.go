@@ -57,10 +57,13 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestIsToolEnabledAndDisableTool(t *testing.T) {
+func TestIsToolEnabled(t *testing.T) {
 	cfg := &Config{
 		AllowedTools: map[string]bool{
 			"tool1": true,
+			"tool2": true,
+		},
+		DisabledTools: map[string]bool{
 			"tool2": true,
 		},
 	}
@@ -68,18 +71,18 @@ func TestIsToolEnabledAndDisableTool(t *testing.T) {
 	if !cfg.IsToolEnabled("tool1") {
 		t.Errorf("expected tool1 to be enabled")
 	}
+	if cfg.IsToolEnabled("tool2") {
+		t.Errorf("expected tool2 to be disabled via DisabledTools")
+	}
 	if cfg.IsToolEnabled("tool3") {
 		t.Errorf("expected tool3 to be disabled (not in whitelist)")
-	}
-
-	cfg.DisableTool("tool1")
-	if cfg.IsToolEnabled("tool1") {
-		t.Errorf("expected tool1 to be disabled after DisableTool")
 	}
 }
 
 func TestConfig_ConcurrentAccess(t *testing.T) {
-	cfg := &Config{}
+	cfg := &Config{
+		DisabledTools: make(map[string]bool),
+	}
 
 	var wg sync.WaitGroup
 	numGoroutines := 100
@@ -94,25 +97,17 @@ func TestConfig_ConcurrentAccess(t *testing.T) {
 		}(i)
 	}
 
-	// Concurrent writers
+	// Concurrent readers accessing DisabledTools
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
 			toolName := fmt.Sprintf("tool_%d", id%10)
-			cfg.DisableTool(toolName)
+			_ = cfg.IsToolEnabled(toolName)
 		}(i)
 	}
 
 	wg.Wait()
-
-	// Verify disabled tools
-	for i := 0; i < 10; i++ {
-		toolName := fmt.Sprintf("tool_%d", i)
-		if cfg.IsToolEnabled(toolName) {
-			t.Errorf("expected %s to be disabled after concurrent DisableTool", toolName)
-		}
-	}
 }
 
 func TestIsToolEnabled_DefaultBehavior(t *testing.T) {
@@ -121,23 +116,15 @@ func TestIsToolEnabled_DefaultBehavior(t *testing.T) {
 	if !cfg.IsToolEnabled("any_tool") {
 		t.Errorf("expected any_tool to be enabled when AllowedTools is empty")
 	}
-
-	cfg.DisableTool("any_tool")
-	if cfg.IsToolEnabled("any_tool") {
-		t.Errorf("expected any_tool to be disabled after DisableTool")
-	}
 }
 
 func TestLoad_Flags(t *testing.T) {
-	cfg, err := Load([]string{"-version", "-agents", "-list-tools", "-listen", "127.0.0.1:8080", "-allow", "toolA,toolB"})
+	cfg, err := Load([]string{"-version", "-list-tools", "-listen", "127.0.0.1:8080", "-allow", "toolA,toolB"})
 	if err != nil {
 		t.Fatalf("Load() unexpected error = %v", err)
 	}
 	if !cfg.Version {
 		t.Errorf("expected Version to be true")
-	}
-	if !cfg.Agents {
-		t.Errorf("expected Agents to be true")
 	}
 	if !cfg.ListTools {
 		t.Errorf("expected ListTools to be true")
