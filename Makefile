@@ -24,9 +24,6 @@ build:
 	@mkdir -p $(BINARY_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(SERVER_BINARY) ./cmd/godoctor
 
-install:
-	$(GOCMD) install $(LDFLAGS) ./...
-
 clean:
 	@rm -rf $(BINARY_DIR)
 
@@ -53,4 +50,4 @@ bump-version:
 	@git push origin main --tags
 	@echo "🚀 Successfully tagged v$(VERSION) and pushed to remote!"
 
-.PHONY: all build install clean test test-cov snapshot release bump-version
+.PHONY: all build clean test test-cov snapshot release bump-version
