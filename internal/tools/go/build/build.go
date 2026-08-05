@@ -91,7 +91,7 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Smart Build Report (`%s`)\n\n", pkgs)
 
-	runAutoFix(ctx, workspaceDir, &sb)
+	runAutoFix(ctx, workspaceDir, pkgs, &sb)
 
 	if err := runBuild(ctx, workspaceDir, pkgs, &sb); err != nil {
 		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
@@ -108,15 +108,10 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 		return result(sb.String(), true), nil, nil
 	}
 
-	if err := runDeadcodePhase(ctx, workspaceDir, pkgs, &sb); err != nil {
-		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
-		return result(sb.String(), true), nil, nil
-	}
-
 	return result(sb.String(), false), nil, nil
 }
 
-func runAutoFix(ctx context.Context, workspaceDir string, sb *strings.Builder) {
+func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) {
 	sb.WriteString("### 🔧 Auto-Fix & Modernize:\n")
 
 	if err := CommandRunner.Run(ctx, workspaceDir, "go", "mod", "tidy"); err != nil {
@@ -125,28 +120,34 @@ func runAutoFix(ctx context.Context, workspaceDir string, sb *strings.Builder) {
 		sb.WriteString("  - ✅ Go Mod Tidy: SUCCESS\n")
 	}
 
-	// Run Modernize directly from the CLI tool
-	runAnalyzer := func(cmd string) {
-		out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", "run", cmd, "-fix", "./...")
-		// These analyzers return exit code 3 if they found an issue and fixed it.
-		// Exit code 1 means a genuine failure (e.g. compile error).
-		if err != nil {
-			if strings.Contains(err.Error(), "exit status 3") {
-				sb.WriteString("  - ✅ Go Modernizer: SUCCESS (Issues found and auto-fixed)\n")
-			} else {
-				fmt.Fprintf(sb, "  - ❌ Go Modernizer: FAILED (%v)\n    %s\n", err, strings.TrimSpace(out))
-			}
+	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest", "-fix", pkgs)
+	if err != nil {
+		if strings.Contains(err.Error(), "exit status 3") {
+			sb.WriteString("  - ✅ Go Modernizer: SUCCESS (Issues found and auto-fixed)\n")
 		} else {
-			sb.WriteString("  - ✅ Go Modernizer: SUCCESS (No issues found)\n")
+			fmt.Fprintf(sb, "  - ❌ Go Modernizer: FAILED (%v)\n    %s\n", err, strings.TrimSpace(out))
 		}
+	} else {
+		sb.WriteString("  - ✅ Go Modernizer: SUCCESS (No issues found)\n")
 	}
-
-	runAnalyzer("golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest")
 
 	if err := CommandRunner.Run(ctx, workspaceDir, "gofmt", "-w", "."); err != nil {
 		fmt.Fprintf(sb, "  - ❌ Go Code Formatter: FAILED (%v)\n", err)
 	} else {
 		sb.WriteString("  - ✅ Go Code Formatter: SUCCESS\n")
+	}
+
+	deadcodeArgs := append([]string{"run", "golang.org/x/tools/cmd/deadcode@latest"}, strings.Fields(pkgs)...)
+	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", deadcodeArgs...)
+	if deadErr != nil {
+		fmt.Fprintf(sb, "  - ❌ Deadcode Analysis: FAILED (%v)\n", deadErr)
+	} else {
+		trimmed := strings.TrimSpace(deadOut)
+		if trimmed == "" {
+			sb.WriteString("  - ✅ Deadcode Analysis: SUCCESS (No unreachable code found)\n")
+		} else {
+			fmt.Fprintf(sb, "  - ⚠️ Deadcode Analysis: Unreachable functions detected:\n%s\n", formatOutput(deadOut))
+		}
 	}
 	sb.WriteString("\n")
 }

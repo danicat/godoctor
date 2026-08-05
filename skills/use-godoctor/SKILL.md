@@ -27,12 +27,12 @@ Unlike generic text editors or raw shell commands, GoDoctor provides **compiler-
 ### ✏️ 1. `smart_edit` — Atomic Compiler-Verified Editor
 Performs atomic code edits across one or more files. Automatically formats code with `gofmt` and `goimports`, runs `go vet`, and rolls back changes if errors occur.
 
-* **Always use the `edits` array parameter** for both single-file and multi-file modifications.
+* **Always use the `operations` array parameter** for all modification requests.
 
 #### Single-File Edit Request:
 ```json
 {
-  "edits": [
+  "operations": [
     {
       "filename": "/Users/user/projects/app/main.go",
       "old_content": "func main() {\n\tprintln(\"hello\")\n}",
@@ -47,7 +47,7 @@ Performs atomic code edits across one or more files. Automatically formats code 
 #### Multi-File Atomic Transaction Request:
 ```json
 {
-  "edits": [
+  "operations": [
     {
       "filename": "/Users/user/projects/app/pkg/user/user.go",
       "old_content": "type User struct {\n\tID string\n}",

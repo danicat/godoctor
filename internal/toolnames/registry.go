@@ -22,10 +22,10 @@ var Registry = map[string]ToolDef{
 			"workspace. If the compiler check fails, all edits are completely rolled back to backup state, " +
 			"and Levenshtein-based spelling suggestions are returned for misspelled symbols.",
 		Instruction: "*   **`smart_edit`**: The primary tool for modifying Go files.\n" +
-			"    *   **Unified Schema:** Always pass edits inside the `edits` array parameter.\n" +
-			"    *   **Single-File Example:** `smart_edit(edits=[{\"filename\": \"/path/file.go\", " +
+			"    *   **Unified Schema:** Always pass edit operations inside the `operations` array parameter.\n" +
+			"    *   **Single-File Example:** `smart_edit(operations=[{\"filename\": \"/path/file.go\", " +
 			"\"old_content\": \"old\", \"new_content\": \"new\"}])`\n" +
-			"    *   **Multi-File Example:** `smart_edit(edits=[{\"filename\": \"/A.go\", \"new_content\": \"...\"}, " +
+			"    *   **Multi-File Example:** `smart_edit(operations=[{\"filename\": \"/A.go\", \"new_content\": \"...\"}, " +
 			"{\"filename\": \"/B.go\", \"new_content\": \"...\"}])`\n" +
 			"    *   **Capabilities:** Validates syntax and type safety (gofmt/goimports/go vet) " +
 			"*before* committing to disk.\n" +

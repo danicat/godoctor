@@ -33,42 +33,31 @@ func Register(server *mcp.Server) {
 	}, toolHandler)
 }
 
-// FileEdit defines a single edit transaction within the smart_edit tool.
+// FileEdit represents a single edit operation inside the atomic transaction.
 type FileEdit struct {
-	//nolint:lll
-	Filename   string `json:"filename" jsonschema:"The absolute path to the file to edit. You MUST use absolute paths in multi-root workspaces."`
-	OldContent string `json:"old_content,omitempty" jsonschema:"Optional: The block of code to find (ignores whitespace)"`
-	NewContent string `json:"new_content" jsonschema:"The new code to insert"`
-	StartLine  int    `json:"start_line,omitempty" jsonschema:"Optional: restrict search to this line number and after"`
-	EndLine    int    `json:"end_line,omitempty" jsonschema:"Optional: restrict search to this line number and before"`
-	//nolint:lll
-	Threshold float64 `json:"threshold,omitempty" jsonschema:"Similarity threshold (0.0-1.0) for fuzzy matching, default 0.95"`
-	//nolint:lll
-	Append bool `json:"append,omitempty" jsonschema:"If true, append new_content to the end of the file (ignores old_content)"`
+	Filename   string  `json:"filename" jsonschema:"The absolute path to the file to edit"`
+	OldContent string  `json:"old_content,omitempty" jsonschema:"Optional: The block of code to find (ignores whitespace)"`
+	NewContent string  `json:"new_content" jsonschema:"The new code to insert"`
+	StartLine  int     `json:"start_line,omitempty" jsonschema:"Optional: restrict search window to line number >= start_line"`
+	EndLine    int     `json:"end_line,omitempty" jsonschema:"Optional: restrict search window to line number <= end_line"`
+	Threshold  float64 `json:"threshold,omitempty" jsonschema:"Optional: similarity threshold (0.0-1.0) for fuzzy matching (default 0.95)"`
+	Append     bool    `json:"append,omitempty" jsonschema:"Optional: append new_content to end of file"`
 }
 
 // Params defines the input parameters for the smart_edit tool.
 type Params struct {
-	Edits []FileEdit `json:"edits" jsonschema:"List of file edits to perform atomically"`
-
-	// Deprecated fields retained for runtime fallback compatibility only
-	Filename   string  `json:"filename,omitempty" jsonschema:"-"`
-	OldContent string  `json:"old_content,omitempty" jsonschema:"-"`
-	NewContent string  `json:"new_content,omitempty" jsonschema:"-"`
-	StartLine  int     `json:"start_line,omitempty" jsonschema:"-"`
-	EndLine    int     `json:"end_line,omitempty" jsonschema:"-"`
-	Threshold  float64 `json:"threshold,omitempty" jsonschema:"-"`
-	Append     bool    `json:"append,omitempty" jsonschema:"-"`
+	Operations []FileEdit `json:"operations" jsonschema:"List of edit operations to perform atomically in a single compiler-verified transaction"`
 }
 
 func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	if len(args.Operations) == 0 {
+		return mcp.NewToolResultError("operations array is required and must contain at least one edit operation"), nil, nil
+	}
+
+	edits := args.Operations
 	var session *mcp.ServerSession
 	if req != nil {
 		session = req.Session
-	}
-	edits := prepareEdits(args)
-	if len(edits) == 0 {
-		return errorResult("at least one edit transaction must be specified"), nil, nil
 	}
 
 	backups := make(map[string][]byte)
@@ -89,26 +78,6 @@ func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*m
 
 	res, err := writeAndVerify(ctx, session, currentContents, backups, newlyCreated)
 	return res, nil, err
-}
-
-func prepareEdits(args Params) []FileEdit {
-	if len(args.Edits) > 0 {
-		return args.Edits
-	}
-	if args.Filename != "" {
-		return []FileEdit{
-			{
-				Filename:   args.Filename,
-				OldContent: args.OldContent,
-				NewContent: args.NewContent,
-				StartLine:  args.StartLine,
-				EndLine:    args.EndLine,
-				Threshold:  args.Threshold,
-				Append:     args.Append,
-			},
-		}
-	}
-	return nil
 }
 
 func backupFiles(

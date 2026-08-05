@@ -39,6 +39,54 @@ func TestEdit(t *testing.T) {
 	//nolint:errcheck
 	defer os.RemoveAll(tmpDir)
 
+	t.Run("invalid params", func(t *testing.T) {
+		res, _, err := toolHandler(context.TODO(), nil, Params{})
+		if err != nil {
+			t.Fatalf("unexpected go error: %v", err)
+		}
+		if !res.IsError {
+			t.Error("expected error for empty params")
+		}
+	})
+
+	t.Run("single edit valid", func(t *testing.T) {
+		tmpFile, err := os.CreateTemp("", "edit_test_*.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpFile.Name())
+
+		initialContent := "package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n"
+		if _, err := tmpFile.WriteString(initialContent); err != nil {
+			t.Fatal(err)
+		}
+		tmpFile.Close()
+
+		res, _, err := toolHandler(context.TODO(), nil, Params{
+			Operations: []FileEdit{
+				{
+					Filename:   tmpFile.Name(),
+					OldContent: "println(\"hello\")",
+					NewContent: "println(\"world\")",
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("unexpected go error: %v", err)
+		}
+		if res.IsError {
+			t.Fatalf("expected success, got error: %s", res.Content[0].(*mcp.TextContent).Text)
+		}
+
+		content, err := os.ReadFile(tmpFile.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), "println(\"world\")") {
+			t.Errorf("content not updated: %s", string(content))
+		}
+	})
+
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n\ngo 1.24\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
