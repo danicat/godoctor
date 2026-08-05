@@ -32,7 +32,8 @@ func BenchmarkLevenshtein(b *testing.B) {
 	}{
 		{"short", "kitten", "sitting"},
 		{"medium", "The quick brown fox jumps over the lazy dog", "The fast brown fox leaped over a lazy dog"},
-		{"long", "Lorem ipsum dolor sit amet, consectetur adipiscing elit.", "Lorem ipsum dolor sit amet, sed do eiusmod tempor incididunt."},
+		{"long", "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+			"Lorem ipsum dolor sit amet, sed do eiusmod tempor incididunt."},
 	}
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
@@ -43,4 +44,3 @@ func BenchmarkLevenshtein(b *testing.B) {
 		})
 	}
 }
-

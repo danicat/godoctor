@@ -10,14 +10,10 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/danicat/godoctor/internal/safeshell"
 )
 
 // GetOutline loads a file and returns its outline, list of imports, and build errors.
-func GetOutline(ctx context.Context, file string) (string, []string, []error, error) {
+func GetOutline(_ context.Context, file string) (string, []string, []error, error) {
 	fset := token.NewFileSet()
 	//nolint:gosec // G304: File path provided by user is expected.
 	content, err := os.ReadFile(file)
@@ -43,17 +39,7 @@ func GetOutline(ctx context.Context, file string) (string, []string, []error, er
 		}
 	}
 
-	// 2. Try generating outline via gopls symbols (compiler-accurate)
-	cmd, err := safeshell.CommandContext(ctx, "gopls", "symbols", file)
-	if err == nil {
-		cmd.Dir = filepath.Dir(file)
-		goplsOut, cmdErr := cmd.CombinedOutput()
-		if cmdErr == nil && len(strings.TrimSpace(string(goplsOut))) > 0 {
-			return string(goplsOut), imports, errs, nil
-		}
-	}
-
-	// 3. Fallback to custom AST Outlinizer if gopls fails or is empty
+	// 2. Generate outline directly using native AST Outlinizer
 	outline := outlinize(targetFile)
 
 	var buf bytes.Buffer

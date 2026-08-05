@@ -49,6 +49,10 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 		}, nil, nil
 	}
 
+	return executeGoGet(ctx, req, args)
+}
+
+func executeGoGet(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	dir := args.Dir
 	if dir == "" {
 		dir = "."
@@ -90,19 +94,22 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 	} else {
 		fmt.Fprintf(&sb, "Successfully ran 'go get %s'\n", strings.Join(args.Packages, " "))
 	}
-	// Auto-fetch documentation for each package (even on failure, to provide context)
-	for _, pkg := range args.Packages {
-		// Strip version suffix if present (e.g., @latest, @v1.2.3)
-		pkgPath, _, _ := strings.Cut(pkg, "@")
-		if docContent, _ := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
-			sb.WriteString("\n")
-			sb.WriteString(docContent)
-		}
-	}
+	appendPackageDocs(ctx, args.Packages, &sb)
+
 	return &mcp.CallToolResult{
 		IsError: isError,
 		Content: []mcp.Content{
 			&mcp.TextContent{Text: sb.String()},
 		},
 	}, nil, nil
+}
+
+func appendPackageDocs(ctx context.Context, packages []string, sb *strings.Builder) {
+	for _, pkg := range packages {
+		pkgPath, _, _ := strings.Cut(pkg, "@")
+		if docContent, _ := godoc.GetDocumentationWithFallback(ctx, pkgPath); docContent != "" {
+			sb.WriteString("\n")
+			sb.WriteString(docContent)
+		}
+	}
 }

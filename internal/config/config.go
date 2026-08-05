@@ -76,4 +76,3 @@ func (c *Config) IsToolEnabled(name string) bool {
 	// 3. Default: All enabled
 	return true
 }
-

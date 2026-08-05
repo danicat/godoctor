@@ -107,8 +107,6 @@ func (s *State) Get(session *mcp.ServerSession) []string {
 	return rootsCopy
 }
 
-
-
 // parseRootURI parses a single MCP root URI and normalizes it to a local absolute path.
 func parseRootURI(uri string) string {
 	u, err := url.Parse(uri)

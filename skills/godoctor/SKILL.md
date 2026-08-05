@@ -21,6 +21,9 @@ Whenever operating on Go codebases (`.go` files, `go.mod`, Go toolchains), codin
 - ❌ **No Shell File Editing/Reading**: DO NOT use shell tools like `cat`, `sed`, `echo >`, or `tee` to read or modify Go files.
 - ❌ **No Ad-Hoc Scripts**: DO NOT write temporary bash, python, or go scripts to perform build, edit, read, test, or coverage operations when a GoDoctor tool is available.
 
+### ⚠️ Hook Setup & Installation
+For enforcing these rules natively across the entire AGY platform, run the `setup` skill. It installs the GoDoctor pre-tool hook to automatically intercept and block prohibited actions.
+
 ---
 
 ## 2. GoDoctor MCP Tool Reference & Usage Benefits
@@ -28,14 +31,14 @@ Whenever operating on Go codebases (`.go` files, `go.mod`, Go toolchains), codin
 ### ✏️ Editing (`smart_edit`)
 - **Usage**: Atomic, compiler-gated multi-file editor for creating or modifying Go files.
 - **Benefits**:
-  - Automatically runs `gofmt`, `goimports`, and type-checks with `gopls check ./...` *before* committing edits to disk.
+  - Automatically runs `gofmt`, `goimports`, and type-checks with `go vet` *before* committing edits to disk.
   - Safely rolls back changes on syntax or type errors to prevent workspace corruption and provides Levenshtein spelling suggestions.
 
 ### 🔍 Reading & Type Exploration (`smart_read` & `describe_symbol`)
 - **`smart_read`**: Structure-aware source code reader.
-  - **Type Enrichment**: Appends exact struct and interface definitions of referenced types in `<types>` blocks.
+  - **Type Enrichment**: Appends exact struct and interface definitions of referenced types in `<types>` blocks using native AST and godoc.
   - **Snippet & Outline Modes**: Read targeted line ranges or retrieve structural AST outlines (`outline=true`).
-- **`describe_symbol`**: Queries `gopls` for exact declaration signatures, line coordinates, package comments, and workspace call-sites for any symbol.
+- **`describe_symbol`**: Queries native Go AST and `godoc` for exact declaration signatures, line coordinates, package comments, and workspace call-sites for any symbol.
 
 ### 🛠️ Build & Package Management (`smart_build` & `add_dependency`)
 - **`smart_build`**: GoDoctor's automated build pipeline (`go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> linter -> deadcode).

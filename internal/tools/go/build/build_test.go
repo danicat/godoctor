@@ -161,4 +161,3 @@ func TestHandler_Deadcode_Fail(t *testing.T) {
 		t.Errorf("Expected deadcode failure in output, got:\n%s", out)
 	}
 }
-

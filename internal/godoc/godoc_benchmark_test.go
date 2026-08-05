@@ -18,4 +18,3 @@ func BenchmarkLoad(b *testing.B) {
 		}
 	}
 }
-

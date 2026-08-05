@@ -56,8 +56,8 @@ GoDoctor provides tools divided into four functional areas:
 
 ##### Code Navigation
 * `list_files` lists files in the workspace while avoiding version control directories.
-* `smart_read` reads files, extracts code outlines, and appends definitions of referenced types. Powered by a high-performance persistent background `gopls` daemon over a stateful JSON-RPC session, delivering type-tags in milliseconds.
-* `describe_symbol` provides semantic detail for any symbol, including declaration signatures, comments, and references, querying the shared background `gopls` process instantly.
+* `smart_read` reads files, extracts code outlines, and appends definitions of referenced types. Powered by high-performance native Go AST parsing (`go/ast`, `go/parser`) and `godoc`, delivering type-tags in milliseconds.
+* `describe_symbol` provides semantic detail for any symbol, including declaration signatures, comments, and references, querying native Go AST and `godoc` instantly.
 
 ##### Code Editing
 * `smart_edit` handles atomic modifications across multiple files. It formats the code and automatically rolls back changes if the compiler detects a syntax error.

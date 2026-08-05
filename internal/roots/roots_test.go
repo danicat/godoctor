@@ -272,4 +272,3 @@ func TestState_Sync_WithCapabilitiesAndPercentDecoding(t *testing.T) {
 		t.Errorf("expected resolved and normalized root %q, got %q", absExpected, rts[0])
 	}
 }
-

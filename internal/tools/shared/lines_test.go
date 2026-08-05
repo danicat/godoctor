@@ -12,12 +12,12 @@ func TestGetLineOffsets(t *testing.T) {
 	content := "line1\nline2\nline3\nline4\nline5"
 
 	tests := []struct {
-		name       string
-		startLine  int
-		endLine    int
-		wantStart  int
-		wantEnd    int
-		wantErr    bool
+		name      string
+		startLine int
+		endLine   int
+		wantStart int
+		wantEnd   int
+		wantErr   bool
 	}{
 		{"full file default", 0, 0, 0, len(content), false},
 		{"line 1 to 2", 1, 2, 0, 12, false},

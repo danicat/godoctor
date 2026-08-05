@@ -18,12 +18,12 @@ var Registry = map[string]ToolDef{
 		Name:  "smart_edit",
 		Title: "Smart Edit",
 		Description: "Atomic, multi-file coordinate editing transaction. Automatically applies edits, " +
-			"formats using gofmt/goimports, and runs type verification (gopls check ./...) across the entire " +
+			"formats using gofmt/goimports, and runs type verification (go vet) across the entire " +
 			"workspace. If the compiler check fails, all edits are completely rolled back to backup state, " +
 			"and Levenshtein-based spelling suggestions are returned for misspelled symbols.",
 		Instruction: "*   **`smart_edit`**: The primary tool for modifying files.\n" +
 			"    *   **Capabilities:** Atomic transactions across multiple files. Validates syntax and types " +
-			"(gofmt/goimports/gopls check) *before* finalizing modifications on disk.\n" +
+			"(gofmt/goimports/go vet) *before* finalizing modifications on disk.\n" +
 			"    *   **Rollback Safety:** If any compilation errors occur, changes are rolled back completely. " +
 			"Returns type check errors along with helpful 'Did you mean?' suggestions.\n" +
 			"    *   **Usage:** `smart_edit(edits=[{\"filename\": \"/absolute/path/to/target/file.go\", " +
@@ -35,13 +35,14 @@ var Registry = map[string]ToolDef{
 		Name:  "smart_read",
 		Title: "Read File",
 		Description: "High-density multi-file code reader with unconditional type-tag enrichment. " +
-			"Automatically queries gopls to extract and append Go struct/interface schemas in a custom <types> block.",
+			"Automatically uses native Go AST parsing and godoc to extract and " +
+			"append Go struct/interface schemas in a custom <types> block.",
 		Instruction: "*   **`smart_read`**: Inspect file contents with automated type signature annotations.\n" +
 			"    *   **Read All:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"])`\n" +
 			"    *   **Snippet:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"], start_line=10, " +
 			"end_line=50)` (Targeted range reading).\n" +
 			"    *   **Outline:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"], outline=true)` " +
-			"(Retrieve outline via gopls symbols).\n" +
+			"(Retrieve outline via native Go AST).\n" +
 			"    *   **Type-Enriched:** Append `<types>` blocks showing referenced type definitions to avoid guessing.\n" +
 			"    *   **CRITICAL:** In multi-root workspaces, you MUST use absolute file paths in `filenames` " +
 			"to ensure the correct project files are read.",
@@ -140,8 +141,8 @@ var Registry = map[string]ToolDef{
 	"describe_symbol": {
 		Name:  "describe_symbol",
 		Title: "Describe Symbol",
-		Description: "Returns complete gopls-backed symbol information including exact " +
-			"coordinates, declaration signature, package comments, and all references within the workspace.",
+		Description: "Returns complete native Go AST and godoc-backed symbol information including exact " +
+			"coordinates, declaration signature, package comments, and workspace references.",
 		Instruction: "*   **`describe_symbol`**: Track declaration and usage reference coordinates " +
 			"of a symbol.\n" +
 			"    *   **Usage:** `describe_symbol(filename=\"/absolute/path/to/target/file.go\", " +

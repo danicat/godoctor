@@ -18,6 +18,7 @@ show_help() {
   echo ""
   echo "General Options:"
   echo "  -f, --overwrite      Overwrite existing target directory or skills if they exist"
+  echo "  --hooks              Also install GoDoctor pre-tool execution hooks to block illegal shell commands"
   echo "  -h, --help           Show this help message"
   echo ""
 }
@@ -25,6 +26,7 @@ show_help() {
 TARGET_MODE="agy2"
 INSTALL_SCOPE="global"
 OVERWRITE="false"
+INSTALL_HOOKS="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +48,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -f|--overwrite)
       OVERWRITE="true"
+      shift
+      ;;
+    --hooks)
+      INSTALL_HOOKS="true"
       shift
       ;;
     -h|--help)
@@ -197,6 +203,19 @@ if [ "${TARGET_MODE}" = "skills" ]; then
     fi
   done
 
+  if [ "${INSTALL_HOOKS}" = "true" ]; then
+    echo "🔗 Installing GoDoctor hooks..."
+    HOOK_ARGS="--global"
+    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
+      HOOK_ARGS="--workspace"
+    fi
+    if [ -x "${INSTALL_DIR}/setup/scripts/setup-hooks.sh" ]; then
+      "${INSTALL_DIR}/setup/scripts/setup-hooks.sh" ${HOOK_ARGS}
+    else
+      echo "⚠️  Setup hooks script not found or not executable at ${INSTALL_DIR}/setup/scripts/setup-hooks.sh"
+    fi
+  fi
+
   echo "✅ Success! GoDoctor skills have been successfully installed to [${INSTALL_DIR}]."
 
 else
@@ -231,6 +250,20 @@ else
   }
 
   replace_path "${INSTALL_DIR}/mcp_config.json" "${INSTALL_DIR}"
+
+  if [ "${INSTALL_HOOKS}" = "true" ]; then
+    echo "🔗 Installing GoDoctor hooks..."
+    HOOK_ARGS="--global"
+    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
+      HOOK_ARGS="--workspace"
+    fi
+    # Execute the setup script that was extracted
+    if [ -x "${INSTALL_DIR}/skills/setup/scripts/setup-hooks.sh" ]; then
+      "${INSTALL_DIR}/skills/setup/scripts/setup-hooks.sh" ${HOOK_ARGS}
+    else
+      echo "⚠️  Setup hooks script not found or not executable at ${INSTALL_DIR}/skills/setup/scripts/setup-hooks.sh"
+    fi
+  fi
 
   echo "✅ Success! GoDoctor has been successfully installed in '${TARGET_MODE}' mode (${INSTALL_SCOPE}) to [${INSTALL_DIR}]."
 fi

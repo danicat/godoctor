@@ -2,16 +2,17 @@
 package read
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/token"
 	"os"
 	"strings"
-	"sync"
 
-	"github.com/danicat/godoctor/internal/lsp"
+	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/danicat/godoctor/internal/tools/shared"
@@ -197,7 +198,7 @@ func readSingleFile(
 		var enrichErr error
 		enrichment, enrichErr = enrichTypes(ctx, absPath, content)
 		if enrichErr != nil {
-			return "", "", errorResult(fmt.Sprintf("failed to enrich types via gopls: %v", enrichErr))
+			return "", "", errorResult(fmt.Sprintf("failed to enrich types: %v", enrichErr))
 		}
 	}
 
@@ -217,126 +218,109 @@ func renderContentWithLines(viewContent string, startLine int) (string, int) {
 	return sb.String(), len(lines)
 }
 
-func getInterestingTypePos(n ast.Expr) token.Pos {
-	if n == nil {
-		return token.NoPos
-	}
-	switch node := n.(type) {
-	case *ast.Ident:
-		switch node.Name {
-		case "string", "int", "int8", "int16", "int32", "int64",
-			"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
-			"float32", "float64", "complex64", "complex128",
-			"bool", "byte", "rune", "error", "any":
-			return token.NoPos
-		}
-		return node.Pos()
-	case *ast.SelectorExpr:
-		return node.Sel.Pos()
-	case *ast.StarExpr:
-		return getInterestingTypePos(node.X)
-	case *ast.ArrayType:
-		return getInterestingTypePos(node.Elt)
-	case *ast.MapType:
-		pos := getInterestingTypePos(node.Value)
-		if pos != token.NoPos {
-			return pos
-		}
-		return getInterestingTypePos(node.Key)
-	}
-	return token.NoPos
-}
-
 func enrichTypes(ctx context.Context, filename string, content []byte) (string, error) {
 	fset := token.NewFileSet()
 	f, parseErr := parser.ParseFile(fset, filename, content, parser.ParseComments)
 	if parseErr != nil {
-		// If the file is syntactically invalid (e.g. broken, incomplete, or a plain text mock file),
-		// we gracefully skip type enrichment instead of throwing a fatal LSP client error.
 		//nolint:nilerr // syntax/parse errors are gracefully skipped during type enrichment
 		return "", nil
 	}
 
-	posList := extractTypePositions(fset, f)
-	if len(posList) == 0 {
-		return "", nil
-	}
+	importMap := parseImports(f)
+	var typeDefs []string
+	seenDefs := make(map[string]bool)
 
-	return resolveDefinitions(ctx, filename, posList)
+	extractLocalTypes(f, fset, &typeDefs, seenDefs)
+	resolveImportedTypes(ctx, f, importMap, &typeDefs, seenDefs)
+
+	return formatDefinitions(typeDefs), nil
 }
 
-func extractTypePositions(fset *token.FileSet, f *ast.File) []token.Position {
-	visitedPositions := make(map[string]bool)
-	var posList []token.Position
-
-	ast.Inspect(f, func(n ast.Node) bool {
-		if n == nil {
-			return true
+func parseImports(f *ast.File) map[string]string {
+	importMap := make(map[string]string)
+	for _, imp := range f.Imports {
+		if imp.Path == nil {
+			continue
 		}
-		var typeExpr ast.Expr
-		switch node := n.(type) {
-		case *ast.TypeSpec:
-			typeExpr = node.Name
-		case *ast.Field:
-			typeExpr = node.Type
-		case *ast.ValueSpec:
-			typeExpr = node.Type
-		case *ast.CompositeLit:
-			typeExpr = node.Type
+		path := strings.Trim(imp.Path.Value, `"`)
+		alias := ""
+		if imp.Name != nil {
+			alias = imp.Name.Name
+		} else {
+			parts := strings.Split(path, "/")
+			alias = parts[len(parts)-1]
 		}
+		if alias != "" && alias != "_" && alias != "." {
+			importMap[alias] = path
+		}
+	}
+	return importMap
+}
 
-		if typeExpr != nil {
-			pos := getInterestingTypePos(typeExpr)
-			if pos.IsValid() {
-				position := fset.Position(pos)
-				key := fmt.Sprintf("%d:%d", position.Line, position.Column)
-				if !visitedPositions[key] {
-					visitedPositions[key] = true
-					posList = append(posList, position)
+func extractLocalTypes(f *ast.File, fset *token.FileSet, typeDefs *[]string, seenDefs map[string]bool) {
+	for _, decl := range f.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			var buf bytes.Buffer
+			if err := printer.Fprint(&buf, fset, typeSpec); err == nil {
+				def := buf.String()
+				if !seenDefs[def] {
+					seenDefs[def] = true
+					*typeDefs = append(*typeDefs, def)
 				}
 			}
+		}
+	}
+}
+
+func resolveImportedTypes(ctx context.Context, f *ast.File, importMap map[string]string,
+	typeDefs *[]string, seenDefs map[string]bool) {
+	type importedSym struct {
+		pkgPath string
+		symName string
+	}
+	var importedSyms []importedSym
+	seenSyms := make(map[string]bool)
+
+	ast.Inspect(f, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		xIdent, ok := sel.X.(*ast.Ident)
+		if !ok {
+			return true
+		}
+		pkgPath, exists := importMap[xIdent.Name]
+		if !exists {
+			return true
+		}
+		symName := sel.Sel.Name
+		key := pkgPath + "." + symName
+		if !seenSyms[key] {
+			seenSyms[key] = true
+			importedSyms = append(importedSyms, importedSym{pkgPath: pkgPath, symName: symName})
 		}
 		return true
 	})
-	return posList
-}
 
-func resolveDefinitions(ctx context.Context, filename string, posList []token.Position) (string, error) {
-	client, err := lsp.GlobalManager.Client(ctx)
-	if err != nil {
-		return "", err
-	}
-
-	var mu sync.Mutex
-	var typeDefinitions []string
-	var uniqueDefs = make(map[string]bool)
-	var wg sync.WaitGroup
-
-	for _, pos := range posList {
-		wg.Add(1)
-		go func(position token.Position) {
-			defer wg.Done()
-			locs, err := client.GetDefinition(ctx, filename, position.Line, position.Column)
-			if err == nil && len(locs) > 0 {
-				loc := locs[0]
-				defStr := fmt.Sprintf(
-					"%s:%d:%d -> Definition coordinate resolved",
-					loc.URI,
-					loc.Range.Start.Line+1,
-					loc.Range.Start.Character+1,
-				)
-				mu.Lock()
-				if !uniqueDefs[defStr] {
-					uniqueDefs[defStr] = true
-					typeDefinitions = append(typeDefinitions, defStr)
-				}
-				mu.Unlock()
+	for _, sym := range importedSyms {
+		doc, err := godoc.Load(ctx, sym.pkgPath, sym.symName)
+		if err == nil && doc != nil && doc.Definition != "" {
+			def := fmt.Sprintf("// %s.%s\n%s", doc.Package, sym.symName, doc.Definition)
+			if !seenDefs[def] {
+				seenDefs[def] = true
+				*typeDefs = append(*typeDefs, def)
 			}
-		}(pos)
+		}
 	}
-	wg.Wait()
-
-	return formatDefinitions(typeDefinitions), nil
 }
 
 func formatDefinitions(typeDefinitions []string) string {

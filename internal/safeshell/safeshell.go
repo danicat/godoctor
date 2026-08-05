@@ -39,10 +39,12 @@ func CommandContext(ctx context.Context, name string, args ...string) (*exec.Cmd
 	return exec.CommandContext(ctx, name, args...), nil
 }
 
-// Validate checks a string argument or command name for injection indicators (e.g. pipes, redirects, operators, control characters).
+// Validate checks a string argument or command name for injection indicators
+// (e.g. pipes, redirects, operators, control characters).
 func Validate(val string) error {
 	// Disallowed shell operator and control characters:
-	// | (pipe), & (backgrounding/chaining), ; (command separator), < > (redirection), ` $ (expansion/subshell), \n, \r, \x00
+	// | (pipe), & (backgrounding/chaining), ; (command separator),
+	// < > (redirection), ` $ (expansion/subshell), \n, \r, \x00
 	disallowed := []string{"|", "&", ";", "<", ">", "`", "$", "\n", "\r", "\x00"}
 	for _, char := range disallowed {
 		if strings.Contains(val, char) {

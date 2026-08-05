@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+import sys
+import json
+import re
+
+def allow():
+    return {"decision": "allow", "reason": "GoDoctor hook: operation permitted"}
+
+def deny(reason):
+    return {"decision": "deny", "reason": reason}
+
+def main():
+    try:
+        input_data = sys.stdin.read()
+        if not input_data.strip():
+            print(json.dumps(allow()))
+            return
+
+        payload = json.loads(input_data)
+        tool_call = payload.get("toolCall", {})
+        name = tool_call.get("name", "")
+        args = tool_call.get("args", {})
+
+        if name == "run_command":
+            cmd = args.get("CommandLine", "")
+            if "go build" in cmd:
+                print(json.dumps(deny("BLOCKED by GoDoctor: Direct 'go build' execution via run_command is prohibited. Please use the 'smart_build' MCP tool instead.")))
+                return
+            if "go test" in cmd:
+                print(json.dumps(deny("BLOCKED by GoDoctor: Direct 'go test' execution via run_command is prohibited. Please use the 'smart_build' MCP tool instead.")))
+                return
+            if "go mod init" in cmd:
+                print(json.dumps(deny("BLOCKED by GoDoctor: Direct 'go mod init' execution is prohibited. Please use the 'project_init' MCP tool instead.")))
+                return
+            if "go get" in cmd:
+                print(json.dumps(deny("BLOCKED by GoDoctor: Direct 'go get' execution is prohibited. Please use the 'add_dependency' MCP tool instead.")))
+                return
+
+            # Check shell file editing or reading on .go files
+            # This is a basic regex to catch things like `cat foo.go`, `sed -i '' 's/a/b/g' bar.go`, etc.
+            if re.search(r'\b(cat|sed|awk|grep|tee|echo|head|tail|vi|nano)\b.*\.go\b', cmd) or re.search(r'<<.*\.go', cmd):
+                print(json.dumps(deny("BLOCKED by GoDoctor: Operating on .go files via shell commands (sed/awk/cat/heredoc/etc.) is prohibited. Please use 'smart_edit' or 'smart_read' MCP tools instead.")))
+                return
+
+        elif name == "view_file":
+            path = args.get("AbsolutePath", "")
+            if path.lower().endswith(".go"):
+                print(json.dumps(deny("BLOCKED by GoDoctor: Using 'view_file' on Go source files (.go) is prohibited. Please use the 'smart_read' MCP tool instead.")))
+                return
+
+        elif name in ("write_to_file", "replace_file_content", "multi_replace_file_content"):
+            path1 = args.get("TargetFile", "")
+            path2 = args.get("AbsolutePath", "")
+            if path1.lower().endswith(".go") or path2.lower().endswith(".go"):
+                print(json.dumps(deny("BLOCKED by GoDoctor: Using low-level file editing tools on Go source files (.go) is prohibited. Please use the 'smart_edit' MCP tool instead.")))
+                return
+
+        print(json.dumps(allow()))
+
+    except Exception as e:
+        # In case of error, just allow to not break the system, or deny? Usually allow is safer.
+        print(json.dumps({"decision": "allow", "reason": f"GoDoctor hook error: {str(e)}"}))
+
+if __name__ == "__main__":
+    main()

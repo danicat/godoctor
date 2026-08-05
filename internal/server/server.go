@@ -14,7 +14,6 @@ import (
 
 	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/instructions"
-	"github.com/danicat/godoctor/internal/lsp"
 	"github.com/danicat/godoctor/internal/prompts"
 	resgodoc "github.com/danicat/godoctor/internal/resources/godoc"
 	"github.com/danicat/godoctor/internal/roots"
@@ -53,18 +52,6 @@ func New(cfg *config.Config, version string) *Server {
 		RootsListChangedHandler: func(ctx context.Context, req *mcp.RootsListChangedRequest) {
 			roots.Global.Sync(ctx, req.Session)
 		},
-	})
-
-	roots.Global.OnChange(func(allRoots []string) {
-		go func() {
-			client, err := lsp.GlobalManager.Client(context.Background())
-			if err != nil {
-				log.Fatalf("LSP: fatal: failed to start/initialize language server: %v", err)
-			}
-			if syncErr := client.SyncRoots(context.Background(), allRoots); syncErr != nil {
-				log.Fatalf("LSP: fatal: failed to synchronize workspace roots: %v", syncErr)
-			}
-		}()
 	})
 
 	return &Server{
@@ -124,15 +111,6 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 		<-ctx.Done()
 		if err := srv.Shutdown(context.WithoutCancel(ctx)); err != nil {
 			log.Printf("MCP HTTP Server shutdown error: %v", err)
-		}
-	}()
-
-	// Register handlers and schedule persistent daemon teardown on Server context termination
-	go func() {
-		<-ctx.Done()
-		// Terminate the background gopls process gracefully
-		if err := lsp.GlobalManager.Close(context.WithoutCancel(ctx)); err != nil {
-			log.Printf("LSP: error terminating background language server on exit: %v", err)
 		}
 	}()
 

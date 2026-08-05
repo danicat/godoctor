@@ -2,14 +2,19 @@
 package navigation
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/printer"
+	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/lsp"
+	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/roots"
-	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/danicat/godoctor/internal/toolnames"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -42,18 +47,12 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 		return errorResult(err.Error()), nil, err
 	}
 
-	// Retrieve active connection to the persistent gopls language server
-	client, err := lsp.GlobalManager.Client(ctx)
-	if err != nil {
-		return errorResult("failed to connect to language server: " + err.Error()), nil, err
-	}
-
-	definition, err := fetchDefinition(ctx, client, absPath, args.Line, args.Col)
+	definition, symbol, err := fetchASTDefinition(ctx, absPath, args.Line, args.Col)
 	if err != nil {
 		return errorResult("Failed to query symbol definition: " + err.Error()), nil, err
 	}
 
-	references := fetchReferences(ctx, absPath, args.Line, args.Col)
+	references := fetchASTReferences(absPath, symbol)
 
 	// Format into Markdown
 	var sb strings.Builder
@@ -75,43 +74,107 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 	}, nil, nil
 }
 
-func fetchDefinition(ctx context.Context, client *lsp.Client, path string, line, col int) (string, error) {
-	locs, err := client.GetDefinition(ctx, path, line, col)
+func fetchASTDefinition(ctx context.Context, path string, line, col int) (string, string, error) {
+	fset := token.NewFileSet()
+	//nolint:gosec // G304: File path provided by user is expected.
+	content, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	if len(locs) == 0 {
-		return "No definition found.", nil
+
+	f, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	if err != nil {
+		return "", "", err
 	}
-	loc := locs[0]
-	return fmt.Sprintf(
-		"URI: %s\nRange: %d:%d -> %d:%d",
-		loc.URI,
-		loc.Range.Start.Line+1,
-		loc.Range.Start.Character+1,
-		loc.Range.End.Line+1,
-		loc.Range.End.Character+1,
-	), nil
+
+	var targetIdent *ast.Ident
+	ast.Inspect(f, func(n ast.Node) bool {
+		if n == nil {
+			return true
+		}
+		pos := fset.Position(n.Pos())
+		if pos.Line == line {
+			if id, ok := n.(*ast.Ident); ok {
+				endPos := fset.Position(n.End())
+				if col >= pos.Column && col <= endPos.Column {
+					targetIdent = id
+					return false
+				}
+				if targetIdent == nil {
+					targetIdent = id
+				}
+			}
+		}
+		return true
+	})
+
+	if targetIdent == nil {
+		return "No symbol found at given coordinates.", "", nil
+	}
+
+	symName := targetIdent.Name
+
+	if targetIdent.Obj != nil && targetIdent.Obj.Decl != nil {
+		var buf bytes.Buffer
+		if err := printer.Fprint(&buf, fset, targetIdent.Obj.Decl); err == nil {
+			pos := fset.Position(targetIdent.Obj.Pos())
+			res := fmt.Sprintf("Symbol: %s\nLocation: %s:%d:%d\n\n%s",
+				symName, filepath.Base(pos.Filename), pos.Line, pos.Column, buf.String())
+			return res, symName, nil
+		}
+	}
+
+	// Try godoc lookup if local obj decl isn't directly attached
+	dir := filepath.Dir(path)
+	doc, docErr := godoc.Load(ctx, dir, symName)
+	if docErr == nil && doc != nil && doc.Definition != "" {
+		res := fmt.Sprintf("Symbol: %s\nPackage: %s\n\n%s\n\n%s",
+			symName, doc.Package, doc.Definition, doc.Description)
+		return res, symName, nil
+	}
+
+	return fmt.Sprintf("Symbol: %s", symName), symName, nil
 }
 
-// nolint:gosec // G204: gopls is a trusted binary on the system path, further secured by safeshell
-func fetchReferences(ctx context.Context, path string, line, col int) string {
-	position := fmt.Sprintf("%s:%d:%d", path, line, col)
-	cmd, err := safeshell.CommandContext(ctx, "gopls", "references", position)
-	if err != nil {
-		return fmt.Sprintf("⚠️ Failed to find references: %v", err)
-	}
-	cmd.Dir = filepath.Dir(path)
-	refOut, refErr := cmd.CombinedOutput()
+const noReferencesFound = "No references found."
 
-	if refErr != nil {
-		return fmt.Sprintf("⚠️ Failed to find references: %s", strings.TrimSpace(string(refOut)))
+func fetchASTReferences(path, symbol string) string {
+	if symbol == "" {
+		return noReferencesFound
 	}
-	references := strings.TrimSpace(string(refOut))
-	if references == "" {
+	dir := filepath.Dir(path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return "No references found."
 	}
-	return references
+
+	var refs []string
+	fset := token.NewFileSet()
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		filePath := filepath.Join(dir, entry.Name())
+		//nolint:gosec // G304: File path provided by user is expected.
+		f, err := parser.ParseFile(fset, filePath, nil, 0)
+		if err != nil {
+			continue
+		}
+
+		ast.Inspect(f, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && id.Name == symbol {
+				pos := fset.Position(id.Pos())
+				refs = append(refs, fmt.Sprintf("%s:%d:%d", entry.Name(), pos.Line, pos.Column))
+			}
+			return true
+		})
+	}
+
+	if len(refs) == 0 {
+		return "No references found."
+	}
+	return strings.Join(refs, "\n")
 }
 
 func errorResult(msg string) *mcp.CallToolResult {
@@ -123,7 +186,6 @@ func errorResult(msg string) *mcp.CallToolResult {
 	}
 }
 
-// Simple helper to avoid importing "path/filepath" unless necessary, or just extract basename.
 func filepathBase(path string) string {
 	idx := strings.LastIndexAny(path, "/\\")
 	if idx == -1 {

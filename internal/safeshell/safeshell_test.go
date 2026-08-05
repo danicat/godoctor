@@ -69,6 +69,11 @@ func TestValidate(t *testing.T) {
 func TestCommandContext(t *testing.T) {
 	ctx := context.Background()
 
+	testValidCommandContext(ctx, t)
+	testInvalidCommandContext(ctx, t)
+}
+
+func testValidCommandContext(ctx context.Context, t *testing.T) {
 	t.Run("Valid command and args", func(t *testing.T) {
 		cmd, err := safeshell.CommandContext(ctx, "go", "version")
 		if err != nil {
@@ -81,7 +86,9 @@ func TestCommandContext(t *testing.T) {
 			t.Errorf("CommandContext() args = %v, want [go version]", cmd.Args)
 		}
 	})
+}
 
+func testInvalidCommandContext(ctx context.Context, t *testing.T) {
 	t.Run("Invalid command name - shell operator", func(t *testing.T) {
 		cmd, err := safeshell.CommandContext(ctx, "go;sh", "version")
 		if err == nil {

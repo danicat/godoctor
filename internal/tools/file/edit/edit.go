@@ -6,6 +6,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -314,8 +317,7 @@ func writeAndVerify(
 	}
 
 	if len(goFiles) > 0 {
-		args := append([]string{"check"}, goFiles...)
-		cmd, err := safeshell.CommandContext(ctx, "gopls", args...)
+		cmd, err := safeshell.CommandContext(ctx, "go", "vet", "./...")
 		if err != nil {
 			rbErr := rollback(backups, newlyCreated)
 			msg := fmt.Sprintf("Post-edit secure validation failed: %v", err)
@@ -399,7 +401,7 @@ var (
 	fileErrorRegex  = regexp.MustCompile(`^([^:]+):(\d+):(\d+):\s*(.*)$`)
 )
 
-func findSuggestions(ctx context.Context, errorMsg string) string {
+func findSuggestions(_ context.Context, errorMsg string) string {
 	lines := strings.Split(errorMsg, "\n")
 	var suggestions []string
 
@@ -421,17 +423,11 @@ func findSuggestions(ctx context.Context, errorMsg string) string {
 		}
 
 		if badSymbol != "" {
-			cmd, err := safeshell.CommandContext(ctx, "gopls", "symbols", filePath)
-			if err == nil {
-				cmd.Dir = filepath.Dir(filePath)
-				if out, cmdErr := cmd.CombinedOutput(); cmdErr == nil {
-					knownSymbols := parseGoplsSymbols(string(out))
-					bestSymbol, bestDist := findClosestSymbol(badSymbol, knownSymbols)
-					if bestSymbol != "" && bestDist <= 4 {
-						suggestions = append(suggestions, fmt.Sprintf("- In %s: Did you mean '%s' instead of '%s'?",
-							filepath.Base(filePath), bestSymbol, badSymbol))
-					}
-				}
+			knownSymbols := extractASTSymbols(filePath)
+			bestSymbol, bestDist := findClosestSymbol(badSymbol, knownSymbols)
+			if bestSymbol != "" && bestDist <= 4 {
+				suggestions = append(suggestions, fmt.Sprintf("- In %s: Did you mean '%s' instead of '%s'?",
+					filepath.Base(filePath), bestSymbol, badSymbol))
 			}
 		}
 	}
@@ -442,19 +438,46 @@ func findSuggestions(ctx context.Context, errorMsg string) string {
 	return ""
 }
 
-func parseGoplsSymbols(symbolsOut string) []string {
+func extractASTSymbols(filePath string) []string {
+	dir := filepath.Dir(filePath)
+	fset := token.NewFileSet()
+	//nolint:staticcheck // ParseDir is used for fast symbol extraction
+	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
+	if err != nil && len(pkgs) == 0 {
+		return nil
+	}
+
 	var symbols []string
-	lines := strings.SplitSeq(symbolsOut, "\n")
-	for l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "" {
-			continue
-		}
-		parts := strings.Fields(trimmed)
-		if len(parts) > 0 {
-			symbols = append(symbols, parts[0])
+	seen := make(map[string]bool)
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			symbols = append(symbols, name)
 		}
 	}
+
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			ast.Inspect(f, func(n ast.Node) bool {
+				switch node := n.(type) {
+				case *ast.FuncDecl:
+					add(node.Name.Name)
+				case *ast.TypeSpec:
+					add(node.Name.Name)
+				case *ast.ValueSpec:
+					for _, name := range node.Names {
+						add(name.Name)
+					}
+				case *ast.Field:
+					for _, name := range node.Names {
+						add(name.Name)
+					}
+				}
+				return true
+			})
+		}
+	}
+
 	return symbols
 }
 

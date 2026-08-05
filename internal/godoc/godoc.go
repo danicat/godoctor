@@ -80,7 +80,6 @@ func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback
 	return result, nil
 }
 
-
 // GetDocumentation retrieves the documentation for a package or symbol as Markdown.
 func GetDocumentation(ctx context.Context, pkgPath, symbolName string) (string, error) {
 	doc, err := Load(ctx, pkgPath, symbolName)
@@ -443,7 +442,8 @@ func populateFunc(fset *token.FileSet, pkg *doc.Package, f *doc.Func, result *Do
 }
 
 func findReturnTypeDefinition(fset *token.FileSet, pkg *doc.Package, f *doc.Func) string {
-	if f == nil || f.Decl == nil || f.Decl.Type == nil || f.Decl.Type.Results == nil || len(f.Decl.Type.Results.List) == 0 {
+	if f == nil || f.Decl == nil || f.Decl.Type == nil ||
+		f.Decl.Type.Results == nil || len(f.Decl.Type.Results.List) == 0 {
 		return ""
 	}
 

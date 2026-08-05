@@ -79,7 +79,7 @@ func TestIsToolEnabled(t *testing.T) {
 	}
 }
 
-func TestConfig_ConcurrentAccess(t *testing.T) {
+func TestConfig_ConcurrentAccess(_ *testing.T) {
 	cfg := &Config{
 		DisabledTools: make(map[string]bool),
 	}
@@ -88,7 +88,7 @@ func TestConfig_ConcurrentAccess(t *testing.T) {
 	numGoroutines := 100
 
 	// Concurrent readers
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -98,7 +98,7 @@ func TestConfig_ConcurrentAccess(t *testing.T) {
 	}
 
 	// Concurrent readers accessing DisabledTools
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -136,5 +136,3 @@ func TestLoad_Flags(t *testing.T) {
 		t.Errorf("AllowedTools missing toolA or toolB: %v", cfg.AllowedTools)
 	}
 }
-
-

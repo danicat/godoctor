@@ -340,7 +340,8 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 	}
 
 	lintCmd := "go"
-	lintArgs := []string{"run", linterPkg, "run", "-c", configPath, pkgs}
+	const cmdRun = "run"
+	lintArgs := []string{cmdRun, linterPkg, cmdRun, "-c", configPath, pkgs}
 
 	lintOut, lintErr := CommandRunner.RunWithOutput(ctx, workspaceDir, lintCmd, lintArgs...)
 	if lintErr != nil {
