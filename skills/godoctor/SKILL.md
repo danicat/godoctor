@@ -11,8 +11,6 @@ metadata:
 ## Go Version
 Current go version: 1.26.5
 
----
-
 ## Coding Guidelines
 
 ### Google Go Style & Standards
@@ -20,7 +18,7 @@ Follow the official Google Go Style Guide and Go Code Review Comments. Code must
 
 ### Package Architecture & Layout
 - **Flat Package Structure**: Prefer flat package layouts over deep enterprise layered modeling (such as `adapters/`, `ports/`, `entities/`, `controllers/`, `repositories/`, `services/`, `usecases/`). Keep code flat in the root or logically grouped by feature/domain.
-- **Private vs. Public API**: Use `internal/` for private packages that should not be imported by external modules, and `pkg/` for public API packages intended for external consumption.
+- **Private vs. Public API**: Use `internal/` for private packages that should not be imported by external modules. Do not use `pkg/` unless it is a cloud native project in the K8S ecossystem.
 - **Test Fixtures**: Store test fixtures, golden files, mock datasets, and external test inputs in `testdata/` directories. The Go toolchain ignores `testdata/` folders during normal package builds.
 - **Avoid Monolithic Files**: Avoid monolithic single-file packages. Split package logic into clear, focused files named after their primary responsibility (e.g., `server.go`, `handler.go`, `config.go`).
 - **No Stuttering in Naming**: Avoid repeating package names in exported types or functions. For example, use `user.Service` instead of `user.UserService`, `http.Server` instead of `http.HttpServer`, and `config.Load` instead of `config.LoadConfig`.
@@ -30,17 +28,44 @@ Follow the official Google Go Style Guide and Go Code Review Comments. Code must
 - **API Design Standards**: Keep interfaces small and consumer-defined (*accept interfaces, return structs*). Do not create premature interfaces with single implementations. Expose concrete types from producer packages.
 - **HTTP Service Architecture**: Follow modern Go HTTP service design patterns as described in [How I write HTTP services in Go after 13 years](https://grafana.com/blog/2024/02/09/how-i-write-http-services-in-go-after-13-years/). Key principles include constructor-based dependency injection, grouping HTTP routes and handlers on a single server struct, and writing explicit HTTP middleware.
 
----
-
 ## Installation & Setup
 
-### Installing GoDoctor MCP
-To install the GoDoctor MCP server, run:
+### Installing GoDoctor as a Plugin in Antigravity
+
+To install the GoDoctor plugin, run:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh
 ```
 
----
+### Installing GoDoctor as an MCP Server
+
+1. Install `godoctor` using `go install`:
+   ```bash
+   go install github.com/danicat/godoctor/cmd/godoctor@latest
+   ```
+2. Ensure `$GOPATH/bin` (or `$(go env GOPATH)/bin`) is included in your system `PATH`.
+3. Add `godoctor` to your MCP client configuration (`mcp_config.json`):
+   ```json
+   {
+     "mcpServers": {
+       "godoctor": {
+         "command": "godoctor",
+         "args": []
+       }
+     }
+   }
+   ```
+   *Alternatively, run directly via `go run` without pre-compiling:*
+   ```json
+   {
+     "mcpServers": {
+       "godoctor": {
+         "command": "go",
+         "args": ["run", "github.com/danicat/godoctor/cmd/godoctor@latest"]
+       }
+     }
+   }
+   ```
 
 ## Advanced Tools & Tool Suite
 
@@ -68,8 +93,6 @@ In environments where GoDoctor MCP server tools are not integrated, invoke Selen
   ```bash
   go run github.com/danicat/testquery@latest -query "SELECT * FROM tests WHERE status = 'FAIL'"
   ```
-
----
 
 ## TestQuery SQL Analyzer
 
@@ -126,8 +149,6 @@ FROM tests
 WHERE duration_ms > 500 
 ORDER BY duration_ms DESC;
 ```
-
----
 
 ## Selene Mutation Testing Guide
 
