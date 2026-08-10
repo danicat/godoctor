@@ -12,40 +12,31 @@ import (
 	"strings"
 	"time"
 
-	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/instructions"
-	"github.com/danicat/godoctor/internal/prompts"
-	resgodoc "github.com/danicat/godoctor/internal/resources/godoc"
 	"github.com/danicat/godoctor/internal/roots"
+	adddependencies "github.com/danicat/godoctor/internal/tools/add_dependencies"
+	listfiles "github.com/danicat/godoctor/internal/tools/list_files"
+	mutationtest "github.com/danicat/godoctor/internal/tools/mutation_test"
+	readdocs "github.com/danicat/godoctor/internal/tools/read_docs"
+	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
+	smartedit "github.com/danicat/godoctor/internal/tools/smart_edit"
+	smartread "github.com/danicat/godoctor/internal/tools/smart_read"
+	testquery "github.com/danicat/godoctor/internal/tools/test_query"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-
-	// Tools
-	"github.com/danicat/godoctor/internal/tools/file/edit"
-	"github.com/danicat/godoctor/internal/tools/file/list"
-	"github.com/danicat/godoctor/internal/tools/file/read"
-	"github.com/danicat/godoctor/internal/tools/go/build"
-	"github.com/danicat/godoctor/internal/tools/go/docs"
-	"github.com/danicat/godoctor/internal/tools/go/get"
-	"github.com/danicat/godoctor/internal/tools/go/mutation"
-	"github.com/danicat/godoctor/internal/tools/go/navigation"
-	"github.com/danicat/godoctor/internal/tools/go/project"
-	"github.com/danicat/godoctor/internal/tools/go/testquery"
 )
 
-// Server encapsulates the MCP server and its configuration.
+// Server encapsulates the MCP server.
 type Server struct {
-	mcpServer       *mcp.Server
-	cfg             *config.Config
-	registeredTools map[string]bool
+	mcpServer *mcp.Server
 }
 
 // New creates a new Server instance.
-func New(cfg *config.Config, version string) *Server {
+func New(version string) *Server {
 	s := mcp.NewServer(&mcp.Implementation{
 		Name:    "godoctor",
 		Version: version,
 	}, &mcp.ServerOptions{
-		Instructions: instructions.Get(cfg),
+		Instructions: instructions.Get(),
 		InitializedHandler: func(ctx context.Context, req *mcp.InitializedRequest) {
 			roots.Global.Sync(ctx, req.Session)
 		},
@@ -55,16 +46,14 @@ func New(cfg *config.Config, version string) *Server {
 	})
 
 	return &Server{
-		mcpServer:       s,
-		cfg:             cfg,
-		registeredTools: make(map[string]bool),
+		mcpServer: s,
 	}
 }
 
 // Run starts the MCP server using Stdio.
 func (s *Server) Run(ctx context.Context) error {
 	if err := s.RegisterHandlers(); err != nil {
-		return err
+		return fmt.Errorf("failed to register handlers: %w", err)
 	}
 	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
@@ -72,107 +61,74 @@ func (s *Server) Run(ctx context.Context) error {
 // ServeHTTP starts the server over HTTP using StreamableHTTP.
 func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 	if err := s.RegisterHandlers(); err != nil {
-		return err
+		return fmt.Errorf("failed to register handlers: %w", err)
 	}
 
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
 		return s.mcpServer
 	}, nil)
 
-	// Wrap with Origin validation as required by the 2025-11-25 spec.
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// CORS headers for browser-based MCP clients
 		origin := r.Header.Get("Origin")
 		if origin != "" {
 			// In production (Cloud Run), the origin should match the expected domain.
-			// For this implementation, we allow any origin if not running on localhost,
-			// but a strict implementation would check against a whitelist.
-			// However, if the Origin header is present and we don't trust it, we MUST return 403.
-
-			// Simple check: if it's a browser request (Origin present),
-			// and we are local, only allow localhost.
-			if strings.HasPrefix(r.Host, "localhost") || strings.HasPrefix(r.Host, "127.0.0.1") {
-				if !strings.Contains(origin, "localhost") && !strings.Contains(origin, "127.0.0.1") {
-					http.Error(w, "Forbidden: Invalid Origin", http.StatusForbidden)
-					return
-				}
+			// For local development, allow localhost/127.0.0.1 origins or all origins
+			if strings.HasPrefix(origin, "http://localhost") ||
+				strings.HasPrefix(origin, "http://127.0.0.1") ||
+				strings.HasPrefix(origin, "https://") {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
 			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
+			w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		mcpHandler.ServeHTTP(w, r)
 	})
 
-	log.Printf("MCP HTTP Server starting on %s", addr)
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
+		Addr:         addr,
+		Handler:      handler,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
+	//nolint:gosec
 	go func() {
 		<-ctx.Done()
-		if err := srv.Shutdown(context.WithoutCancel(ctx)); err != nil {
-			log.Printf("MCP HTTP Server shutdown error: %v", err)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
 		}
 	}()
 
-	return srv.ListenAndServe()
+	log.Printf("godoctor MCP server listening on HTTP %s", addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		return fmt.Errorf("HTTP server error: %w", err)
+	}
+
+	return nil
 }
 
-// RegisterHandlers wires all tools, resources, and prompts.
+// RegisterHandlers wires all tools.
 func (s *Server) RegisterHandlers() error {
-	type toolDef struct {
-		name     string
-		register func(*mcp.Server)
-	}
-
-	availableTools := []toolDef{
-		{name: "read_docs", register: docs.Register},
-		{name: "smart_read", register: read.Register},
-		{name: "smart_edit", register: edit.Register},
-		{name: "list_files", register: list.Register},
-
-		{name: "smart_build", register: build.Register},
-
-		{name: "project_init", register: project.Register},
-		{name: "add_dependency", register: get.Register},
-		{name: "mutation_test", register: mutation.Register},
-		{name: "test_query", register: testquery.Register},
-		{name: "describe_symbol", register: navigation.Register},
-	}
-
-	validTools := make(map[string]bool)
-
-	for _, t := range availableTools {
-		validTools[t.name] = true
-		if s.cfg.IsToolEnabled(t.name) {
-			if !s.registeredTools[t.name] {
-				t.register(s.mcpServer)
-				s.registeredTools[t.name] = true
-			}
-		}
-	}
-
-	// Validate disabled tools
-	for name := range s.cfg.DisabledTools {
-		if !validTools[name] {
-			return fmt.Errorf("unknown tool disabled: %s", name)
-		}
-	}
-
-	// Register extra resources based on enabled domains
-	if !s.registeredTools["godoc"] {
-		resgodoc.Register(s.mcpServer)
-		s.registeredTools["godoc"] = true
-	}
-
-	// Register prompts
-	if !s.registeredTools["prompt_import_this"] {
-		s.mcpServer.AddPrompt(prompts.ImportThis("doc"), prompts.ImportThisHandler)
-		s.registeredTools["prompt_import_this"] = true
-	}
-	if !s.registeredTools["prompt_go_code_review"] {
-		s.mcpServer.AddPrompt(prompts.CodeReview("doc"), prompts.CodeReviewHandler)
-		s.registeredTools["prompt_go_code_review"] = true
-	}
-
+	smartread.Register(s.mcpServer)
+	smartedit.Register(s.mcpServer)
+	smartedit.RegisterMultiEdit(s.mcpServer)
+	smartbuild.Register(s.mcpServer)
+	readdocs.Register(s.mcpServer)
+	testquery.Register(s.mcpServer)
+	adddependencies.Register(s.mcpServer)
+	listfiles.Register(s.mcpServer)
+	mutationtest.Register(s.mcpServer)
 	return nil
 }

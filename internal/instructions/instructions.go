@@ -1,78 +1,57 @@
-// Package instructions generates dynamic system instructions for the AI agent.
-// It tailors the guidance provided to the LLM based on the currently enabled tools and configuration,
-// ensuring the agent is aware of its capabilities and how to use them effectively.
+// Package instructions provides dynamic system instructions for the AI agent.
 package instructions
 
-import (
-	"strings"
+import "strings"
 
-	"github.com/danicat/godoctor/internal/config"
-	"github.com/danicat/godoctor/internal/toolnames"
-)
-
-// Get returns the agent instructions for the server based on enabled tools.
-func Get(cfg *config.Config) string {
+// Get returns the agent instructions for the server.
+//
+//nolint:funlen,lll
+func Get() string {
 	var sb strings.Builder
-
-	// Helper to check if a tool is enabled. Logic is centralized in config.
-	isEnabled := func(tool string) bool {
-		return cfg.IsToolEnabled(tool)
-	}
-
-	// 1. Persona
 	sb.WriteString("# Go Smart Tooling Guide\n\n")
 	sb.WriteString("⚠️ **CRITICAL: MULTI-ROOT WORKSPACE ENVIRONMENT**\n")
-	sb.WriteString("This environment has multiple project roots registered. To ensure " +
-		"that your requests are performed on the correct target project (and do not " +
-		"fallback to the GoDoctor project folder), **YOU MUST ALWAYS USE ABSOLUTE PATHS** " +
-		"for all file, directory, or path parameters. Never pass relative paths " +
-		"(e.g., '.', '', or relative paths like 'pkg/main.go'). Always pass the " +
-		"absolute path of the target workspace root or files.\n\n")
+	sb.WriteString("This environment has multiple project roots registered. To ensure that your requests are performed on the correct target project (and do not fallback to the GoDoctor project folder), **YOU MUST ALWAYS USE ABSOLUTE PATHS** for all file, directory, or path parameters. Never pass relative paths (e.g., '.', '', or relative paths like 'pkg/main.go'). Always pass the absolute path of the target workspace root or files.\n\n")
 
-	// 2. Navigation
 	sb.WriteString("### 🔍 Navigation: Save Tokens & Context\n")
-	if isEnabled("smart_read") {
-		sb.WriteString(toolnames.Registry["smart_read"].Instruction + "\n")
-	}
-	if isEnabled("list_files") {
-		sb.WriteString(toolnames.Registry["list_files"].Instruction + "\n")
-	}
-	if isEnabled("describe_symbol") {
-		sb.WriteString(toolnames.Registry["describe_symbol"].Instruction + "\n")
-	}
-	sb.WriteString("\n")
+	sb.WriteString("*   **`smart_read`**: Inspect file contents with automated type signature annotations.\n")
+	sb.WriteString("    *   **Read All:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"])\n")
+	sb.WriteString("    *   **Snippet:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"], start_line=10, end_line=50)` (Targeted range reading).\n")
+	sb.WriteString("    *   **Outline:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"], outline=true)` (Retrieve outline via native Go AST).\n")
+	sb.WriteString("    *   **Type-Enriched:** Append `<types>` blocks showing referenced type definitions to avoid guessing.\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST use absolute file paths in `filenames` to ensure the correct project files are read.\n")
+	sb.WriteString("*   **`list_files`**: Explore the project structure.\n")
+	sb.WriteString("    *   **Usage:** `list_files(path=\"/absolute/path/to/target-workspace\")`\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `path`.\n\n")
 
-	// 3. Editing
 	sb.WriteString("### ✏️ Editing: Ensure Safety\n")
-	if isEnabled("smart_edit") {
-		sb.WriteString(toolnames.Registry["smart_edit"].Instruction + "\n")
-	}
-	sb.WriteString("\n")
+	sb.WriteString("*   **`smart_edit`**: The primary tool for single file modifications.\n")
+	sb.WriteString("    *   **Single-File Example:** `smart_edit(filename=\"/path/file.go\", old_content=\"old\", new_content=\"new\")`\n")
+	sb.WriteString("    *   **Capabilities:** Validates syntax and type safety (gofmt/goimports/go vet) *before* committing to disk.\n")
+	sb.WriteString("    *   **Rollback Safety:** On compilation error, the edit rolls back atomically and returns Levenshtein 'Did you mean?' suggestions.\n")
+	sb.WriteString("*   **`smart_multi_edit`**: The tool for atomic multi-file batch edits.\n")
+	sb.WriteString("    *   **Batch Example:** `smart_multi_edit(operations=[{\"filename\": \"/A.go\", \"new_content\": \"...\"}, {\"filename\": \"/B.go\", \"new_content\": \"...\"}])`\n")
+	sb.WriteString("    *   **Capabilities:** Validates type safety across all modified files simultaneously.\n\n")
 
-	// 4. Utilities
 	sb.WriteString("### 🛠️ Utilities\n")
-	if isEnabled("smart_build") {
-		sb.WriteString(toolnames.Registry["smart_build"].Instruction + "\n")
-	}
-	if isEnabled("read_docs") {
-		sb.WriteString(toolnames.Registry["read_docs"].Instruction + "\n")
-	}
-	if isEnabled("add_dependency") {
-		sb.WriteString(toolnames.Registry["add_dependency"].Instruction + "\n")
-	}
-	if isEnabled("project_init") {
-		sb.WriteString(toolnames.Registry["project_init"].Instruction + "\n")
-	}
-	sb.WriteString("\n")
+	sb.WriteString("*   **`smart_build`**: GoDoctor's specialized build pipeline.\n")
+	sb.WriteString("    *   **Usage:** `smart_build(dir=\"/absolute/path/to/target-workspace\", packages=\"./...\")`\n")
+	sb.WriteString("    *   **Pipeline:** Automatically runs `go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> linter -> deadcode.\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n")
+	sb.WriteString("*   **`read_docs`**: Access API documentation.\n")
+	sb.WriteString("    *   **Usage:** `read_docs(import_path=\"net/http\")`\n")
+	sb.WriteString("    *   **Outcome:** API reference and usage guidance.\n")
+	sb.WriteString("*   **`add_dependencies`**: Install dependencies and fetch documentation.\n")
+	sb.WriteString("    *   **Usage:** `add_dependencies(dir=\"/absolute/path/to/target-workspace\", packages=[\"github.com/go-chi/chi/v5@latest\"])\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n\n")
 
-	// 5. Testing
 	sb.WriteString("### 🧪 Testing\n")
-	if isEnabled("mutation_test") {
-		sb.WriteString(toolnames.Registry["mutation_test"].Instruction + "\n")
-	}
-	if isEnabled("test_query") {
-		sb.WriteString(toolnames.Registry["test_query"].Instruction + "\n")
-	}
+	sb.WriteString("*   **`mutation_test`**: Verify test quality with mutation testing.\n")
+	sb.WriteString("    *   **Usage:** `mutation_test(dir=\"/absolute/path/to/target-workspace\")`\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n")
+	sb.WriteString("*   **`test_query`**: Query test results with SQL.\n")
+	sb.WriteString("    *   **Usage:** `test_query(dir=\"/absolute/path/to/target-workspace\", query=\"SELECT * FROM all_coverage WHERE count = 0\")`\n")
+	sb.WriteString("    *   **Caching:** Uses a persistent `testquery.db` file. First call builds it automatically. Set `rebuild=true` after code changes.\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n")
 
 	return sb.String()
 }

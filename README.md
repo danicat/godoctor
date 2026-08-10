@@ -6,42 +6,49 @@ GoDoctor is a specialized and optimized suite of tools carefully engineered to e
 
 ### Installation
 
-Run the automatic installation script:
+Install GoDoctor using the one-line installation command:
+
 ```bash
-./install.sh [options]
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh
 ```
 
-This script detects your platform (OS and architecture), fetches the latest release, and installs GoDoctor for your target environment:
+You can pass options to customize the installation target or scope:
 
 - **Antigravity 2.0 (Plugin)** (Default):
   ```bash
-  ./install.sh --target agy2      # Global: ~/.gemini/config/plugins/godoctor
-  ./install.sh --target agy2 -w   # Workspace: .agents/plugins/godoctor
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target agy2      # Global: ~/.gemini/config/plugins/godoctor
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target agy2 -w   # Workspace: .agents/plugins/godoctor
   ```
 - **Antigravity CLI (Plugin)**:
   ```bash
-  ./install.sh --target cli       # Global: ~/.gemini/antigravity-cli/plugins/godoctor
-  ./install.sh --target cli -w    # Workspace: .agents/plugins/godoctor
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target cli       # Global: ~/.gemini/antigravity-cli/plugins/godoctor
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target cli -w    # Workspace: .agents/plugins/godoctor
   ```
 - **Other Agents (Skills Only)**:
   ```bash
-  ./install.sh --target skills    # Global: ~/.agents/skills
-  ./install.sh --target skills -w # Workspace: .agents/skills
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target skills    # Global: ~/.agents/skills
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target skills -w # Workspace: .agents/skills
   ```
+
+Alternatively, if you have cloned the repository locally:
+
+```bash
+./install.sh [options]
+```
 
 ## Features and Tools
 
 GoDoctor provides the following tools:
 
-* `list_files` lists files in the workspace up to a given depth.
-* `smart_read` reads files including contextual type information.
-* `smart_edit` handles atomic modifications across multiple files. It formats the code and automatically rolls back changes if the compiler detects a syntax error.
-* `smart_build` manages module tidying, code modernization, formatting, compiling, testing, linting, and deadcode analysis.
-* `project_init` initialises a module and pulls dependencies
-* `add_dependency` installs Go modules and pulls their documentation.
-* `read_docs` fetches documentation for packages and symbols.
-* `mutation_test` runs Selene mutation tests to check test coverage quality.
-* `test_query` queries test results and coverage data using SQL.
+1. `list_files`: lists files in the workspace up to a given depth.
+2. `smart_read`: reads files including contextual type information.
+3. `smart_edit`: handles single-file modifications with compiler verification.
+4. `smart_multi_edit`: handles atomic modifications across multiple files in batch with compiler verification.
+5. `smart_build`: manages module tidying, code modernization, formatting, compiling, testing, linting, and deadcode analysis.
+6. `add_dependencies`: installs Go modules and pulls their documentation.
+7. `read_docs`: fetches documentation for packages and symbols.
+8. `mutation_test`: runs Selene mutation tests to check test coverage quality.
+9. `test_query`: queries test results and coverage data using SQL.
 
 ## Developer Instructions
 

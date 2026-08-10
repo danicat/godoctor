@@ -15,45 +15,13 @@ import (
 
 // State manages the registered project roots on a per-session basis.
 type State struct {
-	mu       sync.RWMutex
-	roots    map[*mcp.ServerSession][]string
-	onChange func([]string)
+	mu    sync.RWMutex
+	roots map[*mcp.ServerSession][]string
 }
 
 // Global is the singleton instance for the entire application.
 var Global = &State{
 	roots: make(map[*mcp.ServerSession][]string),
-}
-
-// OnChange registers a callback that fires whenever roots change.
-func (s *State) OnChange(cb func([]string)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.onChange = cb
-}
-
-// GetAllRoots returns a deep copy of all registered roots across all sessions.
-func (s *State) GetAllRoots() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.getAllRootsLocked()
-}
-
-func (s *State) getAllRootsLocked() []string {
-	if s.roots == nil {
-		return nil
-	}
-	var all []string
-	seen := make(map[string]bool)
-	for _, rts := range s.roots {
-		for _, r := range rts {
-			if !seen[r] {
-				seen[r] = true
-				all = append(all, r)
-			}
-		}
-	}
-	return all
 }
 
 // Add adds a new project root for the given session after normalizing it to an absolute path.
@@ -64,6 +32,7 @@ func (s *State) Add(session *mcp.ServerSession, path string) {
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.roots == nil {
 		s.roots = make(map[*mcp.ServerSession][]string)
@@ -71,21 +40,9 @@ func (s *State) Add(session *mcp.ServerSession, path string) {
 
 	rts := s.roots[session]
 	if slices.Contains(rts, abs) {
-		s.mu.Unlock()
 		return
 	}
 	s.roots[session] = append(rts, abs)
-
-	cb := s.onChange
-	var snapshot []string
-	if cb != nil {
-		snapshot = s.getAllRootsLocked()
-	}
-	s.mu.Unlock()
-
-	if cb != nil {
-		cb(snapshot)
-	}
 }
 
 // Get returns a copy of the registered roots for the given session.
@@ -179,21 +136,11 @@ func (s *State) Sync(ctx context.Context, session *mcp.ServerSession) {
 	rts := parseRoots(res)
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.roots == nil {
 		s.roots = make(map[*mcp.ServerSession][]string)
 	}
 	s.roots[session] = rts
-
-	cb := s.onChange
-	var snapshot []string
-	if cb != nil {
-		snapshot = s.getAllRootsLocked()
-	}
-	s.mu.Unlock()
-
-	if cb != nil {
-		cb(snapshot)
-	}
 }
 
 // Validate checks if the given path is within any of the registered roots for the session.

@@ -18,6 +18,7 @@ package godoc
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/ast"
@@ -78,15 +79,6 @@ func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback
 		return nil, fmt.Errorf("failed to parse documentation: %w", err)
 	}
 	return result, nil
-}
-
-// GetDocumentation retrieves the documentation for a package or symbol as Markdown.
-func GetDocumentation(ctx context.Context, pkgPath, symbolName string) (string, error) {
-	doc, err := Load(ctx, pkgPath, symbolName)
-	if err != nil {
-		return "", err
-	}
-	return Render(doc), nil
 }
 
 // GetDocumentationWithFallback attempts to retrieve documentation for a package.
@@ -517,6 +509,23 @@ func bufferCode(fset *token.FileSet, node any) string {
 		return fmt.Sprintf("error printing code: %v", err)
 	}
 	return buf.String()
+}
+
+// RenderJSON marshals the Doc into formatted JSON.
+func (d *Doc) RenderJSON() (string, error) {
+	if d == nil {
+		return "{}", nil
+	}
+	bytes, err := json.MarshalIndent(d, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+// RenderMarkdown converts a Doc to Markdown.
+func (d *Doc) RenderMarkdown() string {
+	return Render(d)
 }
 
 // Render converts a Doc to Markdown.

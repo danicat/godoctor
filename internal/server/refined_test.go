@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danicat/godoctor/internal/tools/file/list"
-	docs "github.com/danicat/godoctor/internal/tools/go/docs"
+	listfiles "github.com/danicat/godoctor/internal/tools/list_files"
+	readdocs "github.com/danicat/godoctor/internal/tools/read_docs"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -20,7 +20,7 @@ func TestRefinedTools(t *testing.T) {
 	// 1. read_docs: JSON vs Markdown
 	t.Run("read_docs_formats", func(t *testing.T) {
 		// Happy Path: Markdown (Default)
-		res, _, err := docs.Handler(ctx, nil, docs.Params{
+		res, _, err := readdocs.Handler(ctx, nil, readdocs.Params{
 			ImportPath: fmtPkg,
 			SymbolName: "Println",
 		})
@@ -32,7 +32,7 @@ func TestRefinedTools(t *testing.T) {
 		}
 
 		// Happy Path: JSON
-		resJSON, _, err := docs.Handler(ctx, nil, docs.Params{
+		resJSON, _, err := readdocs.Handler(ctx, nil, readdocs.Params{
 			ImportPath: fmtPkg,
 			SymbolName: "Println",
 			Format:     "json",
@@ -45,7 +45,7 @@ func TestRefinedTools(t *testing.T) {
 		}
 
 		// Sad Path: Invalid Format
-		resErr, _, _ := docs.Handler(ctx, nil, docs.Params{
+		resErr, _, _ := readdocs.Handler(ctx, nil, readdocs.Params{
 			ImportPath: fmtPkg,
 			Format:     "yaml",
 		})
@@ -57,7 +57,7 @@ func TestRefinedTools(t *testing.T) {
 	// 2. list_files: Depth & Patterns
 	t.Run("list_files_depth", func(t *testing.T) {
 		// Happy Path: Depth 1
-		res, _, err := list.Handler(ctx, nil, list.Params{
+		res, _, err := listfiles.Handler(ctx, nil, listfiles.Params{
 			Path:  wd,
 			Depth: 1,
 		})

@@ -17,15 +17,13 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
-	"sort"
 	"syscall"
 
-	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/server"
-	"github.com/danicat/godoctor/internal/toolnames"
 )
 
 var (
@@ -49,39 +47,27 @@ func runMain() int {
 }
 
 func run(ctx context.Context, args []string) error {
-	cfg, err := config.Load(args)
-	if err != nil {
+	fs := flag.NewFlagSet("godoctor", flag.ContinueOnError)
+	var (
+		showVersion bool
+		listenAddr  string
+	)
+	fs.BoolVar(&showVersion, "version", false, "Print version and exit")
+	fs.StringVar(&listenAddr, "listen", "", "HTTP listen address (e.g. :8080)")
+
+	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	if cfg.Version {
+	if showVersion {
 		fmt.Println(version)
 		return nil
 	}
 
-	if cfg.ListTools {
-		var tools []toolnames.ToolDef
-		for _, def := range toolnames.Registry {
-			if cfg.IsToolEnabled(def.Name) {
-				tools = append(tools, def)
-			}
-		}
+	srv := server.New(version)
 
-		// Sort by name
-		sort.Slice(tools, func(i, j int) bool {
-			return tools[i].Name < tools[j].Name
-		})
-
-		for _, tool := range tools {
-			fmt.Printf("Name: %s\nTitle: %s\nDescription: %s\n\n", tool.Name, tool.Title, tool.Description)
-		}
-		return nil
-	}
-
-	srv := server.New(cfg, version)
-
-	if cfg.ListenAddr != "" {
-		return srv.ServeHTTP(ctx, cfg.ListenAddr)
+	if listenAddr != "" {
+		return srv.ServeHTTP(ctx, listenAddr)
 	}
 
 	return srv.Run(ctx)

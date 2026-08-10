@@ -65,15 +65,16 @@ func TestGetDocumentation_StdLib(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := GetDocumentation(ctx, tt.pkgPath, tt.symbolName)
+			doc, err := Load(ctx, tt.pkgPath, tt.symbolName)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("GetDocumentation() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("Load() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !tt.wantErr {
+				got := Render(doc)
 				for _, want := range tt.wantContent {
 					if !strings.Contains(got, want) {
-						t.Errorf("GetDocumentation() missing content %q. Got:\n%s", want, got)
+						t.Errorf("Render() missing content %q. Got:\n%s", want, got)
 					}
 				}
 			}

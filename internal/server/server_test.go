@@ -1,49 +1,15 @@
-package server
+package server_test
 
 import (
 	"testing"
 
-	"github.com/danicat/godoctor/internal/config"
+	"github.com/danicat/godoctor/internal/server"
 )
 
-func TestServer_RegisterHandlers_DisableTools(t *testing.T) {
-	tests := []struct {
-		name          string
-		disabledTools map[string]bool
-		wantErr       bool
-	}{
-		{
-			name:          "no disabled tools",
-			disabledTools: map[string]bool{},
-			wantErr:       false,
-		},
-		{
-			name:          "disable valid tool",
-			disabledTools: map[string]bool{"smart_read": true},
-			wantErr:       false,
-		},
-		{
-			name:          "disable another valid tool",
-			disabledTools: map[string]bool{"smart_edit": true},
-			wantErr:       false,
-		},
-		{
-			name:          "disable invalid tool",
-			disabledTools: map[string]bool{"invalid_tool": true},
-			wantErr:       true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{
-				DisabledTools: tt.disabledTools,
-			}
-			s := New(cfg, "test")
-			err := s.RegisterHandlers()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("RegisterHandlers() error = %v, wantErr %v", err, tt.wantErr)
-			}
-		})
+func TestServer_RegisterHandlers(t *testing.T) {
+	s := server.New("test")
+	err := s.RegisterHandlers()
+	if err != nil {
+		t.Fatalf("RegisterHandlers() unexpected error = %v", err)
 	}
 }
