@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -34,7 +35,16 @@ type Params struct {
 	Rebuild bool `json:"rebuild,omitempty" jsonschema:"Force rebuild of the test database before querying. Use after code changes. First call always builds."`
 }
 
-const dbFile = "testquery.db"
+const (
+	dbFile     = "testquery.db"
+	flagOutput = "--output"
+	flagDB     = "--db"
+	flagPkg    = "--pkg"
+	flagFormat = "--format"
+	flagTable  = "table"
+	cmdBuild   = "build"
+	cmdQuery   = "query"
+)
 
 func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	absDir, err := validateParams(req, args)
@@ -77,8 +87,20 @@ func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mc
 		pkg = "./..."
 	}
 
-	buildCmd, err := safeshell.CommandContext(ctx, "go", "run", "github.com/danicat/testquery@latest",
-		"build", "--pkg", pkg, "--output", dbFile)
+	var tqCmd string
+	var tqArgs []string
+	if _, err := exec.LookPath("testquery"); err == nil {
+		tqCmd = "testquery"
+		tqArgs = []string{cmdBuild, flagPkg, pkg, flagOutput, dbFile}
+	} else if _, err := exec.LookPath("tq"); err == nil {
+		tqCmd = "tq"
+		tqArgs = []string{cmdBuild, flagPkg, pkg, flagOutput, dbFile}
+	} else {
+		tqCmd = "go"
+		tqArgs = []string{"run", "github.com/danicat/testquery@latest", cmdBuild, flagPkg, pkg, flagOutput, dbFile}
+	}
+
+	buildCmd, err := safeshell.CommandContext(ctx, tqCmd, tqArgs...)
 	if err != nil {
 		return errorResult(fmt.Sprintf("secure execution validation failed: %v", err))
 	}
@@ -95,8 +117,21 @@ func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mc
 }
 
 func runQuery(ctx context.Context, absDir, query string) (*mcp.CallToolResult, any, error) {
-	cmd, err := safeshell.CommandContext(ctx, "go", "run", "github.com/danicat/testquery@latest",
-		"query", "--db", dbFile, "--format", "table", query)
+	var tqCmd string
+	var tqArgs []string
+	if _, err := exec.LookPath("testquery"); err == nil {
+		tqCmd = "testquery"
+		tqArgs = []string{cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
+	} else if _, err := exec.LookPath("tq"); err == nil {
+		tqCmd = "tq"
+		tqArgs = []string{cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
+	} else {
+		tqCmd = "go"
+		//nolint:lll
+		tqArgs = []string{"run", "github.com/danicat/testquery@latest", cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
+	}
+
+	cmd, err := safeshell.CommandContext(ctx, tqCmd, tqArgs...)
 	if err != nil {
 		return errorResult(fmt.Sprintf("secure execution validation failed: %v", err)), nil, nil
 	}

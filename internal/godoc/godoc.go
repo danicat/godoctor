@@ -31,7 +31,7 @@ import (
 	"strings"
 
 	"github.com/danicat/godoctor/internal/safeshell"
-	"github.com/danicat/godoctor/internal/textdist"
+	"github.com/danicat/godoctor/internal/text"
 )
 
 // Load resolves an import path and returns documentation.
@@ -662,7 +662,7 @@ func findFuzzyMatches(query string, candidates []string) []string {
 		}
 
 		// Levenshtein distance < 3 (allow small typos)
-		dist := textdist.Levenshtein(lowerQuery, strings.ToLower(c))
+		dist := text.Levenshtein(lowerQuery, strings.ToLower(c))
 		if dist <= 2 {
 			matches = append(matches, c)
 		}

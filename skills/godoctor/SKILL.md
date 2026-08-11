@@ -179,11 +179,11 @@ Uncovered:        0
 Mutation Score:  83.33% (killed/total mutations)
 
 Surviving Mutants:
-1. /Users/user/project/internal/auth/auth.go:42:15
+1. ./internal/auth/auth.go:42:15
    Mutated: 'if user.Age >= 18' -> 'if user.Age > 18'
    Status: SURVIVED (Tests passed when condition was mutated)
 
-2. /Users/user/project/internal/auth/auth.go:58:8
+2. ./internal/auth/auth.go:58:8
    Mutated: 'return token, nil' -> 'return "", nil'
    Status: SURVIVED (Tests passed when token was cleared)
 ```

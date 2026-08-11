@@ -14,6 +14,7 @@ import (
 
 	"github.com/danicat/godoctor/internal/godoc"
 	"github.com/danicat/godoctor/internal/roots"
+	"github.com/danicat/godoctor/internal/text"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -166,7 +167,7 @@ func readSingleFile(
 	}
 	endLine := args.EndLine
 
-	startOffset, endOffset, err := getLineOffsets(original, startLine, endLine)
+	startOffset, endOffset, err := text.GetLineOffsets(original, startLine, endLine)
 	if err != nil {
 		return "", "", errorResult(fmt.Sprintf("line range error for %s: %v", filename, err))
 	}
@@ -342,36 +343,4 @@ func errorResult(msg string) *mcp.CallToolResult {
 			&mcp.TextContent{Text: msg},
 		},
 	}
-}
-
-func getLineOffsets(content string, startLine, endLine int) (int, int, error) {
-	currentLine := 1
-	startOffset := 0
-	endOffset := len(content)
-	foundStart := false
-
-	if startLine <= 1 {
-		startOffset = 0
-		foundStart = true
-	}
-
-	for i, char := range content {
-		if char == '\n' {
-			currentLine++
-			if !foundStart && currentLine == startLine {
-				startOffset = i + 1
-				foundStart = true
-			}
-			if endLine > 0 && currentLine > endLine {
-				endOffset = i + 1
-				break
-			}
-		}
-	}
-
-	if startLine > currentLine && startLine > 1 {
-		return 0, 0, fmt.Errorf("start_line %d is beyond file length (%d lines)", startLine, currentLine)
-	}
-
-	return startOffset, endOffset, nil
 }

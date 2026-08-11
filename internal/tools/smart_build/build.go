@@ -119,8 +119,20 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 		sb.WriteString("  - ✅ Go Mod Tidy: SUCCESS\n")
 	}
 
-	//nolint:lll
-	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", "run", "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest", "-fix", pkgs)
+	const cmdRun = "run"
+	const cmdDeadcode = "deadcode"
+
+	var modCmd string
+	var modArgs []string
+	if _, err := CommandRunner.LookPath("modernize"); err == nil {
+		modCmd = "modernize"
+		modArgs = []string{"-fix", pkgs}
+	} else {
+		modCmd = "go"
+		modArgs = []string{cmdRun, "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest", "-fix", pkgs}
+	}
+
+	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, modCmd, modArgs...)
 	if err != nil {
 		if strings.Contains(err.Error(), "exit status 3") {
 			sb.WriteString("  - ✅ Go Modernizer: SUCCESS (Issues found and auto-fixed)\n")
@@ -137,8 +149,16 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 		sb.WriteString("  - ✅ Go Code Formatter: SUCCESS\n")
 	}
 
-	deadcodeArgs := append([]string{"run", "golang.org/x/tools/cmd/deadcode@latest"}, strings.Fields(pkgs)...)
-	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", deadcodeArgs...)
+	var deadCmd string
+	var deadcodeArgs []string
+	if _, err := CommandRunner.LookPath(cmdDeadcode); err == nil {
+		deadCmd = cmdDeadcode
+		deadcodeArgs = strings.Fields(pkgs)
+	} else {
+		deadCmd = "go"
+		deadcodeArgs = append([]string{cmdRun, "golang.org/x/tools/cmd/deadcode@latest"}, strings.Fields(pkgs)...)
+	}
+	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, deadCmd, deadcodeArgs...)
 	if deadErr != nil {
 		fmt.Fprintf(sb, "  - ❌ Deadcode Analysis: FAILED (%v)\n", deadErr)
 	} else {
@@ -327,23 +347,32 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 		return nil
 	}
 
-	versionStr := parseConfigVersion(configPath)
+	var lintCmd string
+	var lintArgs []string
 
-	// Select the appropriate major version of golangci-lint based on parsed version
-	var linterPkg string
-	if strings.HasPrefix(versionStr, "1") {
-		linterPkg = "github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5"
-		sb.WriteString("(using `golangci-lint v1`) ")
+	if _, err := CommandRunner.LookPath("golangci-lint"); err == nil {
+		lintCmd = "golangci-lint"
+		lintArgs = []string{"run", "-c", configPath, pkgs}
+		sb.WriteString("(using local `golangci-lint`) ")
 	} else {
-		linterPkg = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
-		if versionStr != "2" {
-			fmt.Fprintf(sb, "(using `golangci-lint v%s`) ", versionStr)
-		}
-	}
+		versionStr := parseConfigVersion(configPath)
 
-	lintCmd := "go"
-	const cmdRun = "run"
-	lintArgs := []string{cmdRun, linterPkg, cmdRun, "-c", configPath, pkgs}
+		// Select the appropriate major version of golangci-lint based on parsed version
+		var linterPkg string
+		if strings.HasPrefix(versionStr, "1") {
+			linterPkg = "github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5"
+			sb.WriteString("(using `golangci-lint v1`) ")
+		} else {
+			linterPkg = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
+			if versionStr != "2" {
+				fmt.Fprintf(sb, "(using `golangci-lint v%s`) ", versionStr)
+			}
+		}
+
+		lintCmd = "go"
+		const cmdRun = "run"
+		lintArgs = []string{cmdRun, linterPkg, cmdRun, "-c", configPath, pkgs}
+	}
 
 	lintOut, lintErr := CommandRunner.RunWithOutput(ctx, workspaceDir, lintCmd, lintArgs...)
 	if lintErr != nil {

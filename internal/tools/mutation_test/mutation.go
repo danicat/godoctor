@@ -4,6 +4,7 @@ package mutationtest
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/roots"
@@ -42,7 +43,17 @@ func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*m
 		return errorResult(err.Error()), nil, nil
 	}
 
-	cmd, err := safeshell.CommandContext(ctx, "go", "run", "github.com/danicat/selene/cmd/selene@latest", "./...")
+	var seleneCmd string
+	var seleneArgs []string
+	if _, err := exec.LookPath("selene"); err == nil {
+		seleneCmd = "selene"
+		seleneArgs = []string{"./..."}
+	} else {
+		seleneCmd = "go"
+		seleneArgs = []string{"run", "github.com/danicat/selene/cmd/selene@latest", "./..."}
+	}
+
+	cmd, err := safeshell.CommandContext(ctx, seleneCmd, seleneArgs...)
 	if err != nil {
 		return errorResult(fmt.Sprintf("secure execution validation failed: %v", err)), nil, nil
 	}

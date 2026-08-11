@@ -2,6 +2,8 @@ package smartedit
 
 import (
 	"testing"
+
+	"github.com/danicat/godoctor/internal/text"
 )
 
 // FuzzFindBestMatch checks for panics and basic invariants.
@@ -48,7 +50,7 @@ func FuzzFindBestMatch_Exact(f *testing.F) {
 
 		// To keep it simple: we only assert that if we construct a string, it MUST be found.
 		// But we strip whitespace from target to ensure it's a valid search.
-		normTarget := normalize(target)
+		normTarget := text.Normalize(target)
 		if normTarget == "" {
 			return
 		}

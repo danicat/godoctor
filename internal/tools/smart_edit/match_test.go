@@ -3,7 +3,7 @@ package smartedit
 import (
 	"testing"
 
-	"github.com/danicat/godoctor/internal/textdist"
+	"github.com/danicat/godoctor/internal/text"
 )
 
 const mainFunc = "func main() {}"
@@ -124,7 +124,7 @@ func TestFindBestMatch(t *testing.T) {
 
 func TestNormalize(t *testing.T) {
 	s := "  a \t b \n c "
-	got := normalize(s)
+	got := text.Normalize(s)
 	want := "abc"
 	if got != want {
 		t.Errorf("normalize(%q) = %q, want %q", s, got, want)
@@ -132,10 +132,10 @@ func TestNormalize(t *testing.T) {
 }
 
 func TestLevenshtein(t *testing.T) {
-	if d := textdist.Levenshtein("abc", "abd"); d != 1 {
+	if d := text.Levenshtein("abc", "abd"); d != 1 {
 		t.Errorf("Levenshtein(abc, abd) = %d, want 1", d)
 	}
-	if d := textdist.Levenshtein("abc", "abc"); d != 0 {
+	if d := text.Levenshtein("abc", "abc"); d != 0 {
 		t.Errorf("Levenshtein(abc, abc) = %d, want 0", d)
 	}
 }

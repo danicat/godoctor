@@ -14,6 +14,7 @@ func Get() string {
 
 	sb.WriteString("### 🔍 Navigation: Save Tokens & Context\n")
 	sb.WriteString("*   **`smart_read`**: Inspect file contents with automated type signature annotations.\n")
+	sb.WriteString("    *   **Multi-File Read:** `smart_read(filenames=[\"/absolute/path/A.go\", \"/absolute/path/B.go\"])` (Batch read multiple files in a single turn).\n")
 	sb.WriteString("    *   **Read All:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"])\n")
 	sb.WriteString("    *   **Snippet:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"], start_line=10, end_line=50)` (Targeted range reading).\n")
 	sb.WriteString("    *   **Outline:** `smart_read(filenames=[\"/absolute/path/to/target/pkg/utils.go\"], outline=true)` (Retrieve outline via native Go AST).\n")

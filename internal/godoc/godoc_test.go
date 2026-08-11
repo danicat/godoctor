@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danicat/godoctor/internal/textdist"
+	"github.com/danicat/godoctor/internal/text"
 )
 
 func TestGetDocumentation_StdLib(t *testing.T) {
@@ -96,7 +96,7 @@ func TestLevenshtein(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := textdist.Levenshtein(tt.s1, tt.s2)
+		got := text.Levenshtein(tt.s1, tt.s2)
 		if got != tt.want {
 			t.Errorf("levenshtein(%q, %q) = %d, want %d", tt.s1, tt.s2, got, tt.want)
 		}
