@@ -21,6 +21,7 @@ import (
 	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
 	smartedit "github.com/danicat/godoctor/internal/tools/smart_edit"
 	smartread "github.com/danicat/godoctor/internal/tools/smart_read"
+	smarttest "github.com/danicat/godoctor/internal/tools/smart_test"
 	testquery "github.com/danicat/godoctor/internal/tools/test_query"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -125,6 +126,7 @@ func (s *Server) RegisterHandlers() error {
 	smartedit.Register(s.mcpServer)
 	smartedit.RegisterMultiEdit(s.mcpServer)
 	smartbuild.Register(s.mcpServer)
+	smarttest.Register(s.mcpServer)
 	readdocs.Register(s.mcpServer)
 	testquery.Register(s.mcpServer)
 	adddependencies.Register(s.mcpServer)

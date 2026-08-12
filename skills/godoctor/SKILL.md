@@ -76,6 +76,7 @@ The GoDoctor suite offers both MCP tools for AI agents and direct CLI/fallback c
 - `smart_edit`: Performs single-file code edits verified by `gofmt`, `goimports`, and `go vet` before committing to disk. Automatically rolls back edits on compiler error.
 - `smart_multi_edit`: Performs atomic, multi-file batch code edits across the workspace verified by `gofmt`, `goimports`, and `go vet` before committing to disk.
 - `smart_build`: Executes the full workspace verification pipeline (`go mod tidy`, formatting, modernizer, `go build`, `go test`, linter, deadcode analysis).
+- `smart_test`: Executes Go tests across packages or specific functions with level modes (`fast`, `basic`, `benchmark`, `complete`), automatic coverage gap analysis, and `testquery.db` synchronization.
 - `test_query`: Executes SQL queries against the local `testquery.db` database to inspect test results and coverage metrics.
 - `mutation_test`: Runs Selene mutation testing against Go packages to evaluate unit test effectiveness.
 - `list_files`: VCS-aware workspace file mapper ignoring `.git` and build artifacts.

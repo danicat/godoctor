@@ -46,6 +46,11 @@ func Get() string {
 	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n\n")
 
 	sb.WriteString("### 🧪 Testing\n")
+	sb.WriteString("*   **`smart_test`**: GoDoctor's specialized test runner.\n")
+	sb.WriteString("    *   **Usage:** `smart_test(dir=\"/absolute/path/to/target-workspace\", packages=\"./...\", level=\"basic\")`\n")
+	sb.WriteString("    *   **Modes:** `level=\"fast\"` (tests only), `level=\"basic\"` (tests + coverage + testquery.db sync), `level=\"benchmark\"` (benchmarks), `level=\"complete\"` (tests + mutation testing).\n")
+	sb.WriteString("    *   **Filter:** `run=\"TestValidateToken\"` (filter specific test or benchmark functions).\n")
+	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n")
 	sb.WriteString("*   **`mutation_test`**: Verify test quality with mutation testing.\n")
 	sb.WriteString("    *   **Usage:** `mutation_test(dir=\"/absolute/path/to/target-workspace\")`\n")
 	sb.WriteString("    *   **CRITICAL:** In multi-root workspaces, you MUST pass the absolute path of the target workspace root to `dir`.\n")
