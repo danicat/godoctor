@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
 
-# install.sh - Installs GoDoctor for Antigravity CLI, Antigravity 2.0, or Other Agents (Skills Only)
+# install.sh - Installs GoDoctor Agent Plugin (Agent Plugins Spec v1.0.0)
 
 set -euo pipefail
 
 show_help() {
-  echo "GoDoctor Custom Installer"
-  echo "========================="
+  echo "GoDoctor Plugin Installer (Agent Plugins v1.0.0)"
+  echo "================================================"
   echo "Usage: ./install.sh [options]"
   echo ""
   echo "Target Options:"
-  echo "  -t, --target <mode>  Installation target mode: cli | agy2 | skills (Default: agy2)"
+  echo "  -t, --target <mode>  Target runtime: agy2 | cli (Default: agy2)"
   echo ""
   echo "Scope Options:"
   echo "  -g, --global         Install globally (Default)"
   echo "  -w, --workspace      Install locally to the active workspace"
   echo ""
   echo "General Options:"
-  echo "  -f, --overwrite      Overwrite existing target directory or skills if they exist"
-  echo "  --hooks              Also install GoDoctor pre-tool execution hooks to block illegal shell commands"
+  echo "  -f, --overwrite      Overwrite existing target directory if it exists"
   echo "  -h, --help           Show this help message"
   echo ""
 }
@@ -26,7 +25,6 @@ show_help() {
 TARGET_MODE="agy2"
 INSTALL_SCOPE="global"
 OVERWRITE="false"
-INSTALL_HOOKS="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,10 +48,6 @@ while [[ $# -gt 0 ]]; do
       OVERWRITE="true"
       shift
       ;;
-    --hooks)
-      INSTALL_HOOKS="true"
-      shift
-      ;;
     -h|--help)
       show_help
       exit 0
@@ -68,11 +62,11 @@ done
 
 # Validate target mode
 case "${TARGET_MODE}" in
-  cli|agy2|skills)
+  cli|agy2)
     ;;
   *)
     echo "❌ Error: Unsupported target mode '${TARGET_MODE}'." >&2
-    echo "Valid options for --target are: cli, agy2, skills" >&2
+    echo "Valid options for --target are: cli, agy2" >&2
     exit 1
     ;;
 esac
@@ -83,7 +77,7 @@ case "${OS}" in
   darwin)  OS="darwin" ;;
   linux)   OS="linux" ;;
   *)
-    echo "❌ Error: OS '${OS}' is not supported by this installer." >&2
+    echo "❌ Error: OS '${OS}' is not supported by this installer script. For Windows, download and extract the release zip." >&2
     exit 1
     ;;
 esac
@@ -126,13 +120,6 @@ case "${TARGET_MODE}" in
       INSTALL_DIR="${HOME}/.gemini/config/plugins/godoctor"
     fi
     ;;
-  skills)
-    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-      INSTALL_DIR="${WORKSPACE_ROOT}/.agents/skills"
-    else
-      INSTALL_DIR="${HOME}/.agents/skills"
-    fi
-    ;;
 esac
 
 echo "📂 Target destination: [${INSTALL_DIR}]"
@@ -152,119 +139,33 @@ echo "🏷️  Latest release: ${LATEST_RELEASE}"
 FILENAME="${OS}.${ARCH}.godoctor.tar.gz"
 DOWNLOAD_URL="https://github.com/danicat/godoctor/releases/download/${LATEST_RELEASE}/${FILENAME}"
 
-# 6. Perform Installation based on TARGET_MODE
-if [ "${TARGET_MODE}" = "skills" ]; then
-  # Skills-only mode
-  TEMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "${TEMP_DIR}"' EXIT
-
-  echo "📥 Downloading release package for skills extraction..."
-  if ! curl -sSL "${DOWNLOAD_URL}" | tar -xzf - -C "${TEMP_DIR}"; then
-    echo "❌ Error: Failed to download or extract the release asset." >&2
+# 6. Perform Installation
+if [ -d "${INSTALL_DIR}" ]; then
+  if [ "${OVERWRITE}" = "true" ]; then
+    echo "⚠️  Target installation directory '${INSTALL_DIR}' already exists. Overwriting as requested..."
+    rm -rf "${INSTALL_DIR}"
+  else
+    echo "❌ Error: Target installation directory '${INSTALL_DIR}' already exists." >&2
+    echo "Please use the -f/--overwrite flag or remove it manually before running the installer again." >&2
     exit 1
   fi
-
-  if [ ! -d "${TEMP_DIR}/skills" ]; then
-    echo "❌ Error: No 'skills' directory found in the release package." >&2
-    exit 1
-  fi
-
-  # Check if any skill folder already exists in INSTALL_DIR
-  EXISTING_SKILLS=()
-  for skill_path in "${TEMP_DIR}/skills"/*; do
-    if [ -d "${skill_path}" ]; then
-      skill_name="$(basename "${skill_path}")"
-      if [ -d "${INSTALL_DIR}/${skill_name}" ]; then
-        EXISTING_SKILLS+=("${skill_name}")
-      fi
-    fi
-  done
-
-  if [ ${#EXISTING_SKILLS[@]} -gt 0 ]; then
-    if [ "${OVERWRITE}" = "true" ]; then
-      echo "⚠️  Existing skills detected (${EXISTING_SKILLS[*]}). Overwriting as requested..."
-    else
-      echo "❌ Error: The following skill directories already exist in '${INSTALL_DIR}':" >&2
-      for s in "${EXISTING_SKILLS[@]}"; do
-        echo "  - ${s}" >&2
-      done
-      echo "Please use the -f/--overwrite flag or remove them before running the installer." >&2
-      exit 1
-    fi
-  fi
-
-  mkdir -p "${INSTALL_DIR}"
-  for skill_path in "${TEMP_DIR}/skills"/*; do
-    if [ -d "${skill_path}" ]; then
-      skill_name="$(basename "${skill_path}")"
-      rm -rf "${INSTALL_DIR}/${skill_name}"
-      cp -r "${skill_path}" "${INSTALL_DIR}/"
-      echo "  ✓ Installed skill: ${skill_name}"
-    fi
-  done
-
-  if [ "${INSTALL_HOOKS}" = "true" ]; then
-    echo "🔗 Installing GoDoctor hooks..."
-    HOOK_ARGS="--global"
-    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-      HOOK_ARGS="--workspace"
-    fi
-    if [ -x "${INSTALL_DIR}/setup/scripts/setup-hooks.sh" ]; then
-      "${INSTALL_DIR}/setup/scripts/setup-hooks.sh" ${HOOK_ARGS}
-    else
-      echo "⚠️  Setup hooks script not found or not executable at ${INSTALL_DIR}/setup/scripts/setup-hooks.sh"
-    fi
-  fi
-
-  echo "✅ Success! GoDoctor skills have been successfully installed to [${INSTALL_DIR}]."
-
-else
-  # Plugin modes (agy-cli or agy-2)
-  if [ -d "${INSTALL_DIR}" ]; then
-    if [ "${OVERWRITE}" = "true" ]; then
-      echo "⚠️  Target installation directory '${INSTALL_DIR}' already exists. Overwriting as requested..."
-      rm -rf "${INSTALL_DIR}"
-    else
-      echo "❌ Error: Target installation directory '${INSTALL_DIR}' already exists." >&2
-      echo "Please use the -f/--overwrite flag or remove it manually before running the installer again." >&2
-      exit 1
-    fi
-  fi
-
-  mkdir -p "${INSTALL_DIR}"
-
-  echo "📥 Downloading and extracting ${FILENAME}..."
-  if ! curl -sSL "${DOWNLOAD_URL}" | tar -xzf - -C "${INSTALL_DIR}"; then
-    echo "❌ Error: Failed to download or extract the release asset." >&2
-    exit 1
-  fi
-
-  echo "🔧 Dynamically resolving plugin paths..."
-  replace_path() {
-    local file="$1"
-    local target_dir="$2"
-    if [ -f "${file}" ]; then
-      sed 's|__PLUGIN_PATH__|'"${target_dir}"'|g' "${file}" > "${file}.tmp"
-      mv "${file}.tmp" "${file}"
-    fi
-  }
-
-  replace_path "${INSTALL_DIR}/mcp_config.json" "${INSTALL_DIR}"
-
-  if [ "${INSTALL_HOOKS}" = "true" ]; then
-    echo "🔗 Installing GoDoctor hooks..."
-    HOOK_ARGS="--global"
-    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-      HOOK_ARGS="--workspace"
-    fi
-    # Execute the setup script that was extracted
-    if [ -x "${INSTALL_DIR}/skills/setup/scripts/setup-hooks.sh" ]; then
-      "${INSTALL_DIR}/skills/setup/scripts/setup-hooks.sh" ${HOOK_ARGS}
-    else
-      echo "⚠️  Setup hooks script not found or not executable at ${INSTALL_DIR}/skills/setup/scripts/setup-hooks.sh"
-    fi
-  fi
-
-  echo "✅ Success! GoDoctor has been successfully installed in '${TARGET_MODE}' mode (${INSTALL_SCOPE}) to [${INSTALL_DIR}]."
 fi
 
+mkdir -p "${INSTALL_DIR}"
+
+echo "📥 Downloading and extracting ${FILENAME}..."
+if ! curl -sSL "${DOWNLOAD_URL}" | tar -xzf - -C "${INSTALL_DIR}"; then
+  echo "❌ Error: Failed to download or extract the release asset." >&2
+  exit 1
+fi
+
+# 7. Set execution permissions on bundled binaries and hooks
+if [ -f "${INSTALL_DIR}/bin/godoctor" ]; then
+  chmod +x "${INSTALL_DIR}/bin/godoctor"
+fi
+
+if [ -f "${INSTALL_DIR}/hooks/godoctor-hook.py" ]; then
+  chmod +x "${INSTALL_DIR}/hooks/godoctor-hook.py"
+fi
+
+echo "✅ Success! GoDoctor plugin (v${LATEST_RELEASE}) has been successfully installed in '${TARGET_MODE}' mode (${INSTALL_SCOPE}) to [${INSTALL_DIR}]."

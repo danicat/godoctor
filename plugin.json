@@ -1,5 +1,23 @@
 {
-  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "godoctor",
-  "description": "Specialized agentic coding suite for Go codebases."
+  "version": "0.2.0",
+  "description": "Specialized Go development and quality engineering suite with compiler-verified smart editing, automated test analysis, and mutation testing.",
+  "author": {
+    "name": "Daniela Petruzalek",
+    "email": "daniela@danicat.dev",
+    "url": "https://danicat.dev"
+  },
+  "homepage": "https://github.com/danicat/godoctor",
+  "repository": "https://github.com/danicat/godoctor",
+  "license": "Apache-2.0",
+  "keywords": [
+    "go",
+    "golang",
+    "testing",
+    "agent",
+    "mcp",
+    "selene",
+    "testquery"
+  ]
 }

@@ -19,17 +19,23 @@ builds:
       - -s -w -X main.version={{.Version}}
 
 archives:
-  - format: tar.gz
+  - formats:
+      - tar.gz
     name_template: >-
       {{ if eq .Os "windows" }}win32{{ else }}{{ .Os }}{{ end }}.{{ if eq .Arch "amd64" }}x64{{ else if eq .Arch "386" }}ia32{{ else }}{{ .Arch }}{{ end }}.{{ .ProjectName }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats:
+          - zip
     files:
       - plugin.json
-      - mcp_config.json
+      - mcp.json
       - README.md
       - LICENSE
+      - agents/*
+      - agents/**/*
+      - hooks/*
+      - hooks/**/*
       - skills/**/*
 
 changelog:
