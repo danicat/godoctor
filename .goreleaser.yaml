@@ -30,6 +30,7 @@ archives:
     files:
       - plugin.json
       - mcp.json
+      - hooks.json
       - README.md
       - LICENSE
       - agents/*
