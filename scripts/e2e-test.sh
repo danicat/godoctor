@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # e2e-test.sh - Automated End-to-End Test Pipeline for GoDoctor Plugin
-# Validates installation, custom agent, skills, all 10 MCP tools, physical disk state, and lifecycle hooks using agy CLI.
+# Validates installation, custom agent, MCP tools, physical disk state, and lifecycle hooks using agy CLI.
 
 set -euo pipefail
 
@@ -133,8 +133,6 @@ else
   
   echo -e "📦 Staging local plugin files to test workspace..."
   cp "${ROOT_DIR}/plugin.json" "${PLUGIN_DIR}/"
-  cp "${ROOT_DIR}/mcp.json" "${PLUGIN_DIR}/"
-  cp "${ROOT_DIR}/hooks.json" "${PLUGIN_DIR}/"
   cp "${ROOT_DIR}/README.md" "${PLUGIN_DIR}/"
   cp "${ROOT_DIR}/LICENSE" "${PLUGIN_DIR}/"
   
@@ -148,31 +146,7 @@ else
   
   mkdir -p "${PLUGIN_DIR}/agents"
   cp "${ROOT_DIR}/agents/godoctor.md" "${PLUGIN_DIR}/agents/godoctor.md"
-  
-  mkdir -p "${PLUGIN_DIR}/skills"
-  cp -r "${ROOT_DIR}/skills/"* "${PLUGIN_DIR}/skills/"
 fi
-
-# Configure workspace hooks.json pointing to the installed hook script
-cat << EOF > "${TEST_WORKSPACE}/.agents/hooks.json"
-{
-  "godoctor-hooks": {
-    "enabled": true,
-    "PreToolUse": [
-      {
-        "matcher": "run_command|view_file|write_to_file|replace_file_content|multi_replace_file_content",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ${PLUGIN_DIR}/hooks/godoctor-hook.py",
-            "timeout": 15
-          }
-        ]
-      }
-    ]
-  }
-}
-EOF
 
 # 4. Verify physical plugin directory structure
 echo -e "🔍 Verifying installed plugin structure..."
@@ -192,12 +166,9 @@ assert_disk_contains() {
 }
 
 assert_file "${PLUGIN_DIR}/plugin.json"
-assert_file "${PLUGIN_DIR}/mcp.json"
 assert_file "${PLUGIN_DIR}/bin/godoctor"
 assert_file "${PLUGIN_DIR}/agents/godoctor.md"
 assert_file "${PLUGIN_DIR}/hooks/godoctor-hook.py"
-assert_file "${PLUGIN_DIR}/skills/selene/SKILL.md"
-assert_file "${PLUGIN_DIR}/skills/testquery/SKILL.md"
 echo -e "${GREEN}✓ Plugin package integrity verified.${NC}\n"
 
 # 5. Non-interactive agy CLI Test Runner
@@ -311,16 +282,16 @@ run_agy_test \
   "PASS|PASS: Test"
 assert_file "${TEST_WORKSPACE}/testquery.db"
 
-# Feature 7: MCP test_query & testquery skill
+# Feature 7: MCP test_query & test analytics
 run_agy_test \
-  "MCP Tool: test_query & testquery skill" \
+  "MCP Tool: test_query & test analytics" \
   "Use test_query on directory '${TEST_WORKSPACE}' with SQL query 'SELECT package, name, status FROM tests;'." \
   "TestAdd|TestIsPositive|PASS"
 
-# Feature 8: MCP mutation_test & selene skill
+# Feature 8: MCP mutation_test & Selene
 run_agy_test \
-  "MCP Tool: mutation_test & selene skill" \
-  "Following the selene skill, run mutation_test on directory '${TEST_WORKSPACE}'." \
+  "MCP Tool: mutation_test & Selene" \
+  "Run mutation_test on directory '${TEST_WORKSPACE}'." \
   "mutations|Mutation Score|Killed"
 
 # Feature 9: MCP add_dependencies
@@ -431,7 +402,7 @@ echo -e "Passed: ${GREEN}${PASSED_TESTS}${NC}"
 echo -e "Failed: ${RED}${FAILED_TESTS}${NC}"
 
 if [ "${FAILED_TESTS}" -eq 0 ]; then
-  echo -e "\n${GREEN}🎉 All GoDoctor plugin features, agent directives, skills, tools, physical disk states, and hooks passed!${NC}"
+  echo -e "\n${GREEN}🎉 All GoDoctor plugin features, agent directives, tools, physical disk states, and hooks passed!${NC}"
   exit 0
 else
   echo -e "\n${RED}❌ Some tests failed. Review output above.${NC}"
