@@ -34,6 +34,12 @@ test-cov:
 	$(GOTEST) -v -coverprofile=coverage.out ./...
 	@echo "to view the coverage report, run: go tool cover -html=coverage.out"
 
+test-e2e:
+	@./scripts/e2e-test.sh --local
+
+test-e2e-release:
+	@./scripts/e2e-test.sh --release
+
 snapshot:
 	goreleaser release --snapshot --clean
 
@@ -50,4 +56,4 @@ bump-version:
 	@git push origin main --tags
 	@echo "🚀 Successfully tagged v$(VERSION) and pushed to remote!"
 
-.PHONY: all build clean test test-cov snapshot release bump-version
+.PHONY: all build clean test test-cov test-e2e test-e2e-release snapshot release bump-version
