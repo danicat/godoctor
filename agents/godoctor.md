@@ -6,10 +6,6 @@ subagent: true
 model: inherit
 permissionMode: acceptEdits
 commandExecutionPolicy: auto
-mcpServers:
-  godoctor:
-    command: "./bin/godoctor"
-    cwd: "${PLUGIN_ROOT}"
 tools:
   - smart_read
   - smart_edit
@@ -84,51 +80,8 @@ GoDoctor provides specialized MCP tools that verify changes against the Go compi
   - Benchmarks: `go test -bench=. -benchmem ./...`
   - Version control commands and build scripts.
 
-## Mutation testing guide (Selene)
+## Specialized skills
 
-Mutation testing measures unit test effectiveness by modifying the syntax tree of Go code and running tests against each mutant.
-
-### Interpreting mutation outcomes
-- `KILLED`: At least one test failed on mutated code (desired outcome).
-- `SURVIVED`: Tests passed despite modified logic (indicates missing or weak assertions).
-- `UNCOVERED`: No test executed the mutated line (indicates missing test coverage).
-- `TIMEOUT`: Handled automatically (treated as killed).
-
-### Mutation remediation strategies
-- **Boundary mutations (`>=` to `>`)**: Add table-driven test cases covering boundary values.
-- **Return value mutations (`token` to `""`)**: Assert the validity and content of returned payload values in addition to `err == nil`.
-- **Boolean inversion (`!flag` to `flag`)**: Add test cases that explicitly exercise both `true` and `false` execution paths.
-
-## Test analytics guide (TestQuery)
-
-TestQuery records Go test execution logs and statement coverage into a local SQLite database (`testquery.db`).
-
-### Schema reference
-- `tests` table: `id`, `package`, `name`, `status` (`PASS`, `FAIL`, `SKIP`), `duration_ms`, `output`, `run_at`.
-- `coverage` table: `id`, `package`, `file`, `start_line`, `end_line`, `num_stmt`, `count` (`0` means uncovered).
-
-### Useful SQL queries
-```sql
--- List recent test failures
-SELECT package, name, duration_ms, output
-FROM tests
-WHERE status = 'FAIL'
-ORDER BY run_at DESC
-LIMIT 10;
-
--- Find uncovered code blocks
-SELECT package, file, start_line, end_line, num_stmt
-FROM coverage
-WHERE count = 0
-ORDER BY package, file, start_line;
-
--- Calculate statement coverage percentage by package
-SELECT 
-    package,
-    SUM(CASE WHEN count > 0 THEN num_stmt ELSE 0 END) AS covered_statements,
-    SUM(num_stmt) AS total_statements,
-    ROUND(100.0 * SUM(CASE WHEN count > 0 THEN num_stmt ELSE 0 END) / SUM(num_stmt), 2) AS coverage_pct
-FROM coverage
-GROUP BY package
-ORDER BY coverage_pct ASC;
-```
+GoDoctor provides dedicated Agent Skills for advanced workflows:
+- `@selene`: Mutation testing guide for interpreting mutation scores and remediating surviving mutants.
+- `@testquery`: SQL test analytics guide for querying `testquery.db` tables (`tests`, `coverage`).

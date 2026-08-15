@@ -168,4 +168,16 @@ if [ -f "${INSTALL_DIR}/hooks/godoctor-hook.py" ]; then
   chmod +x "${INSTALL_DIR}/hooks/godoctor-hook.py"
 fi
 
+# 8. Register custom named agent for Antigravity 2.0 Desktop / IDE
+if [ "${TARGET_MODE}" = "agy2" ] && [ -f "${INSTALL_DIR}/agents/godoctor.md" ]; then
+  if [ "${INSTALL_SCOPE}" = "workspace" ]; then
+    AGENTS_DIR="${WORKSPACE_ROOT}/.agents/agents"
+  else
+    AGENTS_DIR="${HOME}/.gemini/config/agents"
+  fi
+  mkdir -p "${AGENTS_DIR}"
+  ln -sf "${INSTALL_DIR}/agents/godoctor.md" "${AGENTS_DIR}/godoctor.md"
+  echo "🔗 Registered custom agent to [${AGENTS_DIR}/godoctor.md]"
+fi
+
 echo "✅ Success! GoDoctor plugin (v${LATEST_RELEASE}) has been successfully installed in '${TARGET_MODE}' mode (${INSTALL_SCOPE}) to [${INSTALL_DIR}]."

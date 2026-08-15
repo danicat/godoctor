@@ -133,6 +133,7 @@ else
   
   echo -e "📦 Staging local plugin files to test workspace..."
   cp "${ROOT_DIR}/plugin.json" "${PLUGIN_DIR}/"
+  cp "${ROOT_DIR}/mcp.json" "${PLUGIN_DIR}/"
   cp "${ROOT_DIR}/README.md" "${PLUGIN_DIR}/"
   cp "${ROOT_DIR}/LICENSE" "${PLUGIN_DIR}/"
   
@@ -146,6 +147,12 @@ else
   
   mkdir -p "${PLUGIN_DIR}/agents"
   cp "${ROOT_DIR}/agents/godoctor.md" "${PLUGIN_DIR}/agents/godoctor.md"
+
+  mkdir -p "${PLUGIN_DIR}/skills"
+  cp -r "${ROOT_DIR}/skills/"* "${PLUGIN_DIR}/skills/"
+
+  mkdir -p "${TEST_WORKSPACE}/.agents/agents"
+  ln -sf "${PLUGIN_DIR}/agents/godoctor.md" "${TEST_WORKSPACE}/.agents/agents/godoctor.md"
 fi
 
 # 4. Verify physical plugin directory structure
@@ -166,9 +173,13 @@ assert_disk_contains() {
 }
 
 assert_file "${PLUGIN_DIR}/plugin.json"
+assert_file "${PLUGIN_DIR}/mcp.json"
 assert_file "${PLUGIN_DIR}/bin/godoctor"
 assert_file "${PLUGIN_DIR}/agents/godoctor.md"
 assert_file "${PLUGIN_DIR}/hooks/godoctor-hook.py"
+assert_file "${PLUGIN_DIR}/skills/selene/SKILL.md"
+assert_file "${PLUGIN_DIR}/skills/testquery/SKILL.md"
+assert_file "${TEST_WORKSPACE}/.agents/agents/godoctor.md"
 echo -e "${GREEN}✓ Plugin package integrity verified.${NC}\n"
 
 # 5. Non-interactive agy CLI Test Runner

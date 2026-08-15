@@ -29,12 +29,14 @@ archives:
           - zip
     files:
       - plugin.json
+      - mcp.json
       - README.md
       - LICENSE
       - agents/*
       - agents/**/*
       - hooks/*
       - hooks/**/*
+      - skills/**/*
 
 changelog:
   sort: asc
