@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -63,7 +62,7 @@ func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*m
 	return runQuery(ctx, absDir, args.Query)
 }
 
-func validateParams(req *mcp.CallToolRequest, args Params) (string, error) {
+func validateParams(_ *mcp.CallToolRequest, args Params) (string, error) {
 	if args.Query == "" {
 		return "", fmt.Errorf("query cannot be empty")
 	}
@@ -73,12 +72,7 @@ func validateParams(req *mcp.CallToolRequest, args Params) (string, error) {
 		dir = "."
 	}
 
-	var session *mcp.ServerSession
-	if req != nil {
-		session = req.Session
-	}
-
-	return roots.Global.Validate(session, dir)
+	return filepath.Abs(dir)
 }
 
 func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mcp.CallToolResult {

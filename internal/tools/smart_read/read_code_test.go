@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -42,8 +41,6 @@ func main() {
 	if err := os.WriteFile(srcFile, []byte(src), 0600); err != nil {
 		t.Fatal(err)
 	}
-
-	roots.Global.Add(nil, tmpDir)
 
 	res, _, err := readCodeHandler(context.Background(), nil, Params{Filenames: []string{srcFile}})
 	if err != nil {
@@ -82,8 +79,6 @@ func TestReadCodeTool_MultiFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	roots.Global.Add(nil, tmpDir)
-
 	res, _, err := readCodeHandler(context.Background(), nil, Params{
 		Filenames: []string{file1, file2},
 	})
@@ -109,8 +104,6 @@ func TestReadCodeTool_DeprecatedSingleFilenameFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	roots.Global.Add(nil, tmpDir)
-
 	res, _, err := readCodeHandler(context.Background(), nil, Params{
 		Filename: srcFile,
 	})
@@ -134,7 +127,6 @@ func TestReadCodeTool_Errors(t *testing.T) {
 	tmpDir := t.TempDir()
 	srcFile := filepath.Join(tmpDir, "short.go")
 	_ = os.WriteFile(srcFile, []byte("line 1\n"), 0600)
-	roots.Global.Add(nil, tmpDir)
 
 	resErr, _, _ := readCodeHandler(context.Background(), nil, Params{
 		Filenames: []string{srcFile},
@@ -156,8 +148,6 @@ line 5`
 	if err := os.WriteFile(srcFile, []byte(src), 0600); err != nil {
 		t.Fatal(err)
 	}
-
-	roots.Global.Add(nil, tmpDir)
 
 	res, _, err := readCodeHandler(context.Background(), nil, Params{
 		Filenames: []string{srcFile},

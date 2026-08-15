@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -31,13 +30,13 @@ type Params struct {
 }
 
 // Handler implements the file list logic.
-func Handler(_ context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	var session *mcp.ServerSession
-	if req != nil {
-		session = req.Session
+func Handler(_ context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+	path := args.Path
+	if path == "" {
+		path = "."
 	}
 
-	absRoot, err := roots.Global.Validate(session, args.Path)
+	absRoot, err := filepath.Abs(path)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}

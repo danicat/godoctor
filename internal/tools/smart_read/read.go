@@ -10,10 +10,10 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/godoc"
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/text"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -91,12 +91,15 @@ func readSingleFile(
 	args Params,
 	filename string,
 ) (string, string, *mcp.CallToolResult) {
-	absPath, err := roots.Global.Validate(session, filename)
+	if filename == "" {
+		filename = "."
+	}
+	absPath, err := filepath.Abs(filename)
 	if err != nil {
 		return "", "", errorResult(err.Error())
 	}
 
-	//nolint:gosec // G304: File path provided by user is validated against roots.
+	//nolint:gosec // G304: File path provided by user is resolved to absolute path.
 	content, err := os.ReadFile(absPath)
 	if err != nil {
 		return "", "", errorResult(fmt.Sprintf("failed to read file %s: %v", filename, err))

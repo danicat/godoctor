@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -73,18 +72,13 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 var CommandRunner Runner = &stdRunner{}
 
 // Handler executes the smart_test tool.
-func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	var session *mcp.ServerSession
-	if req != nil {
-		session = req.Session
-	}
-
+func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	projectDir := args.Dir
 	if projectDir == "" {
 		projectDir = "."
 	}
 
-	workspaceDir, err := roots.Global.Validate(session, projectDir)
+	workspaceDir, err := filepath.Abs(projectDir)
 	if err != nil {
 		return result(err.Error(), true), nil, nil
 	}

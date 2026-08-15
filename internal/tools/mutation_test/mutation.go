@@ -5,9 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -28,17 +28,13 @@ type Params struct {
 	Dir string `json:"dir,omitempty" jsonschema:"The absolute directory path to run mutation testing in. Always pass absolute paths in multi-root workspaces."`
 }
 
-func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	var session *mcp.ServerSession
-	if req != nil {
-		session = req.Session
-	}
+func toolHandler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	dir := args.Dir
 	if dir == "" {
 		dir = "."
 	}
 
-	absDir, err := roots.Global.Validate(session, dir)
+	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
 	}

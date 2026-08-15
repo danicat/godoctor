@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/danicat/godoctor/internal/text"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,7 +19,7 @@ import (
 
 func writeAndVerify(
 	ctx context.Context,
-	session *mcp.ServerSession,
+	_ *mcp.ServerSession,
 	currentContents map[string][]byte,
 	backups map[string][]byte,
 	newlyCreated map[string]bool,
@@ -29,7 +28,7 @@ func writeAndVerify(
 		return res, err
 	}
 
-	workspaceRoot := getWorkspaceRoot(session)
+	workspaceRoot := getWorkspaceRoot()
 
 	goFiles, walkErr := getAllGoFiles(workspaceRoot)
 	if walkErr != nil {
@@ -205,11 +204,7 @@ func findClosestSymbol(bad string, known []string) (string, int) {
 	return bestSymbol, bestDist
 }
 
-func getWorkspaceRoot(session *mcp.ServerSession) string {
-	rts := roots.Global.Get(session)
-	if len(rts) > 0 {
-		return rts[0]
-	}
+func getWorkspaceRoot() string {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "."

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/danicat/godoctor/internal/godoc"
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -51,12 +50,7 @@ func executeGoGet(ctx context.Context, req *mcp.CallToolRequest, args Params) (*
 		dir = "."
 	}
 
-	var session *mcp.ServerSession
-	if req != nil {
-		session = req.Session
-	}
-
-	absDir, valErr := roots.Global.Validate(session, dir)
+	absDir, valErr := filepath.Abs(dir)
 	if valErr != nil {
 		return nil, nil, valErr
 	}

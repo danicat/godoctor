@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/danicat/godoctor/internal/instructions"
-	"github.com/danicat/godoctor/internal/roots"
 	adddependencies "github.com/danicat/godoctor/internal/tools/add_dependencies"
 	listfiles "github.com/danicat/godoctor/internal/tools/list_files"
 	mutationtest "github.com/danicat/godoctor/internal/tools/mutation_test"
@@ -38,12 +37,6 @@ func New(version string) *Server {
 		Version: version,
 	}, &mcp.ServerOptions{
 		Instructions: instructions.Get(),
-		InitializedHandler: func(ctx context.Context, req *mcp.InitializedRequest) {
-			roots.Global.Sync(ctx, req.Session)
-		},
-		RootsListChangedHandler: func(ctx context.Context, req *mcp.RootsListChangedRequest) {
-			roots.Global.Sync(ctx, req.Session)
-		},
 	})
 
 	return &Server{

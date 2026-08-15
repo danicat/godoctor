@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/danicat/godoctor/internal/text"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"golang.org/x/tools/imports"
@@ -24,11 +23,11 @@ func ExecuteEdits(ctx context.Context, session *mcp.ServerSession, edits []FileE
 	newlyCreated := make(map[string]bool)
 	currentContents := make(map[string][]byte)
 
-	if err := backupFiles(session, edits, backups, newlyCreated, currentContents); err != nil {
+	if err := backupFiles(edits, backups, newlyCreated, currentContents); err != nil {
 		return errorResult(err.Error()), nil
 	}
 
-	if errResult := applyMemoryEdits(session, edits, newlyCreated, currentContents); errResult != nil {
+	if errResult := applyMemoryEdits(edits, newlyCreated, currentContents); errResult != nil {
 		return errResult, nil
 	}
 
@@ -40,14 +39,17 @@ func ExecuteEdits(ctx context.Context, session *mcp.ServerSession, edits []FileE
 }
 
 func backupFiles(
-	session *mcp.ServerSession,
 	edits []FileEdit,
 	backups map[string][]byte,
 	newlyCreated map[string]bool,
 	currentContents map[string][]byte,
 ) error {
 	for _, edit := range edits {
-		absPath, err := roots.Global.Validate(session, edit.Filename)
+		filename := edit.Filename
+		if filename == "" {
+			filename = "."
+		}
+		absPath, err := filepath.Abs(filename)
 		if err != nil {
 			return err
 		}
@@ -73,13 +75,16 @@ func backupFiles(
 }
 
 func applyMemoryEdits(
-	session *mcp.ServerSession,
 	edits []FileEdit,
 	newlyCreated map[string]bool,
 	currentContents map[string][]byte,
 ) *mcp.CallToolResult {
 	for _, edit := range edits {
-		absPath, _ := roots.Global.Validate(session, edit.Filename)
+		filename := edit.Filename
+		if filename == "" {
+			filename = "."
+		}
+		absPath, _ := filepath.Abs(filename)
 		original := string(currentContents[absPath])
 		threshold := edit.Threshold
 		if threshold == 0 {

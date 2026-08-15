@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/danicat/godoctor/internal/roots"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -133,9 +132,6 @@ func TestEdit_Broken(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module broken\n\ngo 1.26.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-
-	// Register temp dir as a root
-	roots.Global.Add(nil, tmpDir)
 
 	filePath := filepath.Join(tmpDir, "main.go")
 	if err := os.WriteFile(filePath, []byte("package main\n\nfunc main() {}"), 0600); err != nil {
