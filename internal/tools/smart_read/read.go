@@ -1,4 +1,4 @@
-// Package smartread implements the file reading tool with automatic type enrichment and outline modes.
+// Package smartread implements the file reading tool with automatic type enrichment.
 package smartread
 
 import (
@@ -32,7 +32,6 @@ func Register(server *mcp.Server) {
 type Params struct {
 	Filenames []string `json:"filenames,omitempty" jsonschema:"The absolute paths to the Go files to read."`
 	Filename  string   `json:"filename,omitempty" jsonschema:"Deprecated: use filenames instead"`
-	Outline   bool     `json:"outline,omitempty" jsonschema:"Optional: if true, returns the structure (AST) only"`
 	StartLine int      `json:"start_line,omitempty" jsonschema:"Optional: start reading from this line number"`
 	EndLine   int      `json:"end_line,omitempty" jsonschema:"Optional: stop reading at this line number"`
 }
@@ -51,62 +50,7 @@ func readCodeHandler(ctx context.Context, req *mcp.CallToolRequest, args Params)
 		return errorResult("at least one filename must be specified"), nil, nil
 	}
 
-	if args.Outline && args.StartLine == 0 {
-		return handleOutlineMode(ctx, session, filenames)
-	}
-
 	return handleReadMode(ctx, session, args, filenames)
-}
-
-func handleOutlineMode(
-	ctx context.Context,
-	session *mcp.ServerSession,
-	filenames []string,
-) (*mcp.CallToolResult, any, error) {
-	var sb strings.Builder
-	for _, filename := range filenames {
-		absPath, err := roots.Global.Validate(session, filename)
-		if err != nil {
-			return errorResult(err.Error()), nil, nil
-		}
-		out, imports, errs, err := GetOutline(ctx, absPath)
-		if err != nil {
-			return errorResult(fmt.Sprintf("failed to generate outline for %s: %v", filename, err)), nil, nil
-		}
-		fmt.Fprintf(&sb, "# File: %s (Outline)\n\n", absPath)
-		if len(errs) > 0 {
-			sb.WriteString("## Analysis (Problems)\n")
-			for _, e := range errs {
-				fmt.Fprintf(&sb, "- ⚠️ %v\n", e)
-			}
-			sb.WriteString("\n")
-		}
-		sb.WriteString("```go\n")
-		sb.WriteString(out)
-		sb.WriteString("\n```\n\n")
-
-		if len(imports) > 0 {
-			var thirdParty []string
-			for _, imp := range imports {
-				clean := strings.Trim(imp, "\"")
-				if parts := strings.Split(clean, "/"); len(parts) > 0 && strings.Contains(parts[0], ".") {
-					thirdParty = append(thirdParty, imp)
-				}
-			}
-			if len(thirdParty) > 0 {
-				sb.WriteString("## Third-Party Imports\n")
-				for _, imp := range thirdParty {
-					fmt.Fprintf(&sb, "- %s\n", imp)
-				}
-				sb.WriteString("\n")
-			}
-		}
-	}
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			&mcp.TextContent{Text: sb.String()},
-		},
-	}, nil, nil
 }
 
 func handleReadMode(

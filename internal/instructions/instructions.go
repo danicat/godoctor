@@ -12,7 +12,7 @@ func Get() string {
 	sb.WriteString("MULTI-ROOT WORKSPACE ENVIRONMENT: Always use absolute paths for all file, directory, or path parameters. Do not pass relative paths (such as '.' or 'main.go'). Pass the absolute path of the target workspace root or target files.\n\n")
 
 	sb.WriteString("## Code navigation\n")
-	sb.WriteString("- `smart_read`: Reads Go source files and appends type metadata in `<types>` blocks. Supports reading multiple files at once (`filenames=[\"/path/A.go\", \"/path/B.go\"]`), reading specific line ranges (`start_line=10, end_line=50`), or viewing AST declarations with `outline=true`.\n")
+	sb.WriteString("- `smart_read`: Reads Go source files and appends type metadata in `<types>` blocks. Supports reading multiple files at once (`filenames=[\"/path/A.go\", \"/path/B.go\"]`) or reading specific line ranges (`start_line=10, end_line=50`).\n")
 	sb.WriteString("- `list_files`: Lists workspace files up to a given depth while ignoring version control metadata and build artifacts (`path=\"/absolute/path/workspace\"`).\n\n")
 
 	sb.WriteString("## Code editing\n")

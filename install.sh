@@ -1,183 +1,314 @@
 #!/usr/bin/env bash
 
-# install.sh - Installs GoDoctor Agent Plugin (Agent Plugins Spec v1.0.0)
+# install.sh - GoDoctor Installer
+# Installs any combination of GoDoctor MCP server, Agent, and Skills:
+# - MCP Server: 'go install' + mcp_config.json registration
+# - Agent: Custom named agent definition (@godoctor)
+# - Skills: Agent Skills (@selene, @testquery) via 'npx skills'
 
 set -euo pipefail
 
-show_help() {
-  echo "GoDoctor Plugin Installer (Agent Plugins v1.0.0)"
-  echo "================================================"
-  echo "Usage: ./install.sh [options]"
-  echo ""
-  echo "Target Options:"
-  echo "  -t, --target <mode>  Target runtime: agy2 | cli (Default: agy2)"
-  echo ""
-  echo "Scope Options:"
-  echo "  -g, --global         Install globally (Default)"
-  echo "  -w, --workspace      Install locally to the active workspace"
-  echo ""
-  echo "General Options:"
-  echo "  -f, --overwrite      Overwrite existing target directory if it exists"
-  echo "  -h, --help           Show this help message"
-  echo ""
-}
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
 
-TARGET_MODE="agy2"
-INSTALL_SCOPE="global"
+REPO="danicat/godoctor"
+VERSION="latest"
+SCOPE="global"
 OVERWRITE="false"
+YES="false"
+
+INSTALL_MCP="false"
+INSTALL_AGENT="false"
+INSTALL_SKILLS="false"
+EXPLICIT_COMPONENT="false"
+
+print_usage() {
+  cat << 'EOF'
+GoDoctor Installer
+
+Usage:
+  install.sh [components] [options]
+  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- [components] [options]
+
+Components (install any combination; default: all):
+  --mcp              Install the GoDoctor MCP server binary via 'go install' and configure mcp_config.json
+  --agent            Install the GoDoctor Agent definition (@godoctor)
+  --skills           Install GoDoctor Agent Skills (@selene, @testquery) via 'npx skills'
+  --all              Install all components (MCP, Agent, Skills)
+
+Options:
+  -g, --global       Install to global scope (Default: ~/.gemini/config)
+  -w, --workspace    Install to workspace scope (.agents/)
+  -v, --version <v>  Target GoDoctor release version (Default: latest)
+  -f, --overwrite    Overwrite existing agent and skill files
+  -y, --yes          Non-interactive mode
+  -h, --help         Show this help message
+
+Examples:
+  ./install.sh                        # Install MCP, Agent, and Skills globally
+  ./install.sh -w                     # Install MCP, Agent, and Skills to current workspace (.agents/)
+  ./install.sh --mcp                  # Install MCP server only
+  ./install.sh --agent -w             # Install Agent definition to workspace
+  ./install.sh --skills               # Install Skills only globally
+  ./install.sh --mcp --skills         # Install MCP and Skills
+EOF
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -t|--target)
-      if [[ -z "${2:-}" ]]; then
-        echo "❌ Error: --target requires a mode argument." >&2
-        exit 1
-      fi
-      TARGET_MODE="$2"
-      shift 2
+    --mcp)
+      INSTALL_MCP="true"
+      EXPLICIT_COMPONENT="true"
+      shift
+      ;;
+    --agent)
+      INSTALL_AGENT="true"
+      EXPLICIT_COMPONENT="true"
+      shift
+      ;;
+    --skills)
+      INSTALL_SKILLS="true"
+      EXPLICIT_COMPONENT="true"
+      shift
+      ;;
+    --all)
+      INSTALL_MCP="true"
+      INSTALL_AGENT="true"
+      INSTALL_SKILLS="true"
+      EXPLICIT_COMPONENT="true"
+      shift
       ;;
     -g|--global)
-      INSTALL_SCOPE="global"
+      SCOPE="global"
       shift
       ;;
     -w|--workspace)
-      INSTALL_SCOPE="workspace"
+      SCOPE="workspace"
       shift
+      ;;
+    -v|--version)
+      VERSION="$2"
+      shift 2
       ;;
     -f|--overwrite)
       OVERWRITE="true"
       shift
       ;;
+    -y|--yes)
+      YES="true"
+      shift
+      ;;
     -h|--help)
-      show_help
+      print_usage
       exit 0
       ;;
     *)
-      echo "❌ Error: Unknown option $1" >&2
-      show_help
+      echo -e "${RED}Unknown option: $1${NC}" >&2
+      print_usage
       exit 1
       ;;
   esac
 done
 
-# Validate target mode
-case "${TARGET_MODE}" in
-  cli|agy2)
-    ;;
-  *)
-    echo "❌ Error: Unsupported target mode '${TARGET_MODE}'." >&2
-    echo "Valid options for --target are: cli, agy2" >&2
-    exit 1
-    ;;
-esac
-
-# 1. Detect OS
-OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
-case "${OS}" in
-  darwin)  OS="darwin" ;;
-  linux)   OS="linux" ;;
-  *)
-    echo "❌ Error: OS '${OS}' is not supported by this installer script. For Windows, download and extract the release zip." >&2
-    exit 1
-    ;;
-esac
-
-# 2. Detect Architecture
-ARCH="$(uname -m)"
-case "${ARCH}" in
-  x86_64|amd64) ARCH="x64" ;;
-  arm64|aarch64) ARCH="arm64" ;;
-  *)
-    echo "❌ Error: Architecture '${ARCH}' is not supported." >&2
-    exit 1
-    ;;
-esac
-
-echo "🔍 Detected platform: ${OS}/${ARCH}"
-echo "🎯 Target mode: ${TARGET_MODE} (${INSTALL_SCOPE})"
-
-# 3. Determine target installation directory
-if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-  if git rev-parse --show-toplevel >/dev/null 2>&1; then
-    WORKSPACE_ROOT="$(git rev-parse --show-toplevel)"
-  else
-    WORKSPACE_ROOT="$(pwd)"
-  fi
+# If no specific component was selected, default to installing all three
+if [ "${EXPLICIT_COMPONENT}" = "false" ]; then
+  INSTALL_MCP="true"
+  INSTALL_AGENT="true"
+  INSTALL_SKILLS="true"
 fi
 
-case "${TARGET_MODE}" in
-  cli)
-    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-      INSTALL_DIR="${WORKSPACE_ROOT}/.agents/plugins/godoctor"
-    else
-      INSTALL_DIR="${HOME}/.gemini/antigravity-cli/plugins/godoctor"
-    fi
-    ;;
-  agy2)
-    if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-      INSTALL_DIR="${WORKSPACE_ROOT}/.agents/plugins/godoctor"
-    else
-      INSTALL_DIR="${HOME}/.gemini/config/plugins/godoctor"
-    fi
-    ;;
-esac
-
-echo "📂 Target destination: [${INSTALL_DIR}]"
-
-# 4. Fetch latest release version from GitHub API
-echo "🌐 Fetching latest release tag..."
-LATEST_RELEASE=$(curl -s https://api.github.com/repos/danicat/godoctor/releases | grep -o '"tag_name": "[^"]*' | head -n1 | cut -d'"' -f4)
-
-if [ -z "${LATEST_RELEASE}" ]; then
-  echo "❌ Error: Failed to fetch the latest release tag. Please try again." >&2
-  exit 1
+# Determine target root paths
+if [ "${SCOPE}" = "global" ]; then
+  TARGET_ROOT="${GEMINI_CONFIG_DIR:-${HOME}/.gemini/config}"
+else
+  TARGET_ROOT="$(pwd)/.agents"
 fi
 
-echo "🏷️  Latest release: ${LATEST_RELEASE}"
+AGENTS_DIR="${TARGET_ROOT}/agents"
+SKILLS_DIR="${TARGET_ROOT}/skills"
+MCP_CONFIG="${TARGET_ROOT}/mcp_config.json"
 
-# 5. Construct download URL
-FILENAME="${OS}.${ARCH}.godoctor.tar.gz"
-DOWNLOAD_URL="https://github.com/danicat/godoctor/releases/download/${LATEST_RELEASE}/${FILENAME}"
+VERSION_REF="${VERSION}"
+if [ "${VERSION}" = "latest" ]; then
+  VERSION_REF="main"
+fi
 
-# 6. Perform Installation
-if [ -d "${INSTALL_DIR}" ]; then
-  if [ "${OVERWRITE}" = "true" ]; then
-    echo "⚠️  Target installation directory '${INSTALL_DIR}' already exists. Overwriting as requested..."
-    rm -rf "${INSTALL_DIR}"
-  else
-    echo "❌ Error: Target installation directory '${INSTALL_DIR}' already exists." >&2
-    echo "Please use the -f/--overwrite flag or remove it manually before running the installer again." >&2
+echo -e "${BLUE}===============================================${NC}"
+echo -e "${BLUE}           GoDoctor Installer                  ${NC}"
+echo -e "${BLUE}===============================================${NC}"
+echo -e "Scope:      ${BOLD}${SCOPE}${NC} (${TARGET_ROOT})"
+echo -e "Version:    ${BOLD}${VERSION}${NC}"
+echo -e "Components: MCP=${BOLD}${INSTALL_MCP}${NC}, Agent=${BOLD}${INSTALL_AGENT}${NC}, Skills=${BOLD}${INSTALL_SKILLS}${NC}"
+echo ""
+
+# -----------------------------------------------------------------------------
+# 1. MCP Server Installation
+# -----------------------------------------------------------------------------
+if [ "${INSTALL_MCP}" = "true" ]; then
+  echo -e "🔨 ${BLUE}[MCP] Installing GoDoctor MCP Server...${NC}"
+
+  # Verify Go toolchain
+  if ! command -v go &> /dev/null; then
+    echo -e "${RED}❌ Error: 'go' toolchain is not found in PATH.${NC}" >&2
+    echo "Please install Go (https://go.dev/dl/) and retry." >&2
     exit 1
   fi
-fi
 
-mkdir -p "${INSTALL_DIR}"
-
-echo "📥 Downloading and extracting ${FILENAME}..."
-if ! curl -sSL "${DOWNLOAD_URL}" | tar -xzf - -C "${INSTALL_DIR}"; then
-  echo "❌ Error: Failed to download or extract the release asset." >&2
-  exit 1
-fi
-
-# 7. Set execution permissions on bundled binaries and hooks
-if [ -f "${INSTALL_DIR}/bin/godoctor" ]; then
-  chmod +x "${INSTALL_DIR}/bin/godoctor"
-fi
-
-if [ -f "${INSTALL_DIR}/hooks/godoctor-hook.py" ]; then
-  chmod +x "${INSTALL_DIR}/hooks/godoctor-hook.py"
-fi
-
-# 8. Register custom named agent for Antigravity 2.0 Desktop / IDE
-if [ "${TARGET_MODE}" = "agy2" ] && [ -f "${INSTALL_DIR}/agents/godoctor.md" ]; then
-  if [ "${INSTALL_SCOPE}" = "workspace" ]; then
-    AGENTS_DIR="${WORKSPACE_ROOT}/.agents/agents"
+  GOPATH_BIN="$(go env GOPATH)/bin"
+  GOBIN="$(go env GOBIN)"
+  if [ -n "${GOBIN}" ]; then
+    INSTALL_BIN_DIR="${GOBIN}"
   else
-    AGENTS_DIR="${HOME}/.gemini/config/agents"
+    INSTALL_BIN_DIR="${GOPATH_BIN}"
   fi
+
+  echo "  Running 'go install github.com/${REPO}/cmd/godoctor@${VERSION}'..."
+  go install "github.com/${REPO}/cmd/godoctor@${VERSION}"
+
+  BIN_PATH="${INSTALL_BIN_DIR}/godoctor"
+  if [ -f "${BIN_PATH}" ]; then
+    echo -e "  ${GREEN}✓ Binary installed to ${BIN_PATH}${NC}"
+  else
+    echo -e "${RED}❌ Error: Binary not found in ${BIN_PATH} after go install.${NC}" >&2
+    exit 1
+  fi
+
+  # Check PATH
+  if ! command -v godoctor &> /dev/null; then
+    echo -e "${YELLOW}⚠️  Note: '${INSTALL_BIN_DIR}' is not currently in your \$PATH.${NC}"
+    echo "  Consider adding it to your shell configuration (~/.zshrc or ~/.bashrc):"
+    echo -e "  ${BLUE}export PATH=\"${INSTALL_BIN_DIR}:\$PATH\"${NC}"
+  fi
+
+  # Register MCP in mcp_config.json
+  echo "  Configuring ${MCP_CONFIG}..."
+  mkdir -p "${TARGET_ROOT}"
+  python3 -c '
+import json, os, sys
+
+config_path = sys.argv[1]
+bin_path = sys.argv[2]
+data = {}
+
+if os.path.exists(config_path):
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+
+if not isinstance(data, dict):
+    data = {}
+
+if "mcpServers" not in data or not isinstance(data["mcpServers"], dict):
+    data["mcpServers"] = {}
+
+data["mcpServers"]["godoctor"] = {
+    "command": bin_path,
+    "args": []
+}
+
+os.makedirs(os.path.dirname(os.path.abspath(config_path)), exist_ok=True)
+with open(config_path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+' "${MCP_CONFIG}" "${BIN_PATH}"
+
+  echo -e "  ${GREEN}✓ Registered 'godoctor' MCP server in ${MCP_CONFIG}${NC}"
+  echo ""
+fi
+
+# -----------------------------------------------------------------------------
+# 2. Agent Definition Installation
+# -----------------------------------------------------------------------------
+if [ "${INSTALL_AGENT}" = "true" ]; then
+  echo -e "🤖 ${BLUE}[Agent] Installing GoDoctor Named Agent (@godoctor)...${NC}"
   mkdir -p "${AGENTS_DIR}"
-  ln -sf "${INSTALL_DIR}/agents/godoctor.md" "${AGENTS_DIR}/godoctor.md"
-  echo "🔗 Registered custom agent to [${AGENTS_DIR}/godoctor.md]"
+  AGENT_DEST="${AGENTS_DIR}/godoctor.md"
+
+  if [ -e "${AGENT_DEST}" ] && [ "${OVERWRITE}" != "true" ]; then
+    echo "  ⚠️  ${AGENT_DEST} already exists. Skipping (use -f/--overwrite to replace)."
+  else
+    rm -f "${AGENT_DEST}"
+    RAW_AGENT_URL="https://raw.githubusercontent.com/${REPO}/${VERSION_REF}/agent/godoctor.md"
+    curl -fsSL "${RAW_AGENT_URL}" -o "${AGENT_DEST}"
+    echo -e "  ${GREEN}✓ Installed agent definition to ${AGENT_DEST}${NC}"
+  fi
+  echo ""
 fi
 
-echo "✅ Success! GoDoctor plugin (v${LATEST_RELEASE}) has been successfully installed in '${TARGET_MODE}' mode (${INSTALL_SCOPE}) to [${INSTALL_DIR}]."
+# -----------------------------------------------------------------------------
+# 3. Skills Installation via 'npx skills'
+# -----------------------------------------------------------------------------
+if [ "${INSTALL_SKILLS}" = "true" ]; then
+  echo -e "📚 ${BLUE}[Skills] Installing GoDoctor Skills (@selene, @testquery)...${NC}"
+
+  SKILLS_INSTALLED="false"
+
+  if command -v npx &> /dev/null; then
+    SKILL_FLAGS=("-y")
+    if [ "${SCOPE}" = "global" ]; then
+      SKILL_FLAGS+=("-g")
+    fi
+    echo "  Using standard 'npx skills add ${REPO} ${SKILL_FLAGS[*]}'..."
+    if npx -y skills add "${REPO}" "${SKILL_FLAGS[@]}"; then
+      SKILLS_INSTALLED="true"
+      echo -e "  ${GREEN}✓ Skills installed via 'npx skills add'${NC}"
+    else
+      echo -e "  ${YELLOW}⚠️  'npx skills add' exited with non-zero status. Falling back to direct download...${NC}"
+    fi
+  fi
+
+  # Fallback to direct file download if npx is not installed or failed
+  if [ "${SKILLS_INSTALLED}" != "true" ]; then
+    mkdir -p "${SKILLS_DIR}"
+
+    install_skill_file() {
+      local skill_name="$1"
+      local skill_target_dir="${SKILLS_DIR}/${skill_name}"
+      local skill_target_file="${skill_target_dir}/SKILL.md"
+
+      mkdir -p "${skill_target_dir}"
+      if [ -e "${skill_target_file}" ] && [ "${OVERWRITE}" != "true" ]; then
+        echo "  ⚠️  ${skill_target_file} already exists. Skipping."
+      else
+        rm -f "${skill_target_file}"
+        RAW_SKILL_URL="https://raw.githubusercontent.com/${REPO}/${VERSION_REF}/skills/${skill_name}/SKILL.md"
+        curl -fsSL "${RAW_SKILL_URL}" -o "${skill_target_file}"
+        echo -e "  ${GREEN}✓ Installed skill @${skill_name} to ${skill_target_file}${NC}"
+      fi
+    }
+
+    install_skill_file "selene"
+    install_skill_file "testquery"
+  fi
+  echo ""
+fi
+
+# Clean up stale legacy plugin directories if global install
+if [ "${SCOPE}" = "global" ]; then
+  rm -rf "${HOME}/.gemini/config/plugins/godoctor" 2>/dev/null || true
+  rm -rf "${HOME}/.gemini/antigravity-cli/plugins/godoctor" 2>/dev/null || true
+fi
+
+# -----------------------------------------------------------------------------
+# Summary
+# -----------------------------------------------------------------------------
+echo -e "${GREEN}===============================================${NC}"
+echo -e "${GREEN}🎉 GoDoctor installation completed successfully!${NC}"
+echo -e "${GREEN}===============================================${NC}"
+
+if [ "${INSTALL_MCP}" = "true" ]; then
+  echo -e "  • ${BOLD}MCP Server:${NC}  Registered in ${MCP_CONFIG}"
+fi
+if [ "${INSTALL_AGENT}" = "true" ]; then
+  echo -e "  • ${BOLD}Agent:${NC}       @godoctor (${AGENTS_DIR}/godoctor.md)"
+fi
+if [ "${INSTALL_SKILLS}" = "true" ]; then
+  echo -e "  • ${BOLD}Skills:${NC}      @selene, @testquery"
+fi
+echo ""

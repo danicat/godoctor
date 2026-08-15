@@ -84,7 +84,7 @@ func TestEdit(t *testing.T) {
 		}
 	})
 
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n\ngo 1.24\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n\ngo 1.26.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -130,7 +130,7 @@ func TestEdit_Broken(t *testing.T) {
 	}
 	//nolint:errcheck
 	defer os.RemoveAll(tmpDir)
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module broken\n\ngo 1.24\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module broken\n\ngo 1.26.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 

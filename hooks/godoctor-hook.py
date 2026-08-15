@@ -31,69 +31,81 @@ def main():
         args = (tool_call.get("args") or tool_call.get("arguments") or tool_call.get("parameters") or
                 payload.get("args") or payload.get("arguments") or payload.get("parameters") or {})
 
-        if name == "run_command":
-            cmd = args.get("CommandLine") or args.get("command_line") or args.get("command") or ""
-            
-            # Direct go build
-            if re.search(r'\bgo\s+build\b', cmd):
+        # Block direct modification of Go files via built-in edit tools
+        if name in ["write_to_file", "replace_file_content", "multi_replace_file_content", "sed_file"]:
+            target = args.get("TargetFile") or args.get("target_file") or args.get("path") or args.get("target") or ""
+            if target.endswith(".go"):
                 print(json.dumps(deny(
-                    "GoDoctor guidance: Use the 'smart_build' MCP tool instead of direct 'go build'. "
-                    "smart_build runs module tidying, formatting, vet checks, tests, and dead-code analysis in a single compiler-verified pass."
+                    f"GoDoctor guidance: Direct file modification of Go files via '{name}' is restricted. "
+                    "Use GoDoctor MCP tools 'smart_edit' (for single-file compiler-verified changes) "
+                    "or 'smart_multi_edit' (for atomic multi-file changes)."
                 )))
                 sys.exit(0)
 
-            # Direct dependency / module modification
-            if re.search(r'\bgo\s+(get|mod\s+init|mod\s+tidy)\b', cmd):
+        # Block reading Go files with standard view_file
+        if name == "view_file":
+            target = args.get("AbsolutePath") or args.get("absolute_path") or args.get("path") or ""
+            if target.endswith(".go"):
                 print(json.dumps(deny(
-                    "GoDoctor guidance: Use 'add_dependencies' or 'smart_build' MCP tools instead of running manual module commands. "
-                    "add_dependencies automatically updates go.mod and returns symbol documentation for newly installed packages."
+                    "GoDoctor guidance: Viewing Go files via 'view_file' is restricted. "
+                    "Use GoDoctor MCP tool 'smart_read' to inspect Go files with AST parsing, "
+                    "type-tag enrichment, and line ranges."
                 )))
                 sys.exit(0)
 
-            # Unflagged go test commands
+        # Intercept shell commands
+        if name in ["run_command", "execute_command", "bash", "sh"]:
+            cmd = args.get("CommandLine") or args.get("command") or args.get("cmd") or ""
+
+            # Check for direct execution of godoctor or go doctor as a CLI command
+            if re.search(r'(^|[;&|`]\s*|\$\(\s*)(go\s+doctor|godoctor)(\s+|$)', cmd):
+                print(json.dumps(deny(
+                    "godoctor is not a command to be called, it is an mcp server that exposes tools. "
+                    "Use GoDoctor MCP tools directly: smart_read, smart_edit, smart_multi_edit, "
+                    "smart_build, smart_test, test_query, mutation_test, list_files, add_dependencies, read_docs."
+                )))
+                sys.exit(0)
+
+            # Check for shell redirection/modification of .go files
+            if re.search(r'(>|>>|tee|sed|cat|echo)\s+.*\.go\b', cmd):
+                print(json.dumps(deny(
+                    "GoDoctor guidance: Modifying Go files via shell redirection or scripts is restricted. "
+                    "Use 'smart_edit' or 'smart_multi_edit' to ensure syntax and type safety."
+                )))
+                sys.exit(0)
+
+            # Check for raw go build / go vet
+            if re.search(r'\bgo\s+(build|vet|fmt|modernize)\b', cmd):
+                print(json.dumps(deny(
+                    "GoDoctor guidance: Direct execution of 'go build/vet/fmt' is restricted. "
+                    "Use GoDoctor MCP tool 'smart_build' to run the automated hygiene and build pipeline."
+                )))
+                sys.exit(0)
+
+            # Check for raw go get / go mod
+            if re.search(r'\bgo\s+(get|mod)\b', cmd):
+                print(json.dumps(deny(
+                    "GoDoctor guidance: Direct execution of 'go get' or 'go mod' is restricted. "
+                    "Use GoDoctor MCP tool 'add_dependencies' to add packages and inspect documentation."
+                )))
+                sys.exit(0)
+
+            # Check for raw go test
             if re.search(r'\bgo\s+test\b', cmd):
                 if not is_allowed_go_test_command(cmd):
                     print(json.dumps(deny(
-                        "GoDoctor guidance: Use the 'smart_test' MCP tool instead of unflagged 'go test'. "
-                        "smart_test captures test traces and code coverage into SQLite (testquery.db) for querying. "
-                        "(Note: direct 'run_command' is permitted for specialized flags: -race, -fuzz, and -bench)."
+                        "GoDoctor guidance: Standard 'go test' is restricted. "
+                        "Use GoDoctor MCP tool 'smart_test' (with level='fast'|'basic'|'benchmark'|'complete') "
+                        "or 'mutation_test' for Selene test quality analysis. "
+                        "Direct 'go test' is only permitted with -race, -fuzz, or -bench flags."
                     )))
                     sys.exit(0)
-
-            # Shell file editing or reading on .go files
-            if re.search(r'\b(cat|sed|awk|grep|tee|echo|head|tail|vi|nano)\b.*\.go\b', cmd) or re.search(r'<<.*\.go', cmd):
-                print(json.dumps(deny(
-                    "GoDoctor guidance: Avoid modifying or reading .go files through shell utilities. "
-                    "Use 'smart_read' to inspect AST symbols with type enrichment, and 'smart_edit' or 'smart_multi_edit' "
-                    "for compiler-verified, atomic code modifications."
-                )))
-                sys.exit(0)
-
-        elif name == "view_file":
-            path = args.get("AbsolutePath") or args.get("absolute_path") or args.get("path") or ""
-            if path.lower().endswith(".go"):
-                print(json.dumps(deny(
-                    "GoDoctor guidance: Use 'smart_read' instead of 'view_file' for Go source files (.go). "
-                    "smart_read enriches file content with referenced type signatures in custom <types> blocks."
-                )))
-                sys.exit(0)
-
-        elif name in ("write_to_file", "replace_file_content", "multi_replace_file_content"):
-            path1 = args.get("TargetFile") or args.get("target_file") or args.get("path") or ""
-            path2 = args.get("AbsolutePath") or args.get("absolute_path") or ""
-            if path1.lower().endswith(".go") or path2.lower().endswith(".go"):
-                print(json.dumps(deny(
-                    "GoDoctor guidance: Use 'smart_edit' (single file) or 'smart_multi_edit' (multiple files) for Go source files (.go). "
-                    "These tools validate formatting (gofmt/goimports) and type safety before committing changes to disk."
-                )))
-                sys.exit(0)
 
         print(json.dumps(allow()))
         sys.exit(0)
 
     except Exception as e:
-        # Fallback to allow on unexpected hook exception with code 0 to prevent crashing runner
-        print(json.dumps({"decision": "allow", "reason": f"GoDoctor hook fallback: {str(e)}"}))
+        print(json.dumps(allow(f"GoDoctor hook error: {str(e)}")), file=sys.stderr)
         sys.exit(0)
 
 if __name__ == "__main__":

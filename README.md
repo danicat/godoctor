@@ -1,99 +1,182 @@
-# GoDoctor - Specialized Agentic Coding Suite for Go
+# GoDoctor
 
-GoDoctor is a specialized engineering plugin and custom agent engineered for Go codebases. It is built in full compliance with the **Agent Plugins Specification 1.0.0**, combining a dedicated custom named agent (`godoctor`), high-performance MCP tools, procedural skills (`selene`, `testquery`), and automated lifecycle hook safety guards.
+GoDoctor is a specialized agentic coding suite for Go developers, providing AST-aware code navigation, compiler-verified editing, automated test and coverage analytics, and mutation testing.
 
----
+GoDoctor is built as three independent, modular components that can be installed together or individually:
 
-## 1. Overview & Architecture
-
-GoDoctor delivers an end-to-end Go engineering experience across Antigravity 2.0 and the Antigravity CLI:
-
-```text
-godoctor/
-├── plugin.json                 # Agent Plugins 1.0.0 Manifest
-├── mcp.json                    # MCP stdio configuration (./bin/godoctor)
-├── agents/
-│   └── godoctor.md             # Custom named agent (Main & Subagent symmetry)
-├── hooks/
-│   └── godoctor-hook.py        # PreToolUse safety interceptor
-├── skills/
-│   ├── selene/                 # Mutation testing procedural workflows
-│   │   └── SKILL.md
-│   └── testquery/              # SQLite test intelligence & analytics
-│       └── SKILL.md
-└── bin/
-    └── godoctor                # Pre-compiled cross-platform server binary
-```
+1. **GoDoctor MCP Server**: Exposes 10 compiler-verified tools over Model Context Protocol (stdio).
+2. **GoDoctor Agent**: A specialized named agent (`@godoctor`) for Antigravity supporting both interactive main-agent sessions and autonomous subagent delegation.
+3. **GoDoctor Skills**: Procedural Agent Skills (`@selene`, `@testquery`) discoverable by any agent in the workspace.
 
 ---
 
-## 2. Installation
+## Installation
 
-Install GoDoctor using the one-line installation command:
+### Automated Installation (`install.sh`)
+
+Install all components globally (Default: `~/.gemini/config`):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash
 ```
 
-### Installation Options
+Or install directly to the current workspace (`.agents/`):
 
-You can customize the installation target runtime and scope:
-
-- **Antigravity 2.0 (Global)** (Default):
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target agy2
-  ```
-- **Workspace-Only Installation**:
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target agy2 -w
-  ```
-- **Antigravity CLI**:
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | sh -s -- --target cli
-  ```
-
----
-
-## 3. Running GoDoctor
-
-GoDoctor supports **true execution symmetry**:
-
-### As a Main Agent
-Launch an interactive GoDoctor session from the CLI:
 ```bash
-agy --agent godoctor
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- -w
 ```
-Or select **GoDoctor** directly from the agent dropdown selector in the Antigravity 2.0 Desktop UI.
 
-### As an Autonomous Subagent
-Coordinator agents can dynamically delegate Go refactoring, testing, and diagnostic tasks directly to `godoctor` via `invoke_subagent`.
+#### Modular Installation
 
----
+You can install any combination of components using flags:
 
-## 4. Features & Tools
+```bash
+# Install MCP server only
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- --mcp
 
-### GoDoctor MCP Tool Suite (`mcp.json`)
-1. `smart_read`: Reads Go source files with AST-level type metadata and structure awareness.
-2. `smart_edit`: Performs single-file code modifications verified by `gofmt`, `goimports`, and `go vet` before committing to disk.
-3. `smart_multi_edit`: Performs atomic, multi-file batch code refactoring verified by compiler rules.
-4. `smart_build`: Executes the workspace verification pipeline (`go mod tidy`, modernizers, formatting, `go build`, `go test`, linter, deadcode).
-5. `smart_test`: Executes Go tests with coverage gap analysis and synchronizes metrics to `testquery.db`.
-6. `test_query`: Queries test results and code coverage metrics using SQL.
-7. `mutation_test`: Runs Selene mutation testing against Go packages to evaluate unit test effectiveness.
-8. `list_files`: VCS-aware workspace file mapper.
-9. `add_dependencies`: Installs Go modules, updates `go.mod`/`go.sum`, and returns documentation.
-10. `read_docs`: Fetches Go documentation and function signatures for standard library or third-party packages.
+# Install Agent definition only
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- --agent
 
-### Specialized Procedural Skills
-- **`selene`**: Detailed guide on mutation testing, interpreting killed vs surviving mutants, and fixing assertion gaps.
-- **`testquery`**: Complete SQLite schema documentation and analytical SQL recipes for test performance and coverage gap discovery.
+# Install Skills only
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- --skills
+
+# Install Agent and Skills to workspace scope (.agents/)
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- --agent --skills -w
+```
 
 ---
 
-## 5. Developer Instructions
+### Manual / Independent Component Installation
+
+Each component uses standard ecosystem tooling and can be installed independently without running `install.sh`:
+
+#### 1. GoDoctor MCP Server (`go install`)
+
+Install the server binary via the Go toolchain:
+
+```bash
+go install github.com/danicat/godoctor/cmd/godoctor@latest
+```
+
+Ensure `$(go env GOPATH)/bin` is in your `$PATH`.
+
+Register the server in your MCP client configuration (`~/.gemini/config/mcp_config.json`, `~/.claude.json`, or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "godoctor": {
+      "command": "godoctor",
+      "args": []
+    }
+  }
+}
+```
+
+See [mcp/README.md](mcp/README.md) for full MCP server details.
+
+#### 2. GoDoctor Named Agent
+
+Download [`agent/godoctor.md`](agent/godoctor.md) into your Antigravity agents directory:
+
+- **Global**: `~/.gemini/config/agents/godoctor.md`
+- **Workspace**: `.agents/agents/godoctor.md`
+
+```bash
+# Global
+mkdir -p ~/.gemini/config/agents
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/agent/godoctor.md -o ~/.gemini/config/agents/godoctor.md
+
+# Workspace
+mkdir -p .agents/agents
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/agent/godoctor.md -o .agents/agents/godoctor.md
+```
+
+#### 3. GoDoctor Skills (`npx skills`)
+
+Install GoDoctor skills using the standard `skills` CLI:
+
+```bash
+# Global
+npx skills add danicat/godoctor -g -y
+
+# Workspace
+npx skills add danicat/godoctor -y
+```
+
+---
+
+## Uninstallation
+
+### Automated Uninstallation (`uninstall.sh`)
+
+Uninstall all components globally:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/uninstall.sh | bash
+```
+
+Or uninstall from the current workspace (`.agents/`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/uninstall.sh | bash -s -- -w
+```
+
+Or from local clone:
+
+```bash
+./uninstall.sh
+```
+
+#### Modular Uninstallation
+
+Uninstall specific components individually using component flags:
+
+```bash
+# Uninstall MCP server only (removes binary and unregisters from mcp_config.json)
+./uninstall.sh --mcp
+
+# Uninstall Agent definition only (@godoctor)
+./uninstall.sh --agent
+
+# Uninstall Skills only (@selene, @testquery)
+./uninstall.sh --skills
+
+# Uninstall Agent and Skills from workspace scope (.agents/)
+./uninstall.sh --agent --skills -w
+```
+
+---
+
+## Available MCP Tools
+
+| Tool | Description |
+| :--- | :--- |
+| `smart_read` | AST-aware Go file reader with automatic `<types>` struct/interface schema annotations. |
+| `smart_edit` | Single-file compiler-verified editor (formats with `gofmt`/`goimports` and verifies `go vet` before saving). |
+| `smart_multi_edit` | Atomic multi-file editor that validates type safety across all modified files simultaneously. |
+| `smart_build` | Full build and hygiene pipeline: `go mod tidy` -> formatting -> `go vet` -> tests -> linter -> dead code. |
+| `smart_test` | Test execution engine syncing results and code coverage to SQLite (`testquery.db`). |
+| `test_query` | SQL query engine for test results and coverage analytics. |
+| `mutation_test` | Selene-powered mutation testing for evaluating unit test assertion quality. |
+| `list_files` | VCS-aware workspace file explorer. |
+| `add_dependencies` | Dependency installer (`go get`) with automated `go.mod` / `go.sum` updates. |
+| `read_docs` | Standard library and third-party package documentation viewer (`go doc`). |
+
+---
+
+## Specialized Agent Skills
+
+- **`@selene`**: Guide for interpreting mutation scores, boundary mutants, and assertion gaps ([`skills/selene/SKILL.md`](skills/selene/SKILL.md)).
+- **`@testquery`**: SQLite schema reference and analytical SQL recipes for `testquery.db` ([`skills/testquery/SKILL.md`](skills/testquery/SKILL.md)).
+
+---
+
+## Developer Instructions
 
 ### Local Development
-To build the GoDoctor binary locally:
+
+Build binary locally:
 ```bash
 make build
 ```
@@ -103,13 +186,8 @@ Run test suite:
 make test
 ```
 
-### Snapshot Testing
-To test the cross-platform GoReleaser build locally without publishing a release tag:
-```bash
-make snapshot
-```
-
 ### Releasing
+
 Releasing a new version is automated via GoReleaser:
 ```bash
 make bump-version VERSION=0.2.0
@@ -117,6 +195,7 @@ make bump-version VERSION=0.2.0
 
 ---
 
-## 6. License
+## License
 
 Apache-2.0
+

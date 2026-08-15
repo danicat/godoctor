@@ -15,7 +15,7 @@ func TestReadCodeTool_SingleFileAndEnrichment(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	modPath := filepath.Join(tmpDir, "go.mod")
-	modData := []byte("module example.com/test\ngo 1.21\n")
+	modData := []byte("module example.com/test\ngo 1.26.0\n")
 	if err := os.WriteFile(modPath, modData, 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -99,43 +99,6 @@ func TestReadCodeTool_MultiFile(t *testing.T) {
 
 	if !strings.Contains(output, "TypeA") || !strings.Contains(output, "TypeB") {
 		t.Errorf("expected both TypeA and TypeB in output, got: %s", output)
-	}
-}
-
-func TestReadCodeTool_OutlineMode(t *testing.T) {
-	tmpDir := t.TempDir()
-	srcFile := filepath.Join(tmpDir, "outline.go")
-	src := `package main
-
-import "net/http"
-
-type User struct {
-	ID string
-}
-
-func ProcessUser(u User) {}
-`
-	if err := os.WriteFile(srcFile, []byte(src), 0600); err != nil {
-		t.Fatal(err)
-	}
-
-	roots.Global.Add(nil, tmpDir)
-
-	res, _, err := readCodeHandler(context.Background(), nil, Params{
-		Filenames: []string{srcFile},
-		Outline:   true,
-	})
-	if err != nil {
-		t.Fatalf("handler failed: %v", err)
-	}
-
-	output := res.Content[0].(*mcp.TextContent).Text
-
-	if !strings.Contains(output, "Outline") {
-		t.Errorf("expected outline header in output, got: %s", output)
-	}
-	if !strings.Contains(output, "User") {
-		t.Errorf("expected User symbol in outline, got: %s", output)
 	}
 }
 

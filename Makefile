@@ -1,50 +1,20 @@
-# Makefile for GoDoctor
-
-# Go parameters
-GOCMD=go
-GOBUILD=$(GOCMD) build
-GOCLEAN=$(GOCMD) clean
-GOTEST=$(GOCMD) test
-GOGET=$(GOCMD) get
-BINARY_DIR=bin
-SERVER_BINARY_NAME=godoctor
-SERVER_BINARY=$(BINARY_DIR)/$(SERVER_BINARY_NAME)
-
 # Version derived dynamically from Git tags
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
 ifeq ($(VERSION),)
   VERSION := dev
 endif
-LDFLAGS=-ldflags "-X main.version=$(VERSION)"
-
-
-all: build
 
 build:
-	@mkdir -p $(BINARY_DIR)
-	$(GOBUILD) $(LDFLAGS) -o $(SERVER_BINARY) ./cmd/godoctor
-
-clean:
-	@rm -rf $(BINARY_DIR)
+	@go build -o bin/godoctor ./cmd/godoctor
 
 test:
-	$(GOTEST) -v ./...
+	@go test -v ./...
 
-test-cov:
-	$(GOTEST) -v -coverprofile=coverage.out ./...
-	@echo "to view the coverage report, run: go tool cover -html=coverage.out"
+install:
+	@./install.sh
 
-test-e2e:
-	@./scripts/e2e-test.sh --local
-
-test-e2e-release:
-	@./scripts/e2e-test.sh --release
-
-snapshot:
-	goreleaser release --snapshot --clean
-
-release:
-	goreleaser release --clean
+uninstall:
+	@./uninstall.sh
 
 # Usage: make bump-version VERSION=0.21.0
 bump-version:
@@ -56,4 +26,4 @@ bump-version:
 	@git push origin main --tags
 	@echo "🚀 Successfully tagged v$(VERSION) and pushed to remote!"
 
-.PHONY: all build clean test test-cov test-e2e test-e2e-release snapshot release bump-version
+.PHONY: build test install uninstall bump-version
