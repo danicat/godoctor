@@ -30,7 +30,7 @@ func writeAndVerify(
 
 	var workspaceRoot string
 	for absPath := range currentContents {
-		workspaceRoot = findModuleRoot(filepath.Dir(absPath))
+		workspaceRoot = filepath.Dir(absPath)
 		break
 	}
 
@@ -229,19 +229,4 @@ func extractErrorSnippet(content string, err error) string {
 	}
 
 	return text.GetSnippet(content, lineNum)
-}
-
-func findModuleRoot(dir string) string {
-	curr := filepath.Clean(dir)
-	for {
-		if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
-			return curr
-		}
-		parent := filepath.Dir(curr)
-		if parent == curr {
-			break
-		}
-		curr = parent
-	}
-	return dir
 }
