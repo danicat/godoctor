@@ -1,37 +1,39 @@
 ---
 name: godoctor
-description: Run GoDoctor intelligence tools in CLI mode (edit, build, test, docs, selene, tq) or configure the godoctor MCP server.
+description: Activate this skill whenever developing, building, editing, testing, documenting, or verifying Go code, or managing GoDoctor CLI and MCP surfaces. Trigger when the user wants to run Go build/lint pipelines, perform AST-aware edits with compiler rollback gates, run multi-tier tests, inspect Go docs/types, run Selene mutation tests, or query test analytics. Trigger even for general Go tasks like "verify my Go code", "fix compiler errors", or "check Go package docs".
 ---
 
-# GoDoctor CLI & MCP operational guide
+# GoDoctor Developer Intelligence Guide
 
 GoDoctor provides AST-aware Go developer tooling available both as a standalone Command Line Interface (CLI) and as a Model Context Protocol (MCP) server.
 
-## Tool Names by Mode
+## Tool Selection Matrix
 
-| Tool Category | CLI Tool Name (`godoctor call`) | MCP Tool Name |
-| :--- | :--- | :--- |
-| Code Editor | `edit` | `smart_edit` |
-| Build & Lint Pipeline | `build` | `smart_build` |
-| Test Runner | `test` | `smart_test` |
-| Documentation | `docs` | `read_docs` |
-| Mutation Testing | `selene` | `selene` |
-| SQL Analytics | `tq` | `test_query` |
+| Task / Goal | CLI Command (`godoctor call`) | MCP Tool Name | Behavior / Safeguards |
+| :--- | :--- | :--- | :--- |
+| **Safe Code Edits** | `godoctor call edit` | `smart_edit` | Coordinate matching + AST formatting + compiler gate (`go vet`) with auto-rollback. |
+| **Full Build & Hygiene Gate** | `godoctor call build` | `smart_build` | 6-phase pipeline: `go mod tidy` $\to$ modernize $\to$ `gofmt` $\to$ deadcode $\to$ build $\to$ test $\to$ linter. |
+| **Test & Benchmark Runner** | `godoctor call test` | `smart_test` | Multi-tier runner (`fast`, `basic`, `benchmark`, `complete`) + indexes into `testquery.db`. |
+| **AST Documentation Lookup** | `godoctor call docs` | `read_docs` | Fetches package docs, exported symbols, types, and function signatures. |
+| **Mutation Testing** | `godoctor call selene` | `selene` | Evaluates test suite quality by mutating AST operators and checking for test failures. |
+| **SQL Test Analytics** | `godoctor call tq` | `test_query` | Executes SQLite queries against test history and statement coverage in `testquery.db`. |
 
 ---
 
-## CLI Subcommands
+## Critical Gotchas & Rules
 
-### 1. Main Help
-Running `godoctor` without arguments or with `--help` prints the full help summary:
-```bash
-godoctor
-# or
-godoctor help
-```
+> [!IMPORTANT]
+> 1. **Absolute Paths Required**: All directory (`dir`) and file (`filename`) parameters **MUST be absolute paths** (e.g. `/Users/.../project`). Relative paths (`.`, `./...`, `main.go`) are strictly rejected.
+> 2. **Compiler Gate on Edit**: `edit` / `smart_edit` automatically reverts file changes if the edit introduces compilation or syntax errors (`go vet`).
+> 3. **Automatic DB Synchronization**: Running `test` / `smart_test` automatically syncs statement coverage and run logs into `testquery.db`.
+> 4. **No Ad-Hoc Build Scripts**: Always prefer `build` / `smart_build` over running manual shell commands for formatting, vet, or linting.
 
-### 2. Surface Management (`godoctor install` & `godoctor uninstall`)
-Registers/unregisters the MCP server in `mcp_config.json` and unpacks/removes embedded agent skills (`@godoctor`, `@selene`, `@testquery`):
+---
+
+## Surface Management (`godoctor install` & `uninstall`)
+
+Manage MCP server registration in `mcp_config.json` and agent skills unpacking (`@godoctor`, `@selene`, `@testquery`):
+
 ```bash
 # Configure MCP and skills globally (default: ~/.gemini/config)
 godoctor install
@@ -43,98 +45,56 @@ godoctor install -w
 godoctor install --mcp        # MCP server registration only
 godoctor install --skills     # Skills unpacking only
 
-# Remove configuration
+# Clean removal
 godoctor uninstall
 godoctor uninstall -w
 ```
 
-### 3. Listing Available Tools
-List all available intelligence tools, descriptions, parameter usages, and aliases:
-```bash
-godoctor list
-```
-
-### 4. Invoking Tools directly (`godoctor call`)
-
-Tools can be invoked from the command line using `godoctor call <tool-name> [arguments]`. 
-
-> [!IMPORTANT]
-> All directory and file path arguments MUST be absolute paths. Relative paths (such as `.`, `./...`, or `main.go`) are strictly rejected.
-
-#### Input Argument Formats:
-The `call` subcommand supports three flexible argument formats:
-1. **CLI Flags / Key-Value Pairs**:
-   ```bash
-   godoctor call selene --dir=/absolute/path/to/project
-   godoctor call tq --dir=/absolute/path/to/project --query="SELECT * FROM all_tests WHERE action='fail'"
-   godoctor call docs --import_path=net/http --symbol_name=Get
-   godoctor call build --dir=/absolute/path/to/project
-   godoctor call test --dir=/absolute/path/to/project --level=fast
-   ```
-2. **JSON Argument String**:
-   ```bash
-   godoctor call selene '{"dir": "/absolute/path/to/project"}'
-   godoctor call edit '{"filename": "/absolute/path/to/main.go", "old_content": "fmt.Println(\"old\")", "new_content": "fmt.Println(\"new\")"}'
-   ```
-3. **Piped JSON via Stdin**:
-   ```bash
-   echo '{"dir": "/absolute/path/to/project", "level": "fast"}' | godoctor call test
-   ```
-
 ---
 
-## CLI Tool Reference (Standard JSON Format)
+## Direct CLI Invocation (`godoctor call`)
 
-All `godoctor call` tools take a JSON arguments object as their input.
+Tools can be invoked from the command line using standard JSON or CLI flags:
 
-### `edit` (MCP: `smart_edit`)
-Performs coordinate edits with automatic compiler gate (`go vet`), code formatting (`gofmt`/`goimports`), and automatic rollback on failure.
+### 1. `edit` (Safe Coordinate Editing)
 ```bash
-godoctor call edit '{"filename": "/absolute/path/main.go", "old_content": "fmt.Println(\"old\")", "new_content": "fmt.Println(\"new\")"}'
+godoctor call edit '{"filename": "/absolute/path/to/main.go", "old_content": "fmt.Println(\"old\")", "new_content": "fmt.Println(\"new\")"}'
 ```
 
-### `build` (MCP: `smart_build`)
-Runs the 4-phase hygiene and verification pipeline: `go mod tidy` $\to$ modernize $\to$ `gofmt` $\to$ deadcode $\to$ `go build` $\to$ `go test` + coverage $\to$ linter.
+### 2. `build` (Comprehensive Hygiene & Lint Pipeline)
 ```bash
 godoctor call build '{"dir": "/absolute/path/to/project"}'
 ```
 
-### `test` (MCP: `smart_test`)
-Runs the multi-tier test suite (`fast`, `basic`, `benchmark`, `complete`) and indexes run results and statement coverage into `testquery.db`.
+### 3. `test` (Multi-Tier Test Runner)
 ```bash
+# Levels: fast, basic, benchmark, complete
 godoctor call test '{"dir": "/absolute/path/to/project", "level": "basic"}'
 ```
 
-### `docs` (MCP: `read_docs`)
-Fetches package-level documentation, function signatures, and types directly from Go source.
+### 4. `docs` (AST Symbol Documentation)
 ```bash
 godoctor call docs '{"import_path": "net/http", "symbol_name": "Client"}'
 ```
 
-### `selene` (MCP: `selene`)
-Executes Selene AST mutation testing to measure unit test assertion strength.
+### 5. `selene` (Mutation Testing)
 ```bash
 godoctor call selene '{"dir": "/absolute/path/to/project"}'
 ```
 
-### `tq` (MCP: `test_query`)
-Runs SQL analytics queries against `testquery.db`.
+### 6. `tq` (SQL Test & Coverage Analytics)
 ```bash
-godoctor call tq '{"dir": "/absolute/path/to/project", "query": "SELECT test, elapsed FROM all_tests WHERE action='\''fail'\'' ORDER BY elapsed DESC"}'
+godoctor call tq '{"dir": "/absolute/path/to/project", "query": "SELECT package, test, elapsed FROM all_tests WHERE action = '\''fail'\''"}'
 ```
 
 ---
 
-## MCP Server Mode
+## Agent Verification Workflow Loop
 
-To run GoDoctor as a Model Context Protocol server:
+When implementing Go features or resolving bug fixes:
 
-### Standard I/O Mode (Default for MCP Clients)
-```bash
-godoctor mcp
-```
-
-### Streamable HTTP Mode
-```bash
-godoctor mcp -listen=:8080
-```
+1. **Inspect Documentation**: Use `docs` / `read_docs` to check standard library or third-party APIs.
+2. **Apply Coordinate Edits**: Use `edit` / `smart_edit` to ensure edits compile cleanly without syntax errors.
+3. **Execute Fast Tests**: Use `test` with `level: fast` for immediate feedback.
+4. **Run Full Quality Gate**: Run `build` / `smart_build` to ensure formatting, tidy dependencies, deadcode elimination, and linter compliance.
+5. **Audit Test Gaps**: Run `selene` to ensure unit tests catch introduced defects.

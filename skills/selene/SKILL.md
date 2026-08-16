@@ -1,129 +1,111 @@
 ---
 name: selene
-description: Mutation testing workflows for Go using Selene. Activate when checking unit test effectiveness, reviewing surviving or uncovered mutants, and writing targeted assertions.
+description: Activate this skill whenever auditing unit test effectiveness, identifying assertion gaps, hardening test suites, or performing mutation testing on Go codebases using Selene. Trigger when the user asks "how good are my unit tests?", "find untested edge cases", "check surviving mutants", "run mutation testing", or wants to verify that tests reliably fail when logic, comparison boundaries, or return values are altered.
 ---
 
-# Selene mutation testing guide
+# Selene Mutation Testing Guide
 
-Mutation testing measures unit test effectiveness by modifying the syntax tree of your Go code and running tests against each change. [Selene](https://github.com/danicat/selene) modifies operators such as arithmetic signs (`+` to `-`), comparison boundaries (`>=` to `>`), boolean checks, and return values.
+Mutation testing evaluates unit test effectiveness by introducing deliberate defects into Go Abstract Syntax Trees (AST) and checking if test suites detect them.
 
-## Core concepts
+## Mutation Outcomes
 
-When Selene introduces an Abstract Syntax Tree (AST) mutation, it records one of four outcomes:
-
-| Outcome | Description | Resolution |
+| Outcome | Meaning | Action Required |
 | :--- | :--- | :--- |
-| `KILLED` | At least one test failed on mutated code. | Expected outcome. The test suite detects the logic defect. |
-| `SURVIVED` | All tests passed despite mutated logic. | Assertion gap. Add tests or assertions covering the specific logic. |
-| `UNCOVERED` | No test executed the mutated block. | Coverage gap. Write test cases that reach this code path. |
-| `TIMEOUT` | Mutation caused an infinite loop or hang. | Treated as killed. |
+| `KILLED` | Test suite caught the defect (at least one test failed). | ✅ None. Ideal outcome. |
+| `SURVIVED` | Tests passed despite corrupted logic. | ⚠️ **Assertion Gap**: Write assertions verifying this specific logic/return. |
+| `UNCOVERED` | No test executed the mutated line. | ⚠️ **Coverage Gap**: Add tests that exercise this code branch. |
+| `TIMEOUT` | Mutation induced an infinite loop or hang. | ✅ Treated as caught/killed. |
 
-The overall mutation score measures the percentage of introduced defects caught by tests:
+---
 
-$$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \times 100\%$$
+## Running Selene
 
-## Running mutation tests
-
-Follow this execution hierarchy depending on your current environment:
-
-### 1. If `selene` is installed in PATH:
-Run `selene` directly from the shell:
+### Primary: via GoDoctor CLI (`godoctor call selene`)
+Always provide an **absolute path** to the target workspace or package:
 ```bash
-selene ./...
-# Or for a specific package:
-selene ./internal/auth
+godoctor call selene '{"dir": "/absolute/path/to/project"}'
 ```
 
-### 2. If `selene` is not installed, but `godoctor` CLI is available:
-Invoke Selene via the `godoctor call` CLI subcommand with a JSON arguments object (requires an absolute directory path):
-```bash
-godoctor call selene '{"dir": "/path/to/workspace"}'
-```
-
-### 3. If `godoctor` is running in MCP mode:
-Call the `selene` MCP tool with the target absolute directory path (relative paths are rejected):
+### In MCP Mode:
 ```json
 {
-  "dir": "/path/to/workspace"
+  "dir": "/absolute/path/to/project"
 }
 ```
 
-### 4. Direct Go toolchain fallback:
-If neither CLI binary is installed:
+### Direct CLI Tool (if in PATH):
 ```bash
-go run github.com/danicat/selene/cmd/selene@latest ./...
+selene ./...
 ```
 
-## Reviewing output and fixing surviving mutants
+---
 
-### Sample report
-```text
-Mutation testing results:
+## 5-Step Mutation Resolution Loop
 
-Total mutations: 12
-Killed:          10
-Timeouts:         0
-Survived:         2
-Uncovered:        0
+When surviving mutants are reported, systematically eliminate them:
 
-Mutation Score:  83.33% (killed/total mutations)
-
-Surviving Mutants:
-1. ./internal/auth/auth.go:42:15
-   Mutated: 'if user.Age >= 18' -> 'if user.Age > 18'
-   Status: SURVIVED (Tests passed when condition was mutated)
-
-2. ./internal/auth/auth.go:58:8
-   Mutated: 'return token, nil' -> 'return "", nil'
-   Status: SURVIVED (Tests passed when token was cleared)
+```
+┌────────────────────────┐
+│ 1. Run Selene          │ ──► Identify SURVIVED mutants & file locations
+└───────────┬────────────┘
+            │
+┌───────────▼────────────┐
+│ 2. Classify Defect     │ ──► Boundary (>=), Payload (return ""), or Boolean (!ok)
+└───────────┬────────────┘
+            │
+┌───────────▼────────────┐
+│ 3. Add Targeted Test   │ ──► Add table-driven case asserting the exact condition
+└───────────┬────────────┘
+            │
+┌───────────▼────────────┐
+│ 4. Run Fast Tests      │ ──► godoctor call test '{"level": "fast"}'
+└───────────┬────────────┘
+            │
+┌───────────▼────────────┐
+│ 5. Re-run Selene       │ ──► Confirm mutant is now KILLED
+└────────────────────────┘
 ```
 
-### Fixing boundary mutations
+---
 
-Surviving comparison mutations such as `>=` changed to `>` mean the test suite lacks boundary value checks.
+## Mutation Elimination Recipes
 
-Add table-driven test cases covering boundary values:
+### 1. Boundary Mutations (`>=` mutated to `>`)
+Surviving comparison operators mean the test suite lacks boundary value checks.
+- **Fix**: Add test cases for values immediately below, exactly on, and immediately above the threshold.
 ```go
-func TestIsAdult(t *testing.T) {
-    tests := []struct {
-        name     string
-        user     User
-        expected bool
-    }{
-        {name: "below boundary", user: User{Age: 17}, expected: false},
-        {name: "exact boundary", user: User{Age: 18}, expected: true},
-        {name: "above boundary", user: User{Age: 19}, expected: true},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            if got := IsAdult(tt.user); got != tt.expected {
-                t.Errorf("IsAdult() = %v, want %v", got, tt.expected)
-            }
-        })
-    }
+tests := []struct {
+    name     string
+    val      int
+    expected bool
+}{
+    {name: "below boundary", val: 17, expected: false},
+    {name: "exact boundary", val: 18, expected: true},
+    {name: "above boundary", val: 19, expected: true},
 }
 ```
 
-### Fixing return value mutations
-
-Surviving return value mutations happen when unit tests check `err == nil` but ignore the returned data payload.
-
-Assert the returned values in addition to error checks:
+### 2. Return Value Mutations (`return token, nil` $\to$ `return "", nil`)
+Surviving return values happen when tests verify `err == nil` but ignore the returned data payload.
+- **Fix**: Assert payload contents, lengths, or non-zero struct fields:
 ```go
-func TestGenerateToken(t *testing.T) {
-    token, err := GenerateToken("user123")
-    if err != nil {
-        t.Fatalf("unexpected error: %v", err)
-    }
-    if token == "" {
-        t.Fatal("expected non-empty token")
-    }
-    if !strings.HasPrefix(token, "ey") {
-        t.Errorf("token = %q, want JWT prefix ey", token)
-    }
+res, err := GenerateToken("user123")
+if err != nil {
+    t.Fatalf("unexpected error: %v", err)
+}
+if res == "" {
+    t.Errorf("expected non-empty token")
 }
 ```
 
-### Fixing boolean inversion mutations
+### 3. Boolean Inversion Mutations (`if isReady` $\to$ `if !isReady`)
+Surviving inverted booleans indicate missing test coverage for one branch of conditional logic.
+- **Fix**: Provide dedicated subtests exercising both `true` and `false` states.
 
-When an inverted boolean condition survives, add test cases that explicitly exercise both `true` and `false` execution paths.
+---
+
+## Critical Gotchas
+
+> [!IMPORTANT]
+> 1. **Baseline Tests Must Pass**: If tests currently fail, mutation testing cannot determine kill status. Always fix failing unit tests before running Selene.
+> 2. **Absolute Directory Required**: `dir` must always be an absolute path.

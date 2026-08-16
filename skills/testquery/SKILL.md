@@ -1,104 +1,49 @@
 ---
 name: testquery
-description: SQLite-driven test analytics and coverage analysis using TestQuery. Activate when inspecting test logs, analyzing slow test runs, and querying coverage gaps with SQL.
+description: Activate this skill whenever analyzing Go test execution results, inspecting failed test output logs, finding slow tests, or querying statement-level coverage gaps using TestQuery and SQLite. Trigger when the user asks "which tests failed?", "show slow tests", "find uncovered lines/functions", "calculate test coverage by package", or wants to run SQL analytics against testquery.db.
 ---
 
-# TestQuery SQL test analytics guide
+# TestQuery SQL Test Analytics Guide
 
-[TestQuery](https://github.com/danicat/testquery) records Go test execution logs and statement coverage data into a local SQLite database (`testquery.db`). This allows developers to query test results and coverage metrics with standard SQL.
+[TestQuery](https://github.com/danicat/testquery) records Go test execution logs and statement coverage into a local SQLite database (`testquery.db`), enabling fast SQL-driven test analytics and coverage auditing.
 
-## Database schema
+## Database Schema Reference
 
-The `testquery.db` database contains five tables:
-
-### `all_tests` table
-Stores test execution records and outputs.
-
-| Column | Type | Description |
+| Table | Purpose | Key Columns |
 | :--- | :--- | :--- |
-| `time` | `TEXT` | Timestamp of test execution |
-| `action` | `TEXT` | Action/status: `run`, `pause`, `cont`, `pass`, `fail`, `output`, `skip` |
-| `package` | `TEXT` | Go package import path |
-| `test` | `TEXT` | Test function name |
-| `elapsed` | `REAL` | Elapsed time in seconds |
-| `output` | `TEXT` | Standard output / error log lines |
-
-### `all_coverage` table
-Stores statement-level execution counts across files.
-
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `package` | `TEXT` | Go package import path |
-| `file` | `TEXT` | File path relative to package |
-| `start_line` | `INTEGER` | First line of statement block |
-| `start_col` | `INTEGER` | First column of statement block |
-| `end_line` | `INTEGER` | Last line of statement block |
-| `end_col` | `INTEGER` | Last column of statement block |
-| `stmt_num` | `INTEGER` | Number of Go statements in block |
-| `count` | `INTEGER` | Execution count (`0` means uncovered) |
-| `function_name` | `TEXT` | Enclosing function name |
-
-### `test_coverage` table
-Maps specific individual tests to statement coverage blocks.
-
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `test_name` | `TEXT` | Individual test function |
-| `package` | `TEXT` | Go package import path |
-| `file` | `TEXT` | File path |
-| `start_line` | `INTEGER` | First line of statement block |
-| `start_col` | `INTEGER` | First column of statement block |
-| `end_line` | `INTEGER` | Last line of statement block |
-| `end_col` | `INTEGER` | Last column of statement block |
-| `stmt_num` | `INTEGER` | Number of Go statements in block |
-| `count` | `INTEGER` | Execution count for this test |
-| `function_name` | `TEXT` | Enclosing function name |
-
-### `all_code` table
-Contains source code lines for join-based coverage inspections.
-
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `package` | `TEXT` | Go package import path |
-| `file` | `TEXT` | File path |
-| `line_number` | `INTEGER` | 1-indexed source line number |
-| `content` | `TEXT` | Source code line content |
-
-### `metadata` table
-Key-value metadata about the indexing run (e.g., git commit, go version).
+| `all_tests` | Test outcomes, execution times, and log output lines. | `time`, `action` (`pass`/`fail`), `package`, `test`, `elapsed`, `output` |
+| `all_coverage` | Statement execution counts by block. | `package`, `file`, `function_name`, `start_line`, `end_line`, `stmt_num`, `count` |
+| `test_coverage` | Mapping of individual tests to statement blocks. | `test_name`, `package`, `file`, `start_line`, `end_line`, `stmt_num`, `count` |
+| `all_code` | Source code lines for join-based inspection. | `package`, `file`, `line_number`, `content` |
 
 ---
 
-## Running queries
+## Querying Test Analytics
 
-Follow this execution hierarchy depending on your current environment:
-
-### 1. If `testquery` is installed in PATH:
-Execute queries directly via the `testquery` CLI tool:
+### 1. Via GoDoctor CLI (`godoctor call tq`)
+Always specify an **absolute directory path**:
 ```bash
-testquery query --db testquery.db --format table "SELECT package, test, elapsed FROM all_tests WHERE action = 'fail'"
+godoctor call tq '{"dir": "/absolute/path/to/project", "query": "SELECT package, test, elapsed FROM all_tests WHERE action = '\''fail'\''"}'
 ```
 
-### 2. If `testquery` is not installed, but `godoctor` CLI is available:
-Invoke queries via the `godoctor call` CLI subcommand with `tq` using a JSON arguments object (requires an absolute directory path):
-```bash
-godoctor call tq '{"dir": "/path/to/workspace", "query": "SELECT package, test, elapsed FROM all_tests WHERE action = '\''fail'\''"}'
-```
-
-### 3. If `godoctor` is running in MCP mode:
-Call the `test_query` MCP tool with a SQL query string and the target absolute directory path (relative paths are rejected):
+### 2. In MCP Mode (`test_query`):
 ```json
 {
-  "dir": "/path/to/workspace",
+  "dir": "/absolute/path/to/project",
   "query": "SELECT package, test, elapsed FROM all_tests WHERE action = 'fail';"
 }
 ```
 
+### 3. Direct CLI Tool (if in PATH):
+```bash
+testquery query --db testquery.db "SELECT * FROM all_tests WHERE action = 'fail'"
+```
+
 ---
 
-## Common SQL queries
+## High-Value SQL Recipes
 
-### Listing recent test failures
+### 1. Show Recent Test Failures with Outputs
 ```sql
 SELECT package, test, elapsed, output
 FROM all_tests
@@ -106,35 +51,27 @@ WHERE action = 'fail'
 ORDER BY time DESC;
 ```
 
-### Finding uncovered code blocks
-```sql
-SELECT package, file, function_name, start_line, end_line, stmt_num
-FROM all_coverage
-WHERE count = 0
-ORDER BY package, file, start_line;
-```
-
-### Calculating coverage percentage by package
+### 2. Identify Packages with Lowest Statement Coverage
 ```sql
 SELECT 
     package,
-    SUM(CASE WHEN count > 0 THEN stmt_num ELSE 0 END) AS covered_statements,
-    SUM(stmt_num) AS total_statements,
+    SUM(CASE WHEN count > 0 THEN stmt_num ELSE 0 END) AS covered_stmts,
+    SUM(stmt_num) AS total_stmts,
     ROUND(100.0 * SUM(CASE WHEN count > 0 THEN stmt_num ELSE 0 END) / SUM(stmt_num), 2) AS coverage_pct
 FROM all_coverage
 GROUP BY package
 ORDER BY coverage_pct ASC;
 ```
 
-### Finding slow tests (> 0.5s)
+### 3. Find Uncovered Code Blocks in a Package
 ```sql
-SELECT package, test, elapsed
-FROM all_tests
-WHERE action = 'pass' AND elapsed > 0.5
-ORDER BY elapsed DESC;
+SELECT file, function_name, start_line, end_line, stmt_num
+FROM all_coverage
+WHERE count = 0 AND package LIKE '%auth%'
+ORDER BY file, start_line;
 ```
 
-### Inspecting source lines of uncovered code
+### 4. Locate Exact Source Lines of Uncovered Statements
 ```sql
 SELECT c.file, c.line_number, c.content
 FROM all_code c
@@ -144,3 +81,19 @@ JOIN all_coverage cov
 WHERE cov.count = 0
 ORDER BY c.file, c.line_number;
 ```
+
+### 5. Find Slowest Passing Tests (> 0.25s)
+```sql
+SELECT package, test, elapsed
+FROM all_tests
+WHERE action = 'pass' AND elapsed > 0.25
+ORDER BY elapsed DESC;
+```
+
+---
+
+## Critical Gotchas
+
+> [!IMPORTANT]
+> 1. **Auto-Generation of Database**: `testquery.db` is built/updated automatically whenever `godoctor call test` runs. If `testquery.db` does not exist when `godoctor call tq` is invoked, GoDoctor will automatically build it first.
+> 2. **Absolute Directory Required**: `dir` must be an absolute path.
