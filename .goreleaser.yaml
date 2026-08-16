@@ -31,8 +31,6 @@ archives:
       - README.md
       - LICENSE
       - install.sh
-      - agent/*
-      - agent/**/*
       - mcp/*
       - mcp/**/*
       - skills/**/*

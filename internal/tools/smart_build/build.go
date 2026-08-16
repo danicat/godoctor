@@ -14,6 +14,16 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const (
+	cmdRun             = "run"
+	cmdDeadcode        = "deadcode"
+	cmdModernize       = "modernize"
+	cmdTestQuery       = "testquery"
+	cmdGolangCILint    = "golangci-lint"
+	flagOutput         = "--output"
+	tokenCoverageColon = "coverage:"
+)
+
 // Register registers the tool with the server.
 func Register(server *mcp.Server) {
 	//nolint:lll
@@ -27,7 +37,7 @@ func Register(server *mcp.Server) {
 // Params defines the input parameters.
 type Params struct {
 	//nolint:lll
-	Dir      string `json:"dir,omitempty" jsonschema:"The absolute directory path to build in. Always pass absolute paths in multi-root workspaces."`
+	Dir      string `json:"dir" jsonschema:"The absolute directory path to build in. Required. Relative paths are rejected."`
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to build (default: ./...)"`
 }
 
@@ -69,14 +79,10 @@ var CommandRunner Runner = &stdRunner{}
 
 // Handler executes the smart_build tool.
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	projectDir := args.Dir
-	if projectDir == "" {
-		projectDir = "."
+	if strings.TrimSpace(args.Dir) == "" || !filepath.IsAbs(args.Dir) {
+		return result("dir is required and must be an absolute path", true), nil, nil
 	}
-	workspaceDir, err := filepath.Abs(projectDir)
-	if err != nil {
-		return result(err.Error(), true), nil, nil
-	}
+	workspaceDir := filepath.Clean(args.Dir)
 	pkgs := args.Packages
 	if pkgs == "" {
 		pkgs = "./..."
@@ -114,13 +120,10 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 		sb.WriteString("  - ✅ Go Mod Tidy: SUCCESS\n")
 	}
 
-	const cmdRun = "run"
-	const cmdDeadcode = "deadcode"
-
 	var modCmd string
 	var modArgs []string
-	if _, err := CommandRunner.LookPath("modernize"); err == nil {
-		modCmd = "modernize"
+	if _, err := CommandRunner.LookPath(cmdModernize); err == nil {
+		modCmd = cmdModernize
 		modArgs = []string{"-fix", pkgs}
 	} else {
 		modCmd = "go"
@@ -196,6 +199,9 @@ func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.B
 	if testErr != nil {
 		sb.WriteString("❌ FAILED\n\n")
 		sb.WriteString(formatOutput(testOut))
+		//nolint:lll
+		sb.WriteString("\n**HINT:** Run `test_query` (`tq`) to query failing tests via SQL: `SELECT test, output FROM all_tests WHERE action='fail'`.\n\n")
+		syncTestQueryDB(ctx, workspaceDir, pkgs)
 		return testErr
 	}
 	sb.WriteString("✅ PASS\n\n")
@@ -211,7 +217,29 @@ func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.B
 	// 2. Parse per-package coverage from test output
 	parsePackagesCoverage(testOut, sb)
 	sb.WriteString("\n")
+
+	// 3. Sync to testquery.db
+	syncTestQueryDB(ctx, workspaceDir, pkgs)
+	sb.WriteString("*Indexed test run to `testquery.db`*\n\n")
 	return nil
+}
+
+func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string) {
+	var tqCmd string
+	var tqArgs []string
+
+	if _, err := CommandRunner.LookPath(cmdTestQuery); err == nil {
+		tqCmd = cmdTestQuery
+		tqArgs = []string{"build", "--pkg", pkgs, flagOutput, "testquery.db"}
+	} else if _, err := CommandRunner.LookPath("tq"); err == nil {
+		tqCmd = "tq"
+		tqArgs = []string{"build", "--pkg", pkgs, flagOutput, "testquery.db"}
+	} else {
+		tqCmd = "go"
+		tqArgs = []string{cmdRun, "github.com/danicat/testquery@latest", "build", "--pkg", pkgs, flagOutput, "testquery.db"}
+	}
+
+	_, _ = CommandRunner.RunWithOutput(ctx, workspaceDir, tqCmd, tqArgs...)
 }
 
 func parseTotalCoverage(ctx context.Context, workspaceDir, covFile string) string {
@@ -239,7 +267,7 @@ func parsePackagesCoverage(testOut string, sb *strings.Builder) {
 	hasCoverage := false
 	seenPkgs := make(map[string]bool)
 	for _, line := range lines {
-		if !strings.Contains(line, "coverage:") {
+		if !strings.Contains(line, tokenCoverageColon) {
 			continue
 		}
 		parts := strings.Fields(line)
@@ -247,7 +275,7 @@ func parsePackagesCoverage(testOut string, sb *strings.Builder) {
 			continue
 		}
 		pkg := parts[1]
-		if pkg == "coverage:" || strings.HasPrefix(pkg, "coverage") || seenPkgs[pkg] {
+		if pkg == tokenCoverageColon || strings.HasPrefix(pkg, "coverage") || seenPkgs[pkg] {
 			continue
 		}
 		covIdx := findCoverageIndex(parts)
@@ -269,7 +297,7 @@ func parsePackagesCoverage(testOut string, sb *strings.Builder) {
 
 func findCoverageIndex(parts []string) int {
 	for i, part := range parts {
-		if part == "coverage:" {
+		if part == tokenCoverageColon {
 			return i
 		}
 	}
@@ -345,8 +373,8 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 	var lintCmd string
 	var lintArgs []string
 
-	if _, err := CommandRunner.LookPath("golangci-lint"); err == nil {
-		lintCmd = "golangci-lint"
+	if _, err := CommandRunner.LookPath(cmdGolangCILint); err == nil {
+		lintCmd = cmdGolangCILint
 		lintArgs = []string{"run", "-c", configPath, pkgs}
 		sb.WriteString("(using local `golangci-lint`) ")
 	} else {
@@ -365,7 +393,6 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 		}
 
 		lintCmd = "go"
-		const cmdRun = "run"
 		lintArgs = []string{cmdRun, linterPkg, cmdRun, "-c", configPath, pkgs}
 	}
 
@@ -404,12 +431,12 @@ func getDocHintFromOutput(msg string) string {
 	if matches := undefinedPkgRe.FindStringSubmatch(msg); len(matches) > 1 {
 		pkgName := matches[1]
 		//nolint:lll
-		return fmt.Sprintf("\n\n**HINT:** usage of '%s' failed. Try calling `go_docs` on that package to see the correct API.", pkgName)
+		return fmt.Sprintf("\n\n**HINT:** usage of '%s' failed. Try calling `read_docs` on that package to see the correct API.", pkgName)
 	}
 	if matches := importErrorRe.FindStringSubmatch(msg); len(matches) > 1 {
 		pkgPath := matches[1]
 		//nolint:lll
-		return fmt.Sprintf("\n\n**HINT:** import '%s' failed. Try calling `go_docs` on \"%s\" to verify the package path and exports.", pkgPath, pkgPath)
+		return fmt.Sprintf("\n\n**HINT:** import '%s' failed. Try calling `read_docs` on \"%s\" to verify the package path and exports.", pkgPath, pkgPath)
 	}
 	return ""
 }

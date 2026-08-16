@@ -2,19 +2,20 @@ package server_test
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
-	listfiles "github.com/danicat/godoctor/internal/tools/list_files"
 	readdocs "github.com/danicat/godoctor/internal/tools/read_docs"
+	"github.com/danicat/godoctor/internal/tools/selene"
+	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
+	smarttest "github.com/danicat/godoctor/internal/tools/smart_test"
+	testquery "github.com/danicat/godoctor/internal/tools/test_query"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // TestRefinedTools covers the refinements made in Phase 4.5
 func TestRefinedTools(t *testing.T) {
 	ctx := context.Background()
-	wd, _ := os.Getwd()
 	const fmtPkg = "fmt"
 
 	// 1. read_docs: JSON vs Markdown
@@ -54,25 +55,34 @@ func TestRefinedTools(t *testing.T) {
 		}
 	})
 
-	// 2. list_files: Depth & Patterns
-	t.Run("list_files_depth", func(t *testing.T) {
-		// Happy Path: Depth 1
-		res, _, err := listfiles.Handler(ctx, nil, listfiles.Params{
-			Path:  wd,
-			Depth: 1,
-		})
-		if err != nil {
-			t.Fatal(err)
+	// 2. Relative Path Rejection Tests
+	t.Run("relative_path_rejection", func(t *testing.T) {
+		// smart_build
+		buildRes, _, err := smartbuild.Handler(ctx, nil, smartbuild.Params{Dir: "./local"})
+		if err != nil || !buildRes.IsError ||
+			!strings.Contains(buildRes.Content[0].(*mcp.TextContent).Text, "dir is required and must be an absolute path") {
+			t.Errorf("expected smart_build to reject relative path, got res=%v, err=%v", buildRes, err)
 		}
-		text := res.Content[0].(*mcp.TextContent).Text
-		// Check that a deep file is NOT present. e.g. internal/tools/list_files/list_files.go (depth 3)
-		if strings.Contains(text, "internal/tools/list_files/list_files.go") {
-			t.Error("Listed file deeper than depth 1")
+
+		// smart_test
+		testRes, _, err := smarttest.Handler(ctx, nil, smarttest.Params{Dir: "relative/path"})
+		if err != nil || !testRes.IsError ||
+			!strings.Contains(testRes.Content[0].(*mcp.TextContent).Text, "dir is required and must be an absolute path") {
+			t.Errorf("expected smart_test to reject relative path, got res=%v, err=%v", testRes, err)
 		}
-		// Check immediate child
-		// Test running in internal/server package dir
-		if !strings.Contains(text, "server.go") {
-			t.Errorf("Missing server.go file. Output was:\n%s", text)
+
+		// test_query
+		tqRes, _, err := testquery.Handler(ctx, nil, testquery.Params{Dir: ".", Query: "SELECT 1"})
+		if err != nil || !tqRes.IsError ||
+			!strings.Contains(tqRes.Content[0].(*mcp.TextContent).Text, "dir is required and must be an absolute path") {
+			t.Errorf("expected test_query to reject relative path, got res=%v, err=%v", tqRes, err)
+		}
+
+		// selene
+		mutRes, _, err := selene.Handler(ctx, nil, selene.Params{Dir: "relative"})
+		if err != nil || !mutRes.IsError ||
+			!strings.Contains(mutRes.Content[0].(*mcp.TextContent).Text, "dir is required and must be an absolute path") {
+			t.Errorf("expected selene to reject relative path, got res=%v, err=%v", mutRes, err)
 		}
 	})
 }

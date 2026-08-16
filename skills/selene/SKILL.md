@@ -24,18 +24,34 @@ $$\text{Mutation Score} = \frac{\text{Killed Mutants}}{\text{Total Mutants}} \ti
 
 ## Running mutation tests
 
-### Using the MCP tool
-Call `mutation_test` with the target package path:
+Follow this execution hierarchy depending on your current environment:
+
+### 1. If `selene` is installed in PATH:
+Run `selene` directly from the shell:
+```bash
+selene ./...
+# Or for a specific package:
+selene ./internal/auth
+```
+
+### 2. If `selene` is not installed, but `godoctor` CLI is available:
+Invoke Selene via the `godoctor call` CLI subcommand with a JSON arguments object (requires an absolute directory path):
+```bash
+godoctor call selene '{"dir": "/path/to/workspace"}'
+```
+
+### 3. If `godoctor` is running in MCP mode:
+Call the `selene` MCP tool with the target absolute directory path (relative paths are rejected):
 ```json
 {
-  "pkg": "./internal/auth"
+  "dir": "/path/to/workspace"
 }
 ```
 
-### Running from the shell
-You can also run Selene directly through the Go toolchain:
+### 4. Direct Go toolchain fallback:
+If neither CLI binary is installed:
 ```bash
-go run github.com/danicat/selene@latest ./internal/auth
+go run github.com/danicat/selene/cmd/selene@latest ./...
 ```
 
 ## Reviewing output and fixing surviving mutants

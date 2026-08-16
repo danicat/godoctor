@@ -29,15 +29,36 @@ func TestRun(t *testing.T) {
 		errContains string
 	}{
 		{
+			name:        "no args prints help",
+			args:        []string{},
+			expectError: false,
+		},
+		{
+			name:        "help flag",
+			args:        []string{"--help"},
+			expectError: false,
+		},
+		{
 			name:        "version flag",
 			args:        []string{"--version"},
+			expectError: false,
+		},
+		{
+			name:        "list subcommand",
+			args:        []string{"list"},
 			expectError: false,
 		},
 		{
 			name:        "bad flag",
 			args:        []string{"--bad-flag"},
 			expectError: true,
-			errContains: "flag provided but not defined: -bad-flag",
+			errContains: "unknown flag: --bad-flag",
+		},
+		{
+			name:        "unknown command",
+			args:        []string{"unknowncmd"},
+			expectError: true,
+			errContains: "unknown command: unknowncmd",
 		},
 	}
 

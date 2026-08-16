@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package main is the entry point for the godoctor MCP server.
+// Package main is the entry point for the godoctor CLI and MCP server.
 package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/danicat/godoctor/internal/server"
+	"github.com/danicat/godoctor/internal/cli"
 )
 
 var (
@@ -47,28 +46,5 @@ func runMain() int {
 }
 
 func run(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("godoctor", flag.ContinueOnError)
-	var (
-		showVersion bool
-		listenAddr  string
-	)
-	fs.BoolVar(&showVersion, "version", false, "Print version and exit")
-	fs.StringVar(&listenAddr, "listen", "", "HTTP listen address (e.g. :8080)")
-
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	if showVersion {
-		fmt.Println(version)
-		return nil
-	}
-
-	srv := server.New(version)
-
-	if listenAddr != "" {
-		return srv.ServeHTTP(ctx, listenAddr)
-	}
-
-	return srv.Run(ctx)
+	return cli.Run(ctx, version, args, os.Stdin, os.Stdout, os.Stderr)
 }

@@ -20,13 +20,13 @@ func Register(server *mcp.Server) {
 		Name:        "test_query",
 		Title:       "Test Query",
 		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Uses a persistent SQLite database (testquery.db) to avoid re-running tests on every query. Set rebuild=true after code changes to refresh the database. Available tables: all_tests (time, action, package, test, elapsed, output), all_coverage (package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), test_coverage (test_name, package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), all_code (package, file, line_number, content), metadata (key, value).",
-	}, toolHandler)
+	}, Handler)
 }
 
 // Params defines the input parameters.
 type Params struct {
 	//nolint:lll
-	Dir string `json:"dir,omitempty" jsonschema:"The absolute directory path to analyze. Always pass absolute paths in multi-root workspaces."`
+	Dir string `json:"dir" jsonschema:"The absolute directory path to analyze. Required. Relative paths are rejected."`
 	//nolint:lll
 	Query string `json:"query" jsonschema:"SQL query to run against test results (e.g. SELECT * FROM all_tests WHERE action = 'fail')"`
 	Pkg   string `json:"pkg,omitempty" jsonschema:"Go package pattern to analyze (default: ./...)"`
@@ -34,18 +34,56 @@ type Params struct {
 	Rebuild bool `json:"rebuild,omitempty" jsonschema:"Force rebuild of the test database before querying. Use after code changes. First call always builds."`
 }
 
+// Runner defines the interface for running commands.
+type Runner interface {
+	Run(ctx context.Context, dir, name string, args ...string) error
+	RunWithOutput(ctx context.Context, dir, name string, args ...string) (string, error)
+	LookPath(file string) (string, error)
+}
+
+type stdRunner struct{}
+
+func (r *stdRunner) Run(ctx context.Context, dir, name string, args ...string) error {
+	cmd, err := safeshell.CommandContext(ctx, name, args...)
+	if err != nil {
+		return err
+	}
+	cmd.Dir = dir
+	return cmd.Run()
+}
+
+func (r *stdRunner) RunWithOutput(ctx context.Context, dir, name string, args ...string) (string, error) {
+	cmd, err := safeshell.CommandContext(ctx, name, args...)
+	if err != nil {
+		return "", err
+	}
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func (r *stdRunner) LookPath(file string) (string, error) {
+	return exec.LookPath(file)
+}
+
+// CommandRunner is used to execute CLI commands.
+var CommandRunner Runner = &stdRunner{}
+
 const (
-	dbFile     = "testquery.db"
-	flagOutput = "--output"
-	flagDB     = "--db"
-	flagPkg    = "--pkg"
-	flagFormat = "--format"
-	flagTable  = "table"
-	cmdBuild   = "build"
-	cmdQuery   = "query"
+	cmdTestQuery = "testquery"
+	cmdTQ        = "tq"
+	dbFile       = "testquery.db"
+	flagOutput   = "--output"
+	flagDB       = "--db"
+	flagPkg      = "--pkg"
+	flagFormat   = "--format"
+	flagTable    = "table"
+	cmdBuild     = "build"
+	cmdQuery     = "query"
 )
 
-func toolHandler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
+// Handler handles the test_query tool execution.
+func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	absDir, err := validateParams(req, args)
 	if err != nil {
 		return errorResult(err.Error()), nil, nil
@@ -67,12 +105,11 @@ func validateParams(_ *mcp.CallToolRequest, args Params) (string, error) {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
-	dir := args.Dir
-	if dir == "" {
-		dir = "."
+	if strings.TrimSpace(args.Dir) == "" || !filepath.IsAbs(args.Dir) {
+		return "", fmt.Errorf("dir is required and must be an absolute path")
 	}
 
-	return filepath.Abs(dir)
+	return filepath.Clean(args.Dir), nil
 }
 
 func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mcp.CallToolResult {
@@ -83,28 +120,28 @@ func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mc
 
 	var tqCmd string
 	var tqArgs []string
-	if _, err := exec.LookPath("testquery"); err == nil {
-		tqCmd = "testquery"
+	if _, err := CommandRunner.LookPath(cmdTestQuery); err == nil {
+		tqCmd = cmdTestQuery
 		tqArgs = []string{cmdBuild, flagPkg, pkg, flagOutput, dbFile}
-	} else if _, err := exec.LookPath("tq"); err == nil {
-		tqCmd = "tq"
+	} else if _, err := CommandRunner.LookPath(cmdTQ); err == nil {
+		tqCmd = cmdTQ
 		tqArgs = []string{cmdBuild, flagPkg, pkg, flagOutput, dbFile}
 	} else {
 		tqCmd = "go"
-		tqArgs = []string{"run", "github.com/danicat/testquery@latest", cmdBuild, flagPkg, pkg, flagOutput, dbFile}
+		tqArgs = []string{
+			"run", "github.com/danicat/testquery@latest",
+			cmdBuild, flagPkg, pkg, flagOutput, dbFile,
+		}
 	}
 
-	buildCmd, err := safeshell.CommandContext(ctx, tqCmd, tqArgs...)
-	if err != nil {
-		return errorResult(fmt.Sprintf("secure execution validation failed: %v", err))
-	}
-	buildCmd.Dir = absDir
-	out, buildErr := buildCmd.CombinedOutput()
-	buildOutput := filterNoise(string(out))
+	out, buildErr := CommandRunner.RunWithOutput(ctx, absDir, tqCmd, tqArgs...)
+	buildOutput := filterNoise(out)
 
 	if buildErr != nil {
 		if !fileExists(dbPath) {
-			return errorResult(fmt.Sprintf("failed to build test database: %v\n%s", buildErr, buildOutput))
+			hint := "**HINT:** Ensure Go tests compile cleanly. " +
+				"Run `smart_build` or `smart_test` first to identify any compilation or syntax errors."
+			return errorResult(fmt.Sprintf("failed to build test database: %v\n%s\n\n%s", buildErr, buildOutput, hint))
 		}
 	}
 	return nil
@@ -113,36 +150,42 @@ func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mc
 func runQuery(ctx context.Context, absDir, query string) (*mcp.CallToolResult, any, error) {
 	var tqCmd string
 	var tqArgs []string
-	if _, err := exec.LookPath("testquery"); err == nil {
-		tqCmd = "testquery"
+	if _, err := CommandRunner.LookPath(cmdTestQuery); err == nil {
+		tqCmd = cmdTestQuery
 		tqArgs = []string{cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
-	} else if _, err := exec.LookPath("tq"); err == nil {
-		tqCmd = "tq"
+	} else if _, err := CommandRunner.LookPath(cmdTQ); err == nil {
+		tqCmd = cmdTQ
 		tqArgs = []string{cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
 	} else {
 		tqCmd = "go"
-		//nolint:lll
-		tqArgs = []string{"run", "github.com/danicat/testquery@latest", cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
+		tqArgs = []string{
+			"run", "github.com/danicat/testquery@latest",
+			cmdQuery, flagDB, dbFile, flagFormat, flagTable, query,
+		}
 	}
 
-	cmd, err := safeshell.CommandContext(ctx, tqCmd, tqArgs...)
-	if err != nil {
-		return errorResult(fmt.Sprintf("secure execution validation failed: %v", err)), nil, nil
-	}
-	cmd.Dir = absDir
-	out, runErr := cmd.CombinedOutput()
-
-	output := filterNoise(string(out))
+	out, runErr := CommandRunner.RunWithOutput(ctx, absDir, tqCmd, tqArgs...)
+	output := filterNoise(out)
 
 	if runErr != nil && output == "" {
-		return errorResult(fmt.Sprintf("test query failed: %v", runErr)), nil, nil
+		hint := "**HINT:** Check SQL query syntax and available tables:\n" +
+			"- `all_tests` (time, action, package, test, elapsed, output)\n" +
+			"- `all_coverage` (package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name)\n" +
+			"- `test_coverage` (test_name, package, file, start_line, start_col,\n" +
+			"  end_line, end_col, stmt_num, count, function_name)\n" +
+			"- `all_code` (package, file, line_number, content)\n" +
+			"- `metadata` (key, value)"
+		msg := fmt.Sprintf("test query failed: %v\n\n%s", runErr, hint)
+		return errorResult(msg), nil, nil
 	}
 
 	if runErr != nil {
+		hint := "**HINT:** Available tables: `all_tests`, `all_coverage`, `test_coverage`, `all_code`, `metadata`."
+		msg := fmt.Sprintf("⚠️ Query completed with warnings:\n%v\n%s\n\n%s", runErr, output, hint)
 		return &mcp.CallToolResult{
 			IsError: true,
 			Content: []mcp.Content{
-				&mcp.TextContent{Text: fmt.Sprintf("⚠️ Query completed with warnings:\n%v\n%s", runErr, output)},
+				&mcp.TextContent{Text: msg},
 			},
 		}, nil, nil
 	}

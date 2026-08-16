@@ -13,13 +13,10 @@ import (
 	"time"
 
 	"github.com/danicat/godoctor/internal/instructions"
-	adddependencies "github.com/danicat/godoctor/internal/tools/add_dependencies"
-	listfiles "github.com/danicat/godoctor/internal/tools/list_files"
-	mutationtest "github.com/danicat/godoctor/internal/tools/mutation_test"
 	readdocs "github.com/danicat/godoctor/internal/tools/read_docs"
+	"github.com/danicat/godoctor/internal/tools/selene"
 	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
 	smartedit "github.com/danicat/godoctor/internal/tools/smart_edit"
-	smartread "github.com/danicat/godoctor/internal/tools/smart_read"
 	smarttest "github.com/danicat/godoctor/internal/tools/smart_test"
 	testquery "github.com/danicat/godoctor/internal/tools/test_query"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -115,15 +112,11 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 
 // RegisterHandlers wires all tools.
 func (s *Server) RegisterHandlers() error {
-	smartread.Register(s.mcpServer)
 	smartedit.Register(s.mcpServer)
-	smartedit.RegisterMultiEdit(s.mcpServer)
 	smartbuild.Register(s.mcpServer)
 	smarttest.Register(s.mcpServer)
 	readdocs.Register(s.mcpServer)
 	testquery.Register(s.mcpServer)
-	adddependencies.Register(s.mcpServer)
-	listfiles.Register(s.mcpServer)
-	mutationtest.Register(s.mcpServer)
+	selene.Register(s.mcpServer)
 	return nil
 }

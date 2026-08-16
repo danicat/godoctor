@@ -45,14 +45,11 @@ func backupFiles(
 	currentContents map[string][]byte,
 ) error {
 	for _, edit := range edits {
-		filename := edit.Filename
-		if filename == "" {
-			filename = "."
+		filename := strings.TrimSpace(edit.Filename)
+		if filename == "" || !filepath.IsAbs(filename) {
+			return errors.New("filename is required and must be an absolute path")
 		}
-		absPath, err := filepath.Abs(filename)
-		if err != nil {
-			return err
-		}
+		absPath := filepath.Clean(filename)
 
 		if _, alreadyLoaded := currentContents[absPath]; !alreadyLoaded {
 			//nolint:gosec
@@ -80,11 +77,7 @@ func applyMemoryEdits(
 	currentContents map[string][]byte,
 ) *mcp.CallToolResult {
 	for _, edit := range edits {
-		filename := edit.Filename
-		if filename == "" {
-			filename = "."
-		}
-		absPath, _ := filepath.Abs(filename)
+		absPath := filepath.Clean(edit.Filename)
 		original := string(currentContents[absPath])
 		threshold := edit.Threshold
 		if threshold == 0 {

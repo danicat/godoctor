@@ -27,7 +27,7 @@ func Register(server *mcp.Server) {
 // Params defines the input parameters for smart_test.
 type Params struct {
 	//nolint:lll
-	Dir string `json:"dir,omitempty" jsonschema:"The absolute directory path to test in. Always pass absolute paths in multi-root workspaces."`
+	Dir string `json:"dir" jsonschema:"The absolute directory path to test in. Required. Relative paths are rejected."`
 	//nolint:lll
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to test (default: ./...)"`
 	//nolint:lll
@@ -68,45 +68,57 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 	return exec.LookPath(file)
 }
 
+const (
+	allPackagesPattern = "./..."
+	levelFast          = "fast"
+	levelBasic         = "basic"
+	levelBenchmark     = "benchmark"
+	levelComplete      = "complete"
+	seleneTool         = "selene"
+	testqueryTool      = "testquery"
+	tqTool             = "tq"
+	flagPkg            = "--pkg"
+	flagOutput         = "--output"
+	cmdBuild           = "build"
+	dbFile             = "testquery.db"
+)
+
 // CommandRunner is used for executing CLI commands during testing or runtime.
 var CommandRunner Runner = &stdRunner{}
 
 // Handler executes the smart_test tool.
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
-	projectDir := args.Dir
-	if projectDir == "" {
-		projectDir = "."
+	if strings.TrimSpace(args.Dir) == "" || !filepath.IsAbs(args.Dir) {
+		return result("dir is required and must be an absolute path", true), nil, nil
 	}
 
-	workspaceDir, err := filepath.Abs(projectDir)
-	if err != nil {
-		return result(err.Error(), true), nil, nil
-	}
+	workspaceDir := filepath.Clean(args.Dir)
 
 	pkgs := args.Packages
 	if pkgs == "" {
-		pkgs = "./..."
+		pkgs = allPackagesPattern
 	}
 
 	level := strings.ToLower(strings.TrimSpace(args.Level))
 	if level == "" {
-		level = "basic"
+		level = levelBasic
 	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Smart Test Report (`%s`)\n\n", pkgs)
 
+	var err error
 	switch level {
-	case "fast":
+	case levelFast:
 		err = runFastLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
-	case "benchmark":
+	case levelBenchmark:
 		err = runBenchmarkLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
-	case "complete":
+	case levelComplete:
 		err = runBasicLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
 		if err == nil {
 			runMutationLevel(ctx, workspaceDir, pkgs, &sb)
 		}
-	case "basic":
+	case levelBasic:
 		fallthrough
 	default:
 		err = runBasicLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
@@ -116,14 +128,28 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	return result(sb.String(), isError), nil, nil
 }
 
+func parsePackages(pkgs string) []string {
+	if strings.TrimSpace(pkgs) == "" {
+		return []string{allPackagesPattern}
+	}
+	normalized := strings.ReplaceAll(pkgs, ",", " ")
+	fields := strings.Fields(normalized)
+	if len(fields) == 0 {
+		return []string{allPackagesPattern}
+	}
+	return fields
+}
+
 func runFastLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb *strings.Builder) error {
 	sb.WriteString("### ⚡ Fast Test Pass\n\n")
 
-	testArgs := []string{"test", "-v"}
+	pkgList := parsePackages(pkgs)
+	testArgs := make([]string, 0, 3+len(pkgList))
+	testArgs = append(testArgs, "test", "-v")
 	if runFilter != "" {
 		testArgs = append(testArgs, "-run="+runFilter)
 	}
-	testArgs = append(testArgs, pkgs)
+	testArgs = append(testArgs, pkgList...)
 
 	testOut, testErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", testArgs...)
 	if testErr != nil {
@@ -145,11 +171,13 @@ func runBasicLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb
 		_ = os.Remove(covFile)
 	}()
 
-	testArgs := []string{"test", "-v", "-coverprofile=" + covFile}
+	pkgList := parsePackages(pkgs)
+	testArgs := make([]string, 0, 4+len(pkgList))
+	testArgs = append(testArgs, "test", "-v", "-coverprofile="+covFile)
 	if runFilter != "" {
 		testArgs = append(testArgs, "-run="+runFilter)
 	}
-	testArgs = append(testArgs, pkgs)
+	testArgs = append(testArgs, pkgList...)
 
 	testOut, testErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", testArgs...)
 
@@ -185,7 +213,10 @@ func runBenchmarkLevel(ctx context.Context, workspaceDir, pkgs, runFilter string
 		benchPattern = "."
 	}
 
-	benchArgs := []string{"test", "-bench=" + benchPattern, "-benchmem", "-run=NONE", pkgs}
+	pkgList := parsePackages(pkgs)
+	benchArgs := make([]string, 0, 4+len(pkgList))
+	benchArgs = append(benchArgs, "test", "-bench="+benchPattern, "-benchmem", "-run=NONE")
+	benchArgs = append(benchArgs, pkgList...)
 	benchOut, benchErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", benchArgs...)
 
 	if benchErr != nil {
@@ -209,23 +240,24 @@ func runMutationLevel(ctx context.Context, workspaceDir, pkgs string, sb *string
 
 	var seleneCmd string
 	var seleneArgs []string
-	if _, err := CommandRunner.LookPath("selene"); err == nil {
-		seleneCmd = "selene"
-		seleneArgs = []string{pkgs}
+	if _, err := CommandRunner.LookPath(seleneTool); err == nil {
+		seleneCmd = seleneTool
+		seleneArgs = parsePackages(pkgs)
 	} else {
 		seleneCmd = "go"
-		seleneArgs = []string{"run", "github.com/danicat/selene/cmd/selene@latest", pkgs}
+		seleneArgs = append([]string{"run", "github.com/danicat/selene/cmd/selene@latest"}, parsePackages(pkgs)...)
 	}
 
 	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, seleneCmd, seleneArgs...)
 	filtered := filterNoise(out)
 
-	if err != nil {
+	switch {
+	case err != nil:
 		sb.WriteString("⚠️ **Surviving Mutants Detected**:\n\n")
 		sb.WriteString(formatOutput(filtered))
-	} else if filtered == "" {
+	case filtered == "":
 		sb.WriteString("✅ **All Mutations Caught by Test Suite**\n\n")
-	} else {
+	default:
 		sb.WriteString(formatOutput(filtered))
 	}
 }
@@ -297,15 +329,15 @@ func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string) {
 	var tqCmd string
 	var tqArgs []string
 
-	if _, err := CommandRunner.LookPath("testquery"); err == nil {
-		tqCmd = "testquery"
-		tqArgs = []string{"build", "--pkg", pkgs, "--output", "testquery.db"}
-	} else if _, err := CommandRunner.LookPath("tq"); err == nil {
-		tqCmd = "tq"
-		tqArgs = []string{"build", "--pkg", pkgs, "--output", "testquery.db"}
+	if _, err := CommandRunner.LookPath(testqueryTool); err == nil {
+		tqCmd = testqueryTool
+		tqArgs = []string{cmdBuild, flagPkg, pkgs, flagOutput, dbFile}
+	} else if _, err := CommandRunner.LookPath(tqTool); err == nil {
+		tqCmd = tqTool
+		tqArgs = []string{cmdBuild, flagPkg, pkgs, flagOutput, dbFile}
 	} else {
 		tqCmd = "go"
-		tqArgs = []string{"run", "github.com/danicat/testquery@latest", "build", "--pkg", pkgs, "--output", "testquery.db"}
+		tqArgs = []string{"run", "github.com/danicat/testquery@latest", cmdBuild, flagPkg, pkgs, flagOutput, dbFile}
 	}
 
 	_, _ = CommandRunner.RunWithOutput(ctx, workspaceDir, tqCmd, tqArgs...)
@@ -338,7 +370,10 @@ func formatTestSummary(out string) string {
 	lines := strings.Split(out, "\n")
 	var summary []string
 	for _, line := range lines {
-		if strings.HasPrefix(line, "ok ") || strings.HasPrefix(line, "FAIL ") || strings.HasPrefix(line, "PASS") {
+		if strings.HasPrefix(line, "ok ") ||
+			strings.HasPrefix(line, "ok\t") ||
+			strings.HasPrefix(line, "FAIL") ||
+			strings.HasPrefix(line, "PASS") {
 			summary = append(summary, line)
 		}
 	}
@@ -348,7 +383,9 @@ func formatTestSummary(out string) string {
 	return ""
 }
 
-var benchLineRe = regexp.MustCompile(`^(Benchmark[a-zA-Z0-9_/-]+)\s+(\d+)\s+([0-9.]+\s+ns/op)(?:\s+([0-9.]+\s+B/op))?(?:\s+([0-9.]+\s+allocs/op))?`)
+var benchLineRe = regexp.MustCompile(
+	`^(Benchmark[a-zA-Z0-9_/-]+)\s+(\d+)\s+([0-9.]+\s+ns/op)(?:\s+([0-9.]+\s+B/op))?(?:\s+([0-9.]+\s+allocs/op))?`,
+)
 
 func formatBenchmarkTable(out string) string {
 	lines := strings.Split(out, "\n")

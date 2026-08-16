@@ -28,7 +28,11 @@ func writeAndVerify(
 		return res, err
 	}
 
-	workspaceRoot := getWorkspaceRoot()
+	var workspaceRoot string
+	for absPath := range currentContents {
+		workspaceRoot = filepath.Dir(absPath)
+		break
+	}
 
 	goFiles, walkErr := getAllGoFiles(workspaceRoot)
 	if walkErr != nil {
@@ -85,7 +89,10 @@ func getAllGoFiles(root string) ([]string, error) {
 	var files []string
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
-			return err
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if info.IsDir() {
 			if info.Name() == ".git" || info.Name() == "skills" || info.Name() == "agents" || info.Name() == "hooks" {
@@ -202,14 +209,6 @@ func findClosestSymbol(bad string, known []string) (string, int) {
 		}
 	}
 	return bestSymbol, bestDist
-}
-
-func getWorkspaceRoot() string {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	return cwd
 }
 
 func extractErrorSnippet(content string, err error) string {

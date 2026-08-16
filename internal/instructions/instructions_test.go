@@ -14,15 +14,12 @@ func TestGet(t *testing.T) {
 	}
 
 	expectedTools := []string{
-		"smart_read",
 		"smart_edit",
-		"smart_multi_edit",
 		"smart_build",
 		"read_docs",
 		"test_query",
-		"add_dependencies",
-		"list_files",
-		"mutation_test",
+		"smart_test",
+		"selene",
 	}
 
 	for _, tool := range expectedTools {
@@ -34,6 +31,10 @@ func TestGet(t *testing.T) {
 	removedTools := []string{
 		"describe_symbol",
 		"project_init",
+		"smart_read",
+		"smart_multi_edit",
+		"add_dependencies",
+		"list_files",
 	}
 
 	for _, tool := range removedTools {
