@@ -118,11 +118,18 @@ if [ "${BUILD_FROM_SOURCE}" != "true" ]; then
     TAR_FILE="${TMP_DIR}/godoctor.tar.gz"
 
     if curl -fsSL "${RELEASE_URL}" -o "${TAR_FILE}" 2>/dev/null; then
-      if tar -xzf "${TAR_FILE}" -C "${TMP_DIR}" godoctor 2>/dev/null; then
-        mv "${TMP_DIR}/godoctor" "${BIN_PATH}"
-        chmod +x "${BIN_PATH}"
-        BINARY_INSTALLED="true"
-        echo -e "  ${GREEN}✓ Downloaded and installed to ${BIN_PATH}${NC}"
+      if tar -xzf "${TAR_FILE}" -C "${TMP_DIR}" 2>/dev/null; then
+        if [ -f "${TMP_DIR}/bin/godoctor" ]; then
+          mv "${TMP_DIR}/bin/godoctor" "${BIN_PATH}"
+          chmod +x "${BIN_PATH}"
+          BINARY_INSTALLED="true"
+          echo -e "  ${GREEN}✓ Downloaded and installed to ${BIN_PATH}${NC}"
+        elif [ -f "${TMP_DIR}/godoctor" ]; then
+          mv "${TMP_DIR}/godoctor" "${BIN_PATH}"
+          chmod +x "${BIN_PATH}"
+          BINARY_INSTALLED="true"
+          echo -e "  ${GREEN}✓ Downloaded and installed to ${BIN_PATH}${NC}"
+        fi
       fi
     fi
     rm -rf "${TMP_DIR}"
