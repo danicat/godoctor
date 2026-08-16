@@ -27,15 +27,160 @@ import (
 	"go/printer"
 	"go/token"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/danicat/godoctor/internal/text"
 )
 
+// Cache structures for in-memory caching of parsed docs and resolved paths
+type cacheEntry[T any] struct {
+	value     T
+	expiresAt time.Time
+}
+
+func (e cacheEntry[T]) isExpired() bool {
+	return !e.expiresAt.IsZero() && time.Now().After(e.expiresAt)
+}
+
+type memoryCache struct {
+	mu         sync.RWMutex
+	docs       map[string]cacheEntry[*Doc]
+	dirs       map[string]cacheEntry[string]
+	subpkgs    map[string]cacheEntry[[]string]
+	defaultTTL time.Duration
+	enabled    bool
+}
+
+var (
+	globalCache = &memoryCache{
+		docs:       make(map[string]cacheEntry[*Doc]),
+		dirs:       make(map[string]cacheEntry[string]),
+		subpkgs:    make(map[string]cacheEntry[[]string]),
+		defaultTTL: 15 * time.Minute,
+		enabled:    true,
+	}
+
+	stdlibPackages []string
+	stdlibMu       sync.RWMutex
+)
+
+// ClearCache clears all cached documentation, directories, and subpackages.
+func ClearCache() {
+	globalCache.mu.Lock()
+	defer globalCache.mu.Unlock()
+	globalCache.docs = make(map[string]cacheEntry[*Doc])
+	globalCache.dirs = make(map[string]cacheEntry[string])
+	globalCache.subpkgs = make(map[string]cacheEntry[[]string])
+}
+
+// SetCacheEnabled enables or disables the in-memory documentation cache.
+func SetCacheEnabled(enabled bool) {
+	globalCache.mu.Lock()
+	defer globalCache.mu.Unlock()
+	globalCache.enabled = enabled
+}
+
+// SetCacheTTL sets the time-to-live duration for in-memory cache entries.
+func SetCacheTTL(ttl time.Duration) {
+	globalCache.mu.Lock()
+	defer globalCache.mu.Unlock()
+	globalCache.defaultTTL = ttl
+}
+
+func (c *memoryCache) getDoc(key string) (*Doc, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.enabled {
+		return nil, false
+	}
+	entry, ok := c.docs[key]
+	if !ok || entry.isExpired() {
+		return nil, false
+	}
+	return entry.value.Clone(), true
+}
+
+func (c *memoryCache) setDoc(key string, doc *Doc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled || doc == nil {
+		return
+	}
+	var expiresAt time.Time
+	if c.defaultTTL > 0 {
+		expiresAt = time.Now().Add(c.defaultTTL)
+	}
+	c.docs[key] = cacheEntry[*Doc]{
+		value:     doc.Clone(),
+		expiresAt: expiresAt,
+	}
+}
+
+func (c *memoryCache) getDir(pkgPath string) (string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.enabled {
+		return "", false
+	}
+	entry, ok := c.dirs[pkgPath]
+	if !ok || entry.isExpired() {
+		return "", false
+	}
+	return entry.value, true
+}
+
+func (c *memoryCache) setDir(pkgPath, dir string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled {
+		return
+	}
+	var expiresAt time.Time
+	if c.defaultTTL > 0 {
+		expiresAt = time.Now().Add(c.defaultTTL)
+	}
+	c.dirs[pkgPath] = cacheEntry[string]{
+		value:     dir,
+		expiresAt: expiresAt,
+	}
+}
+
+func (c *memoryCache) getSubpkgs(pkgDir string) ([]string, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.enabled {
+		return nil, false
+	}
+	entry, ok := c.subpkgs[pkgDir]
+	if !ok || entry.isExpired() {
+		return nil, false
+	}
+	return append([]string(nil), entry.value...), true
+}
+
+func (c *memoryCache) setSubpkgs(pkgDir string, subs []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.enabled {
+		return
+	}
+	var expiresAt time.Time
+	if c.defaultTTL > 0 {
+		expiresAt = time.Now().Add(c.defaultTTL)
+	}
+	c.subpkgs[pkgDir] = cacheEntry[[]string]{
+		value:     append([]string(nil), subs...),
+		expiresAt: expiresAt,
+	}
+}
+
 // Load resolves an import path and returns documentation.
-// It performs disk I/O ("go list") and parsing. Use this when starting from a string path.
+// It performs disk I/O ("go list") and parsing on cache miss. Use this when starting from a string path.
 func Load(ctx context.Context, pkgPath, symbolName string) (*Doc, error) {
 	return loadInternal(ctx, pkgPath, symbolName, false)
 }
@@ -45,13 +190,23 @@ func LoadWithFallback(ctx context.Context, pkgPath, symbolName string) (*Doc, er
 	return loadInternal(ctx, pkgPath, symbolName, true)
 }
 
+func docCacheKey(pkgPath, symbolName string, allowFallback bool) string {
+	return fmt.Sprintf("%s|%s|%t", pkgPath, symbolName, allowFallback)
+}
+
 func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback bool) (*Doc, error) {
+	key := docCacheKey(pkgPath, symbolName, allowFallback)
+	if cached, ok := globalCache.getDoc(key); ok {
+		return cached, nil
+	}
+
 	// Try to find the package directory locally
 	pkgDir, err := resolvePackageDir(ctx, pkgPath)
 	if err != nil {
 		// Fallback: try to fetch the package in a temp directory
 		doc, fetchErr := fetchAndRetryStructured(ctx, pkgPath, symbolName, err)
 		if fetchErr == nil {
+			globalCache.setDoc(key, doc)
 			return doc, nil
 		}
 
@@ -65,19 +220,21 @@ func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback
 
 			for i := len(parts) - 1; i >= minParts; i-- {
 				parentPath := strings.Join(parts[:i], "/")
-				if doc, err := loadInternal(ctx, parentPath, "", false); err == nil {
-					doc.ResolvedPath = pkgPath
-					return doc, nil
+				if parentDoc, err := loadInternal(ctx, parentPath, "", false); err == nil {
+					parentDoc.ResolvedPath = pkgPath
+					globalCache.setDoc(key, parentDoc)
+					return parentDoc, nil
 				}
 			}
 		}
-		return nil, fetchErr
+		return nil, fmt.Errorf("could not find documentation for %s: %w", pkgPath, fetchErr)
 	}
 
 	result, err := parsePackageDocs(ctx, pkgPath, pkgDir, symbolName, pkgPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse documentation: %w", err)
 	}
+	globalCache.setDoc(key, result)
 	return result, nil
 }
 
@@ -85,31 +242,11 @@ func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback
 // If the specific package documentation is not found, it attempts to find documentation
 // for parent paths (module roots) and returns it with a hint.
 func GetDocumentationWithFallback(ctx context.Context, pkgPath string) (string, error) {
-	// 1. Try exact match
-	doc, err := Load(ctx, pkgPath, "")
-	if err == nil && doc.Package != "" {
-		return Render(doc), nil
+	doc, err := LoadWithFallback(ctx, pkgPath, "")
+	if err != nil {
+		return "", err
 	}
-
-	// 2. Fallback: Walk up the path
-	parts := strings.Split(pkgPath, "/")
-	// Heuristic: For domain-based packages (github.com/...), keep at least 3 parts.
-	minParts := 1
-	if strings.Contains(parts[0], ".") {
-		minParts = 3
-	}
-
-	for i := len(parts) - 1; i >= minParts; i-- {
-		parentPath := strings.Join(parts[:i], "/")
-		doc, err := Load(ctx, parentPath, "")
-		if err == nil && doc.Package != "" {
-			note := fmt.Sprintf("> ℹ️ **Note:** Could not find `%s`.\n"+
-				"> Showing documentation for parent module `%s` instead.\n\n%s", pkgPath, parentPath, Render(doc))
-			return note, nil
-		}
-	}
-
-	return "", fmt.Errorf("could not find documentation for %s or its parents", pkgPath)
+	return Render(doc), nil
 }
 
 // Example represents a code example extracted from documentation.
@@ -144,7 +281,41 @@ type Doc struct {
 	References []string `json:"references,omitempty"`
 }
 
+// Clone creates a deep copy of Doc for concurrency safety.
+func (d *Doc) Clone() *Doc {
+	if d == nil {
+		return nil
+	}
+	clone := *d
+	if d.Examples != nil {
+		clone.Examples = append([]Example(nil), d.Examples...)
+	}
+	if d.SubPackages != nil {
+		clone.SubPackages = append([]string(nil), d.SubPackages...)
+	}
+	if d.Funcs != nil {
+		clone.Funcs = append([]string(nil), d.Funcs...)
+	}
+	if d.Types != nil {
+		clone.Types = append([]string(nil), d.Types...)
+	}
+	if d.Vars != nil {
+		clone.Vars = append([]string(nil), d.Vars...)
+	}
+	if d.Consts != nil {
+		clone.Consts = append([]string(nil), d.Consts...)
+	}
+	if d.References != nil {
+		clone.References = append([]string(nil), d.References...)
+	}
+	return &clone
+}
+
 func resolvePackageDir(ctx context.Context, pkgPath string) (string, error) {
+	if cachedDir, ok := globalCache.getDir(pkgPath); ok {
+		return cachedDir, nil
+	}
+
 	// Use 'go list' to find the directory of the package
 	cmd, err := safeshell.CommandContext(ctx, "go", "list", "-f", "{{.Dir}}", pkgPath)
 	if err != nil {
@@ -154,16 +325,16 @@ func resolvePackageDir(ctx context.Context, pkgPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("go list failed: %v", string(out))
 	}
-	return strings.TrimSpace(string(out)), nil
+	dir := strings.TrimSpace(string(out))
+	globalCache.setDir(pkgPath, dir)
+	return dir, nil
 }
 
 func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, requestedPath string) (*Doc, error) {
 	fset := token.NewFileSet()
-	//nolint:staticcheck // SA1019: parser.ParseDir is used for fast parsing of comments without type-checking
-	pkgs, err := parser.ParseDir(fset, pkgDir, nil, parser.ParseComments)
-	files := collectFiles(pkgs)
+	files, err := loadPackageFiles(fset, pkgDir)
 	if err != nil && len(files) == 0 {
-		return nil, fmt.Errorf("parser.ParseDir failed: %w", err)
+		return nil, fmt.Errorf("failed to load package files in %s: %w", pkgDir, err)
 	}
 
 	result := initializeDoc(ctx, importPath, requestedPath, pkgDir)
@@ -190,6 +361,53 @@ func parsePackageDocs(ctx context.Context, importPath, pkgDir, symbolName, reque
 	return populateSymbolDoc(fset, targetPkg, result, symbolName, importPath)
 }
 
+func loadPackageFiles(fset *token.FileSet, pkgDir string) ([]*ast.File, error) {
+	entries, err := os.ReadDir(pkgDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []*ast.File
+	var parseErrors []error
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasPrefix(name, ".") {
+			continue
+		}
+		// Skip non-example test files
+		if strings.HasSuffix(name, "_test.go") && !isExampleFile(name) {
+			continue
+		}
+
+		filePath := filepath.Join(pkgDir, name)
+		file, err := parser.ParseFile(fset, filePath, nil, parser.ParseComments)
+		if err != nil {
+			parseErrors = append(parseErrors, err)
+			continue
+		}
+		files = append(files, file)
+	}
+
+	if len(parseErrors) > 0 && len(files) == 0 {
+		return nil, errors.Join(parseErrors...)
+	}
+	return files, nil
+}
+
+func isExampleFile(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "example_") ||
+		strings.Contains(lower, "_example_") ||
+		strings.HasSuffix(lower, "_example_test.go") ||
+		lower == "example_test.go"
+}
+
+// collectFiles is kept for backward-compatibility with tests.
+//
 //nolint:staticcheck // SA1019: ast.Package is deprecated but kept for backwards-compatibility.
 func collectFiles(pkgs map[string]*ast.Package) []*ast.File {
 	var files []*ast.File
@@ -439,49 +657,75 @@ func findReturnTypeDefinition(fset *token.FileSet, pkg *doc.Package, f *doc.Func
 		return ""
 	}
 
-	// Get the first return value type
-	if f.Decl.Type.Results.List[0] == nil {
-		return ""
-	}
-	retType := f.Decl.Type.Results.List[0].Type
-	if retType == nil {
-		return ""
-	}
+	var typeNames []string
+	seenNames := make(map[string]bool)
 
-	var typeName string
-
-	// Handle pointers (*Type) or values (Type)
-	switch t := retType.(type) {
-	case *ast.StarExpr:
-		if ident, ok := t.X.(*ast.Ident); ok && ident != nil {
-			typeName = ident.Name
+	// Iterate across all return values in Results.List
+	for _, field := range f.Decl.Type.Results.List {
+		if field == nil || field.Type == nil {
+			continue
 		}
-	case *ast.Ident:
-		typeName = t.Name
-	case *ast.ArrayType:
-		if ident, ok := t.Elt.(*ast.Ident); ok && ident != nil {
-			typeName = ident.Name
-		} else if star, ok := t.Elt.(*ast.StarExpr); ok && star != nil {
-			if ident, ok := star.X.(*ast.Ident); ok && ident != nil {
-				typeName = ident.Name
+		for _, name := range extractTypeNames(field.Type) {
+			if name != "" && !seenNames[name] {
+				typeNames = append(typeNames, name)
+				seenNames[name] = true
 			}
 		}
 	}
 
-	if typeName == "" {
+	if len(typeNames) == 0 || pkg == nil {
 		return ""
 	}
 
-	// Search for this type in the package
-	if pkg != nil {
+	// Search for matching types defined in the package
+	var definitions []string
+	seenDefs := make(map[string]bool)
+
+	for _, name := range typeNames {
 		for _, t := range pkg.Types {
-			if t != nil && t.Name == typeName && t.Decl != nil {
-				return bufferCode(fset, t.Decl)
+			if t != nil && t.Name == name && t.Decl != nil {
+				code := bufferCode(fset, t.Decl)
+				if code != "" && !seenDefs[code] {
+					definitions = append(definitions, code)
+					seenDefs[code] = true
+				}
 			}
 		}
 	}
 
-	return ""
+	if len(definitions) == 0 {
+		return ""
+	}
+
+	return strings.Join(definitions, "\n\n")
+}
+
+func extractTypeNames(expr ast.Expr) []string {
+	if expr == nil {
+		return nil
+	}
+
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return []string{t.Name}
+	case *ast.StarExpr:
+		return extractTypeNames(t.X)
+	case *ast.ArrayType:
+		return extractTypeNames(t.Elt)
+	case *ast.MapType:
+		var names []string
+		names = append(names, extractTypeNames(t.Key)...)
+		names = append(names, extractTypeNames(t.Value)...)
+		return names
+	case *ast.ChanType:
+		return extractTypeNames(t.Value)
+	case *ast.Ellipsis:
+		return extractTypeNames(t.Elt)
+	case *ast.ParenExpr:
+		return extractTypeNames(t.X)
+	}
+
+	return nil
 }
 
 func extractExamples(fset *token.FileSet, examples []*doc.Example) []Example {
@@ -661,7 +905,7 @@ func findFuzzyMatches(query string, candidates []string) []string {
 			continue
 		}
 
-		// Levenshtein distance < 3 (allow small typos)
+		// Levenshtein distance <= 2 (allow small typos)
 		dist := text.Levenshtein(lowerQuery, strings.ToLower(c))
 		if dist <= 2 {
 			matches = append(matches, c)
@@ -705,10 +949,13 @@ func fetchAndRetryStructured(ctx context.Context, pkgPath, symbolName string, or
 }
 
 func suggestPackages(ctx context.Context, query string) []string {
+	// Guard suggestion searching with a 500ms timeout context to prevent latency spikes
+	sugCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	var candidates []string
 	seen := make(map[string]bool)
 
-	// Helper to add unique candidates
 	add := func(out []byte) {
 		for pkg := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 			if pkg != "" && !seen[pkg] {
@@ -718,15 +965,17 @@ func suggestPackages(ctx context.Context, query string) []string {
 		}
 	}
 
-	// 1. Standard Library (Reliable, works everywhere)
-	if cmd, err := safeshell.CommandContext(ctx, "go", "list", "std"); err == nil {
-		if out, err := cmd.Output(); err == nil {
-			add(out)
+	// 1. Standard Library (Cached globally after first fetch)
+	stdlibOnceFetch(sugCtx)
+	for _, pkg := range stdlibPackages {
+		if !seen[pkg] {
+			candidates = append(candidates, pkg)
+			seen[pkg] = true
 		}
 	}
 
-	// 2. Local context (Context-dependent, might fail outside modules)
-	if cmd, err := safeshell.CommandContext(ctx, "go", "list", "all"); err == nil {
+	// 2. Local module packages (Fast, bounded by sugCtx)
+	if cmd, err := safeshell.CommandContext(sugCtx, "go", "list", "./..."); err == nil {
 		if out, err := cmd.Output(); err == nil {
 			add(out)
 		}
@@ -735,8 +984,7 @@ func suggestPackages(ctx context.Context, query string) []string {
 	// 3. Parent context (If query is a path, try listing sibling packages)
 	if parts := strings.Split(query, "/"); len(parts) > 1 {
 		parent := strings.Join(parts[:len(parts)-1], "/")
-		// Attempt to list sub-packages of the parent
-		if cmd, err := safeshell.CommandContext(ctx, "go", "list", parent+"/..."); err == nil {
+		if cmd, err := safeshell.CommandContext(sugCtx, "go", "list", parent+"/..."); err == nil {
 			if out, err := cmd.Output(); err == nil {
 				add(out)
 			}
@@ -746,8 +994,40 @@ func suggestPackages(ctx context.Context, query string) []string {
 	return findFuzzyMatches(query, candidates)
 }
 
+func stdlibOnceFetch(ctx context.Context) {
+	stdlibMu.RLock()
+	if len(stdlibPackages) > 0 {
+		stdlibMu.RUnlock()
+		return
+	}
+	stdlibMu.RUnlock()
+
+	stdlibMu.Lock()
+	defer stdlibMu.Unlock()
+	if len(stdlibPackages) > 0 {
+		return
+	}
+
+	fetchCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if cmd, err := safeshell.CommandContext(fetchCtx, "go", "list", "std"); err == nil {
+		if out, err := cmd.Output(); err == nil {
+			for pkg := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+				if pkg != "" {
+					stdlibPackages = append(stdlibPackages, pkg)
+				}
+			}
+		}
+	}
+}
+
 // ListSubPackages finds sub-packages within a directory using go list.
 func ListSubPackages(ctx context.Context, pkgDir string) []string {
+	if cachedSubs, ok := globalCache.getSubpkgs(pkgDir); ok {
+		return cachedSubs
+	}
+
 	cmd, err := safeshell.CommandContext(ctx, "go", "list", "-f", "{{.ImportPath}}", "./...")
 	if err != nil {
 		return nil
@@ -762,7 +1042,9 @@ func ListSubPackages(ctx context.Context, pkgDir string) []string {
 	if trimmed == "" {
 		return nil
 	}
-	return strings.Split(trimmed, "\n")
+	subs := strings.Split(trimmed, "\n")
+	globalCache.setSubpkgs(pkgDir, subs)
+	return subs
 }
 
 func setupTempModule(ctx context.Context) (string, error) {

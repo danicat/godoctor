@@ -536,11 +536,11 @@ FAIL	github.com/danicat/godoctor/pkg5	0.010s	coverage: 50.0% of statements`
 	if !strings.Contains(result, "  * `github.com/danicat/godoctor/pkg4`: `92.5%`") {
 		t.Errorf("expected pkg4 coverage in output, got:\n%s", result)
 	}
-	if strings.Contains(result, "pkg2") {
-		t.Error("expected pkg2 (0.0%) to be omitted")
-	}
 	if strings.Contains(result, "pkg3") {
 		t.Error("expected pkg3 ([no test files]) to be omitted")
+	}
+	if !strings.Contains(result, "  * `github.com/danicat/godoctor/pkg2`: `0.0%`") {
+		t.Errorf("expected pkg2 (0.0%%) to be included in output, got:\n%s", result)
 	}
 	if strings.Contains(result, "pkg5") {
 		t.Error("expected pkg5 (FAIL) to be omitted")
@@ -627,6 +627,23 @@ func TestFormatFailures(t *testing.T) {
 		}
 	})
 
+	t.Run("with multiline and blank lines in fail block", func(t *testing.T) {
+		out := "=== RUN   TestMultiline\n--- FAIL: TestMultiline (0.01s)\n    test.go:10: error message\n\n    diff:\n    - expected\n    + actual\n=== RUN   TestNext\n--- PASS: TestNext (0.01s)\nPASS"
+		formatted := formatFailures(out)
+		if !strings.Contains(formatted, "--- FAIL: TestMultiline") {
+			t.Errorf("expected fail header, got:\n%s", formatted)
+		}
+		if !strings.Contains(formatted, "error message") {
+			t.Errorf("expected error message before blank line, got:\n%s", formatted)
+		}
+		if !strings.Contains(formatted, "diff:") || !strings.Contains(formatted, "+ actual") {
+			t.Errorf("expected diff after blank line to be preserved, got:\n%s", formatted)
+		}
+		if strings.Contains(formatted, "TestNext") {
+			t.Errorf("expected passing test boundary to not be included in fail output, got:\n%s", formatted)
+		}
+	})
+
 	t.Run("without fail block", func(t *testing.T) {
 		out := "some random failure"
 		formatted := formatFailures(out)
@@ -659,8 +676,8 @@ func TestFormatTestSummary(t *testing.T) {
 }
 
 func TestFilterNoise(t *testing.T) {
-	input := "go: downloading github.com/foo/bar v1.0\nnormal line\nexit status 1\nanother line"
-	expected := "normal line\nanother line"
+	input := "go: downloading github.com/foo/bar v1.0\nnormal line\nexit status 1\nanother line\nassert failed: expected exit status 0, got 2"
+	expected := "normal line\nanother line\nassert failed: expected exit status 0, got 2"
 	got := filterNoise(input)
 	if got != expected {
 		t.Errorf("expected %q, got %q", expected, got)

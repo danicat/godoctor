@@ -155,14 +155,29 @@ func TestEdit_Broken(t *testing.T) {
 		t.Errorf("expected error for invalid syntax, got: %s", res.Content[0].(*mcp.TextContent).Text)
 	}
 
-	// 2. Broken Implementation (Valid syntax but e.g. undefined var - caught in Post-Check)
-	res2, _, _ := Handler(context.TODO(), nil, SingleEditParams{
+	// 2. Broken Implementation (Valid syntax but undefined symbol - caught in Post-Check go vet)
+	res2, _, err := Handler(context.TODO(), nil, SingleEditParams{
 		Filename:   filePath,
 		OldContent: "func main() {}",
 		NewContent: "func main() { undefinedVar() }",
 	})
+	if err != nil {
+		t.Fatalf("unexpected handler error: %v", err)
+	}
+	if res2 == nil || !res2.IsError {
+		t.Fatalf("expected error from post-edit compiler check, got success")
+	}
 	output := res2.Content[0].(*mcp.TextContent).Text
-	// Syntax is OK, but Post-Check should see it (Actually parser.ParseFile won't see undefined vars)
-	// So we might NOT see a warning here anymore.
-	_ = output
+	if !strings.Contains(output, "Post-edit diagnostics check failed") {
+		t.Errorf("expected diagnostics check failure, got: %s", output)
+	}
+
+	// Verify rollback restored original content
+	restored, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to read file after rollback: %v", err)
+	}
+	if string(restored) != "package main\n\nfunc main() {}" {
+		t.Errorf("expected content to be rolled back to original, got: %q", string(restored))
+	}
 }

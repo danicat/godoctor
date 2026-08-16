@@ -1,11 +1,11 @@
 ---
 name: testquery
-description: Activate this skill whenever analyzing Go test execution results, inspecting failed test output logs, finding slow tests, or querying statement-level coverage gaps using TestQuery and SQLite. Trigger when the user asks "which tests failed?", "show slow tests", "find uncovered lines/functions", "calculate test coverage by package", or wants to run SQL analytics against testquery.db.
+description: Activate this skill whenever analyzing Go test execution results, inspecting failed test output logs, finding slow tests, or querying statement-level coverage gaps using TestQuery and SQLite. Trigger when the user asks which tests failed, show slow tests, find uncovered lines/functions, or calculate test coverage by package.
 ---
 
 # TestQuery SQL Test Analytics Guide
 
-[TestQuery](https://github.com/danicat/testquery) records Go test execution logs and statement coverage into a local SQLite database (`testquery.db`), enabling fast SQL-driven test analytics and coverage auditing.
+[TestQuery](https://github.com/danicat/testquery) records Go test execution logs and statement coverage into a local SQLite database (`testquery.db`), enabling SQL-driven test analytics and coverage queries.
 
 ## Database Schema Reference
 
@@ -16,17 +16,15 @@ description: Activate this skill whenever analyzing Go test execution results, i
 | `test_coverage` | Mapping of individual tests to statement blocks. | `test_name`, `package`, `file`, `start_line`, `end_line`, `stmt_num`, `count` |
 | `all_code` | Source code lines for join-based inspection. | `package`, `file`, `line_number`, `content` |
 
----
-
 ## Querying Test Analytics
 
 ### 1. Via GoDoctor CLI (`godoctor call tq`)
-Always specify an **absolute directory path**:
+Always specify an absolute directory path:
 ```bash
 godoctor call tq '{"dir": "/absolute/path/to/project", "query": "SELECT package, test, elapsed FROM all_tests WHERE action = '\''fail'\''"}'
 ```
 
-### 2. In MCP Mode (`test_query`):
+### 2. In MCP Mode (`test_query`)
 ```json
 {
   "dir": "/absolute/path/to/project",
@@ -34,14 +32,12 @@ godoctor call tq '{"dir": "/absolute/path/to/project", "query": "SELECT package,
 }
 ```
 
-### 3. Direct CLI Tool (if in PATH):
+### 3. Direct CLI Tool (if in PATH)
 ```bash
 testquery query --db testquery.db "SELECT * FROM all_tests WHERE action = 'fail'"
 ```
 
----
-
-## High-Value SQL Recipes
+## Common SQL Queries
 
 ### 1. Show Recent Test Failures with Outputs
 ```sql
@@ -90,10 +86,7 @@ WHERE action = 'pass' AND elapsed > 0.25
 ORDER BY elapsed DESC;
 ```
 
----
+## Notes
 
-## Critical Gotchas
-
-> [!IMPORTANT]
-> 1. **Auto-Generation of Database**: `testquery.db` is built/updated automatically whenever `godoctor call test` runs. If `testquery.db` does not exist when `godoctor call tq` is invoked, GoDoctor will automatically build it first.
-> 2. **Absolute Directory Required**: `dir` must be an absolute path.
+- **Auto-generation**: `testquery.db` is updated automatically whenever `godoctor call test` runs. If `testquery.db` does not exist when `godoctor call tq` is invoked, GoDoctor builds it first.
+- **Absolute directory required**: The `dir` parameter must be an absolute path.

@@ -16,6 +16,8 @@ func TestLevenshtein(t *testing.T) {
 		{"", "abc", 3},
 		{"abc", "", 3},
 		{"gopher", "go", 4},
+		{"こんにちは", "こんばんは", 2},
+		{"🚀go", "🛸go", 1},
 	}
 
 	for _, tt := range tests {
@@ -42,6 +44,12 @@ func TestGetLineOffsets(t *testing.T) {
 	_, _, err = text.GetLineOffsets(content, 10, 0)
 	if err == nil {
 		t.Error("expected error for line beyond length")
+	}
+
+	// endLine < startLine
+	_, _, err = text.GetLineOffsets(content, 3, 1)
+	if err == nil {
+		t.Error("expected error when endLine < startLine")
 	}
 }
 
@@ -75,6 +83,23 @@ func TestNormalizeAndIsWhitespace(t *testing.T) {
 	if norm != "helloworld" {
 		t.Errorf("expected 'helloworld', got %q", norm)
 	}
+
+	// Non-breaking space and other unicode whitespace
+	unicodeRaw := "foo\u00A0bar\u3000baz\u2002qux"
+	unicodeNorm := text.Normalize(unicodeRaw)
+	if unicodeNorm != "foobarbazqux" {
+		t.Errorf("expected 'foobarbazqux', got %q", unicodeNorm)
+	}
+
+	if !text.IsWhitespace('\u00A0') {
+		t.Error("expected non-breaking space (\\u00A0) to be whitespace")
+	}
+	if !text.IsWhitespace('\u3000') {
+		t.Error("expected ideographic space (\\u3000) to be whitespace")
+	}
+	if text.IsWhitespace('a') {
+		t.Error("expected 'a' not to be whitespace")
+	}
 }
 
 func TestSimilarity(t *testing.T) {
@@ -83,5 +108,37 @@ func TestSimilarity(t *testing.T) {
 	}
 	if sim := text.Similarity("a", "b"); sim >= 1.0 {
 		t.Errorf("expected < 1.0 similarity for 'a' and 'b', got %f", sim)
+	}
+	if sim := text.Similarity("こんにちは", "こんにちは"); sim != 1.0 {
+		t.Errorf("expected 1.0 for identical unicode strings, got %f", sim)
+	}
+	if sim := text.Similarity("こんにちは", "こんばんは"); sim != 0.6 {
+		t.Errorf("expected 0.6 for 2 edit distance out of 5 runes, got %f", sim)
+	}
+}
+
+func BenchmarkLevenshtein(b *testing.B) {
+	s1 := "func CalculateTotal(items []Item) (int, error)"
+	s2 := "func CalculateTotals(items []Item) (int, error)"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		text.Levenshtein(s1, s2)
+	}
+}
+
+func BenchmarkSimilarity(b *testing.B) {
+	s1 := "func CalculateTotal(items []Item) (int, error)"
+	s2 := "func CalculateTotals(items []Item) (int, error)"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		text.Similarity(s1, s2)
+	}
+}
+
+func BenchmarkNormalize(b *testing.B) {
+	raw := "   func   main()   {\n\tfmt.Println(\"hello\")\n}\n"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		text.Normalize(raw)
 	}
 }

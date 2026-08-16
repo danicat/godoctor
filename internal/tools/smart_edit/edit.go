@@ -38,21 +38,7 @@ type FileEdit struct {
 }
 
 // SingleEditParams defines the input parameters for the smart_edit single file edit tool.
-type SingleEditParams struct {
-	//nolint:lll
-	Filename string `json:"filename" jsonschema:"The absolute path to the file to edit. Required. Relative paths are rejected."`
-	//nolint:lll
-	OldContent string `json:"old_content,omitempty" jsonschema:"Optional: The block of code to find (ignores whitespace)"`
-	NewContent string `json:"new_content" jsonschema:"The new code to insert"`
-	//nolint:lll
-	StartLine int `json:"start_line,omitempty" jsonschema:"Optional: restrict search window to line number >= start_line"`
-	//nolint:lll
-	EndLine int `json:"end_line,omitempty" jsonschema:"Optional: restrict search window to line number <= end_line"`
-	//nolint:lll
-	Threshold float64 `json:"threshold,omitempty" jsonschema:"Optional: similarity threshold (0.0-1.0) for fuzzy matching (default 0.95)"`
-	//nolint:lll
-	Append bool `json:"append,omitempty" jsonschema:"Optional: append new_content to end of file"`
-}
+type SingleEditParams = FileEdit
 
 // Handler handles the smart_edit tool execution.
 //
@@ -66,14 +52,12 @@ func Handler(
 		return errorResult("filename is required and must be an absolute path"), nil, nil
 	}
 
-	edit := FileEdit(args)
-
 	var session *mcp.ServerSession
 	if req != nil {
 		session = req.Session
 	}
 
-	res, err := ExecuteEdits(ctx, session, []FileEdit{edit})
+	res, err := ExecuteEdits(ctx, session, []FileEdit{args})
 	if res != nil {
 		return res, nil, nil
 	}

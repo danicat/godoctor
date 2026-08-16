@@ -442,10 +442,18 @@ type MyResult struct {
 	ID string
 }
 
+type OtherResult struct {
+	Count int
+}
+
 func ReturnPtr() *MyResult { return nil }
 func ReturnVal() MyResult { return MyResult{} }
 func ReturnSliceVal() []MyResult { return nil }
 func ReturnSlicePtr() []*MyResult { return nil }
+func ReturnMulti() (int, *MyResult, error) { return 0, nil, nil }
+func ReturnMultiCustom() (*MyResult, *OtherResult, error) { return nil, nil, nil }
+func ReturnMap() map[string]*MyResult { return nil }
+func ReturnChan() <-chan *MyResult { return nil }
 func ReturnNone() {}
 func ReturnBuiltin() int { return 0 }
 func ReturnUnknown() *UnknownType { return nil }
@@ -473,14 +481,18 @@ func ReturnUnknown() *UnknownType { return nil }
 
 	tests := []struct {
 		funcName string
-		wantDef  bool
+		wantDefs []string
 	}{
-		{"ReturnPtr", true},
-		{"ReturnVal", true},
-		{"ReturnSliceVal", true},
-		{"ReturnSlicePtr", true},
-		{"ReturnNone", false},
-		{"ReturnBuiltin", false},
+		{"ReturnPtr", []string{"type MyResult struct"}},
+		{"ReturnVal", []string{"type MyResult struct"}},
+		{"ReturnSliceVal", []string{"type MyResult struct"}},
+		{"ReturnSlicePtr", []string{"type MyResult struct"}},
+		{"ReturnMulti", []string{"type MyResult struct"}},
+		{"ReturnMultiCustom", []string{"type MyResult struct", "type OtherResult struct"}},
+		{"ReturnMap", []string{"type MyResult struct"}},
+		{"ReturnChan", []string{"type MyResult struct"}},
+		{"ReturnNone", nil},
+		{"ReturnBuiltin", nil},
 	}
 
 	for _, tt := range tests {
@@ -490,9 +502,11 @@ func ReturnUnknown() *UnknownType { return nil }
 				t.Fatalf("function %q not found in parsed package", tt.funcName)
 			}
 			got := findReturnTypeDefinition(fset, docPkg, fn)
-			if tt.wantDef {
-				if !strings.Contains(got, "type MyResult struct") {
-					t.Errorf("findReturnTypeDefinition(%s) = %q, want struct definition", tt.funcName, got)
+			if len(tt.wantDefs) > 0 {
+				for _, want := range tt.wantDefs {
+					if !strings.Contains(got, want) {
+						t.Errorf("findReturnTypeDefinition(%s) = %q, want definition containing %q", tt.funcName, got, want)
+					}
 				}
 			} else {
 				if got != "" {
@@ -857,5 +871,137 @@ func TestLoadWithFallback_SubpackageParentWalking(t *testing.T) {
 	}
 	if d.ResolvedPath != "github.com/google/uuid/nonexistent_sub_package" {
 		t.Errorf("expected ResolvedPath 'github.com/google/uuid/nonexistent_sub_package', got %q", d.ResolvedPath)
+	}
+}
+
+func TestMemoryCache(t *testing.T) {
+	ctx := context.Background()
+	ClearCache()
+	SetCacheEnabled(true)
+	defer ClearCache()
+
+	// Initial load should populate cache
+	d1, err := Load(ctx, "fmt", "Println")
+	if err != nil {
+		t.Fatalf("Load(\"fmt\", \"Println\") failed: %v", err)
+	}
+
+	// Second load should hit cache and return clone
+	d2, err := Load(ctx, "fmt", "Println")
+	if err != nil {
+		t.Fatalf("Load(\"fmt\", \"Println\") from cache failed: %v", err)
+	}
+
+	if d1.SymbolName != d2.SymbolName || d1.Type != d2.Type {
+		t.Errorf("Cached doc mismatch: %+v vs %+v", d1, d2)
+	}
+
+	// Mutating d2 should not mutate cache or d1
+	d2.SymbolName = "Mutated"
+	d3, err := Load(ctx, "fmt", "Println")
+	if err != nil {
+		t.Fatalf("Load(\"fmt\", \"Println\") after mutation failed: %v", err)
+	}
+	if d3.SymbolName != "Println" {
+		t.Errorf("Cache was mutated! Expected 'Println', got %q", d3.SymbolName)
+	}
+
+	// Test cache clear
+	ClearCache()
+	// Disable cache
+	SetCacheEnabled(false)
+	defer SetCacheEnabled(true)
+
+	dUncached, err := Load(ctx, "fmt", "Println")
+	if err != nil {
+		t.Fatalf("Load with cache disabled failed: %v", err)
+	}
+	if dUncached.SymbolName != "Println" {
+		t.Errorf("Uncached load mismatch: %q", dUncached.SymbolName)
+	}
+}
+
+func TestLoadPackageFiles(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Regular Go file
+	mainCode := `package mypkg
+func Hello() string { return "hello" }
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "main.go"), []byte(mainCode), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Example test file (should be included)
+	exampleCode := `package mypkg_test
+import "fmt"
+func ExampleHello() {
+	fmt.Println("hello")
+}
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "example_test.go"), []byte(exampleCode), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Unit test file (should be excluded)
+	unitTestCode := `package mypkg
+import "testing"
+func TestHello(t *testing.T) {}
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "main_test.go"), []byte(unitTestCode), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	fset := token.NewFileSet()
+	files, err := loadPackageFiles(fset, tempDir)
+	if err != nil {
+		t.Fatalf("loadPackageFiles failed: %v", err)
+	}
+
+	// Should have main.go and example_test.go, but not main_test.go
+	if len(files) != 2 {
+		t.Fatalf("loadPackageFiles expected 2 files, got %d", len(files))
+	}
+}
+
+func TestDoc_Clone(t *testing.T) {
+	var nilDoc *Doc
+	if nilDoc.Clone() != nil {
+		t.Error("nilDoc.Clone() expected nil")
+	}
+
+	orig := &Doc{
+		Package:     "test",
+		Examples:    []Example{{Name: "Ex1"}},
+		SubPackages: []string{"sub1"},
+		Funcs:       []string{"func1"},
+		Types:       []string{"type1"},
+		Vars:        []string{"var1"},
+		Consts:      []string{"const1"},
+		References:  []string{"ref1"},
+	}
+
+	clone := orig.Clone()
+	if clone == nil {
+		t.Fatal("clone is nil")
+	}
+
+	// Modify slices on clone to ensure deep copy
+	clone.Examples[0].Name = "MutatedEx"
+	clone.SubPackages[0] = "MutatedSub"
+	clone.Funcs[0] = "MutatedFunc"
+	clone.Types[0] = "MutatedType"
+	clone.Vars[0] = "MutatedVar"
+	clone.Consts[0] = "MutatedConst"
+	clone.References[0] = "MutatedRef"
+
+	if orig.Examples[0].Name != "Ex1" ||
+		orig.SubPackages[0] != "sub1" ||
+		orig.Funcs[0] != "func1" ||
+		orig.Types[0] != "type1" ||
+		orig.Vars[0] != "var1" ||
+		orig.Consts[0] != "const1" ||
+		orig.References[0] != "ref1" {
+		t.Errorf("Original doc was mutated by clone modifications: %+v", orig)
 	}
 }

@@ -135,9 +135,41 @@ func TestHandler_ValidationFailure(t *testing.T) {
 	}
 }
 
+func TestResolveDBPath(t *testing.T) {
+	t.Run("defaults to .godoctor/testquery.db when root db does not exist", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		rel, abs := resolveDBPath(tmpDir)
+		expectedRel := filepath.Join(".godoctor", "testquery.db")
+		expectedAbs := filepath.Join(tmpDir, ".godoctor", "testquery.db")
+
+		if rel != expectedRel {
+			t.Errorf("expected rel %q, got %q", expectedRel, rel)
+		}
+		if abs != expectedAbs {
+			t.Errorf("expected abs %q, got %q", expectedAbs, abs)
+		}
+	})
+
+	t.Run("falls back to legacy testquery.db when existing in root", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		legacyPath := filepath.Join(tmpDir, "testquery.db")
+		if err := os.WriteFile(legacyPath, []byte("fake db"), 0600); err != nil {
+			t.Fatalf("failed to write fake legacy db: %v", err)
+		}
+
+		rel, abs := resolveDBPath(tmpDir)
+		if rel != "testquery.db" {
+			t.Errorf("expected rel 'testquery.db', got %q", rel)
+		}
+		if abs != legacyPath {
+			t.Errorf("expected abs %q, got %q", legacyPath, abs)
+		}
+	})
+}
+
 func TestHandler_ExistingDB_NoRebuild(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbFilePath := filepath.Join(tmpDir, dbFile)
+	dbFilePath := filepath.Join(tmpDir, legacyDBFile)
 	if err := os.WriteFile(dbFilePath, []byte("fake db"), 0600); err != nil {
 		t.Fatalf("failed to create fake db: %v", err)
 	}
@@ -227,7 +259,7 @@ func TestHandler_MissingDB_BuildsDB(t *testing.T) {
 
 func TestHandler_Rebuild_ForcesBuild(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbFilePath := filepath.Join(tmpDir, dbFile)
+	dbFilePath := filepath.Join(tmpDir, legacyDBFile)
 	if err := os.WriteFile(dbFilePath, []byte("existing db"), 0600); err != nil {
 		t.Fatalf("failed to create db: %v", err)
 	}
@@ -308,6 +340,7 @@ func TestHandler_BuildDB_Error_MissingDB(t *testing.T) {
 }
 
 func TestBuildDB_ToolPathResolution(t *testing.T) {
+	relExpected := filepath.Join(".godoctor", "testquery.db")
 	tests := []struct {
 		name        string
 		lookPaths   map[string]string
@@ -318,19 +351,19 @@ func TestBuildDB_ToolPathResolution(t *testing.T) {
 			name:        "testquery in PATH",
 			lookPaths:   map[string]string{"testquery": "/usr/bin/testquery"},
 			pkg:         "github.com/danicat/godoctor/...",
-			expectedCmd: "testquery build --pkg github.com/danicat/godoctor/... --output testquery.db",
+			expectedCmd: fmt.Sprintf("testquery build --pkg github.com/danicat/godoctor/... --output %s", relExpected),
 		},
 		{
 			name:        "tq in PATH",
 			lookPaths:   map[string]string{"testquery": "", "tq": "/usr/bin/tq"},
 			pkg:         "",
-			expectedCmd: "tq build --pkg ./... --output testquery.db",
+			expectedCmd: fmt.Sprintf("tq build --pkg ./... --output %s", relExpected),
 		},
 		{
 			name:        "neither in PATH fallback to go run",
 			lookPaths:   map[string]string{"testquery": "", "tq": ""},
 			pkg:         "my/pkg",
-			expectedCmd: "go run github.com/danicat/testquery@latest build --pkg my/pkg --output testquery.db",
+			expectedCmd: fmt.Sprintf("go run github.com/danicat/testquery@latest build --pkg my/pkg --output %s", relExpected),
 		},
 	}
 
@@ -343,8 +376,8 @@ func TestBuildDB_ToolPathResolution(t *testing.T) {
 			CommandRunner = mock
 
 			tmpDir := t.TempDir()
-			dbPath := filepath.Join(tmpDir, dbFile)
-			errRes := buildDB(context.Background(), tmpDir, Params{Pkg: tc.pkg}, dbPath)
+			relDBPath, absDBPath := resolveDBPath(tmpDir)
+			errRes := buildDB(context.Background(), tmpDir, Params{Pkg: tc.pkg}, relDBPath, absDBPath)
 			if errRes != nil {
 				t.Fatalf("unexpected error result: %v", errRes)
 			}
@@ -358,8 +391,9 @@ func TestBuildDB_ToolPathResolution(t *testing.T) {
 
 func TestBuildDB_BuildFailure_DBExists(t *testing.T) {
 	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, dbFile)
-	if err := os.WriteFile(dbPath, []byte("pre-existing db"), 0600); err != nil {
+	relDBPath := legacyDBFile
+	absDBPath := filepath.Join(tmpDir, relDBPath)
+	if err := os.WriteFile(absDBPath, []byte("pre-existing db"), 0600); err != nil {
 		t.Fatalf("failed to create db: %v", err)
 	}
 
@@ -368,7 +402,7 @@ func TestBuildDB_BuildFailure_DBExists(t *testing.T) {
 
 	mock := &mockRunner{
 		outputs: map[string]string{
-			"build": "some non-fatal build warning",
+			"build": "compilation failure in test suite",
 		},
 		errors: map[string]error{
 			"build": fmt.Errorf("exit status 1"),
@@ -379,10 +413,90 @@ func TestBuildDB_BuildFailure_DBExists(t *testing.T) {
 	}
 	CommandRunner = mock
 
-	errRes := buildDB(context.Background(), tmpDir, Params{}, dbPath)
-	if errRes != nil {
-		t.Errorf("expected error to be tolerated when db exists, got error result: %v", errRes)
+	errRes := buildDB(context.Background(), tmpDir, Params{}, relDBPath, absDBPath)
+	if errRes == nil {
+		t.Fatal("expected error result when buildDB fails even if db already exists")
 	}
+	if !errRes.IsError {
+		t.Error("expected IsError=true")
+	}
+	text := errRes.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "failed to rebuild test database (stale database exists)") {
+		t.Errorf("expected stale database warning, got: %s", text)
+	}
+	if !strings.Contains(text, "compilation failure in test suite") {
+		t.Errorf("expected build output in message, got: %s", text)
+	}
+}
+
+func TestBuildDB_CreatesDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	relDBPath := filepath.Join(".godoctor", "sub", "testquery.db")
+	absDBPath := filepath.Join(tmpDir, relDBPath)
+
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	mock := &mockRunner{
+		lookPaths: map[string]string{
+			"testquery": "/usr/bin/testquery",
+		},
+	}
+	CommandRunner = mock
+
+	errRes := buildDB(context.Background(), tmpDir, Params{}, relDBPath, absDBPath)
+	if errRes != nil {
+		t.Fatalf("unexpected error result: %v", errRes)
+	}
+
+	dir := filepath.Dir(absDBPath)
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("expected dir %q to be created: %v", dir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %q to be a directory", dir)
+	}
+}
+
+func TestEnsureWALMode(t *testing.T) {
+	t.Run("uses sqlite3 when in PATH", func(t *testing.T) {
+		oldRunner := CommandRunner
+		defer func() { CommandRunner = oldRunner }()
+
+		mock := &mockRunner{
+			lookPaths: map[string]string{
+				"sqlite3": "/usr/bin/sqlite3",
+			},
+		}
+		CommandRunner = mock
+
+		ensureWALMode(context.Background(), "/workspace", ".godoctor/testquery.db")
+		expected := "sqlite3 .godoctor/testquery.db PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"
+		if len(mock.calls) == 0 || mock.calls[0] != expected {
+			t.Errorf("expected WAL call %q, got %v", expected, mock.calls)
+		}
+	})
+
+	t.Run("falls back to tq when sqlite3 not found", func(t *testing.T) {
+		oldRunner := CommandRunner
+		defer func() { CommandRunner = oldRunner }()
+
+		mock := &mockRunner{
+			lookPaths: map[string]string{
+				"sqlite3":   "",
+				"testquery": "",
+				"tq":        "/usr/bin/tq",
+			},
+		}
+		CommandRunner = mock
+
+		ensureWALMode(context.Background(), "/workspace", "testquery.db")
+		expected := "tq query --db testquery.db --format table PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"
+		if len(mock.calls) == 0 || mock.calls[0] != expected {
+			t.Errorf("expected WAL call %q, got %v", expected, mock.calls)
+		}
+	})
 }
 
 func TestRunQuery_ToolPathResolution(t *testing.T) {
@@ -396,7 +510,7 @@ func TestRunQuery_ToolPathResolution(t *testing.T) {
 			lookPaths: map[string]string{
 				"testquery": "/usr/bin/testquery",
 			},
-			expectedCmd: "testquery query --db testquery.db --format table SELECT 1",
+			expectedCmd: "testquery query --db .godoctor/testquery.db --format table SELECT 1",
 		},
 		{
 			name: "tq in PATH",
@@ -404,7 +518,7 @@ func TestRunQuery_ToolPathResolution(t *testing.T) {
 				"testquery": "",
 				"tq":        "/usr/bin/tq",
 			},
-			expectedCmd: "tq query --db testquery.db --format table SELECT 1",
+			expectedCmd: "tq query --db .godoctor/testquery.db --format table SELECT 1",
 		},
 		{
 			name: "fallback to go run",
@@ -412,7 +526,7 @@ func TestRunQuery_ToolPathResolution(t *testing.T) {
 				"testquery": "",
 				"tq":        "",
 			},
-			expectedCmd: "go run github.com/danicat/testquery@latest query --db testquery.db --format table SELECT 1",
+			expectedCmd: "go run github.com/danicat/testquery@latest query --db .godoctor/testquery.db --format table SELECT 1",
 		},
 	}
 
@@ -429,7 +543,7 @@ func TestRunQuery_ToolPathResolution(t *testing.T) {
 			}
 			CommandRunner = mock
 
-			res, _, err := runQuery(context.Background(), "/workspace", "SELECT 1")
+			res, _, err := runQuery(context.Background(), "/workspace", ".godoctor/testquery.db", "/workspace/.godoctor/testquery.db", "SELECT 1")
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -457,7 +571,7 @@ func TestRunQuery_EmptyOutput(t *testing.T) {
 	}
 	CommandRunner = mock
 
-	res, _, err := runQuery(context.Background(), "/workspace", "SELECT * FROM all_tests WHERE 1=0")
+	res, _, err := runQuery(context.Background(), "/workspace", ".godoctor/testquery.db", "/workspace/.godoctor/testquery.db", "SELECT * FROM all_tests WHERE 1=0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -487,7 +601,7 @@ func TestRunQuery_ErrorWithEmptyOutput(t *testing.T) {
 	}
 	CommandRunner = mock
 
-	res, _, err := runQuery(context.Background(), "/workspace", "INVALID SQL")
+	res, _, err := runQuery(context.Background(), "/workspace", ".godoctor/testquery.db", "/workspace/.godoctor/testquery.db", "INVALID SQL")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -520,7 +634,7 @@ func TestRunQuery_ErrorWithOutput(t *testing.T) {
 	}
 	CommandRunner = mock
 
-	res, _, err := runQuery(context.Background(), "/workspace", "SELECT * FROM all_tests")
+	res, _, err := runQuery(context.Background(), "/workspace", ".godoctor/testquery.db", "/workspace/.godoctor/testquery.db", "SELECT * FROM all_tests")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -541,9 +655,12 @@ func TestFilterNoise(t *testing.T) {
 table header
 row 1 data
 exit status 1
-row 2 data`
+   exit status 2   
+exit status
+row 2 data with exit status 1 in output
+row 3 data`
 
-	expected := "table header\nrow 1 data\nrow 2 data"
+	expected := "table header\nrow 1 data\nrow 2 data with exit status 1 in output\nrow 3 data"
 	got := filterNoise(input)
 	if got != expected {
 		t.Errorf("expected filtered noise:\n%s\ngot:\n%s", expected, got)

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # install.sh - GoDoctor Installer
-# 1. Downloads prebuilt release binary (via GoReleaser) or falls back to 'go install'
-# 2. Automatically executes 'godoctor init' to configure MCP server and Agent Skills
+# 1. Downloads prebuilt release binary (via GoReleaser) or explicitly compiles via 'go install' (--build)
+# 2. Automatically executes 'godoctor install' to configure MCP server and Agent Skills
 
 set -euo pipefail
 
@@ -46,6 +46,7 @@ Examples:
   ./install.sh -w                   # Install binary + configure MCP & Skills in workspace (.agents/)
   ./install.sh --mcp                # Install binary + configure MCP server only
   ./install.sh --skills             # Install binary + configure Skills only
+  ./install.sh --build              # Explicitly build from source via 'go install'
 EOF
 }
 
@@ -72,7 +73,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo -e "${BLUE}===============================================${NC}"
-echo -e "${BLUE}           GoDoctor Installer                  ${NC}"
+echo -e "${BLUE}         GoDoctor Installer                    ${NC}"
 echo -e "${BLUE}===============================================${NC}"
 echo -e "Version: ${BOLD}${VERSION}${NC}"
 echo ""
@@ -92,9 +93,8 @@ fi
 
 mkdir -p "${INSTALL_BIN_DIR}"
 BIN_PATH="${INSTALL_BIN_DIR}/godoctor"
-BINARY_INSTALLED="false"
 
-# 1. Attempt prebuilt release binary download (GoReleaser)
+# 1. Download prebuilt release binary (GoReleaser)
 if [ "${BUILD_FROM_SOURCE}" != "true" ]; then
   OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
   ARCH="$(uname -m)"
@@ -104,41 +104,53 @@ if [ "${BUILD_FROM_SOURCE}" != "true" ]; then
     *) ARCH="" ;;
   esac
 
-  if [ -n "${ARCH}" ] && [[ "${OS}" =~ ^(darwin|linux)$ ]]; then
-    echo -e "📦 ${BLUE}[Binary] Fetching prebuilt binary for ${OS}.${ARCH}...${NC}"
-
-    if [ "${VERSION}" = "latest" ]; then
-      RELEASE_URL="https://github.com/${REPO}/releases/latest/download/${OS}.${ARCH}.godoctor.tar.gz"
-    else
-      CLEAN_VER="${VERSION#v}"
-      RELEASE_URL="https://github.com/${REPO}/releases/download/v${CLEAN_VER}/${OS}.${ARCH}.godoctor.tar.gz"
-    fi
-
-    TMP_DIR="$(mktemp -d)"
-    trap 'rm -rf "${TMP_DIR}"' EXIT
-    TAR_FILE="${TMP_DIR}/godoctor.tar.gz"
-
-    if curl -fsSL "${RELEASE_URL}" -o "${TAR_FILE}" 2>/dev/null; then
-      if tar -xzf "${TAR_FILE}" -C "${TMP_DIR}" 2>/dev/null; then
-        if [ -f "${TMP_DIR}/bin/godoctor" ]; then
-          mv "${TMP_DIR}/bin/godoctor" "${BIN_PATH}"
-          chmod +x "${BIN_PATH}"
-          BINARY_INSTALLED="true"
-          echo -e "  ${GREEN}✓ Downloaded and installed to ${BIN_PATH}${NC}"
-        elif [ -f "${TMP_DIR}/godoctor" ]; then
-          mv "${TMP_DIR}/godoctor" "${BIN_PATH}"
-          chmod +x "${BIN_PATH}"
-          BINARY_INSTALLED="true"
-          echo -e "  ${GREEN}✓ Downloaded and installed to ${BIN_PATH}${NC}"
-        fi
-      fi
-    fi
-    rm -rf "${TMP_DIR}"
+  if [ -z "${ARCH}" ] || [[ ! "${OS}" =~ ^(darwin|linux)$ ]]; then
+    echo -e "${RED}❌ Error: Unsupported OS (${OS}) or Architecture (${ARCH}).${NC}" >&2
+    echo -e "   Please build from source using: ${BOLD}curl -fsSL ... | bash -s -- --build${NC}" >&2
+    exit 1
   fi
-fi
 
-# 2. Fallback to 'go install' if release download was not used or failed
-if [ "${BINARY_INSTALLED}" != "true" ]; then
+  echo -e "📦 ${BLUE}[Binary] Fetching prebuilt binary for ${OS}.${ARCH}...${NC}"
+
+  if [ "${VERSION}" = "latest" ]; then
+    RELEASE_URL="https://github.com/${REPO}/releases/latest/download/${OS}.${ARCH}.godoctor.tar.gz"
+  else
+    CLEAN_VER="${VERSION#v}"
+    RELEASE_URL="https://github.com/${REPO}/releases/download/v${CLEAN_VER}/${OS}.${ARCH}.godoctor.tar.gz"
+  fi
+
+  TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "${TMP_DIR}"' EXIT
+  TAR_FILE="${TMP_DIR}/godoctor.tar.gz"
+
+  if ! curl -fsSL "${RELEASE_URL}" -o "${TAR_FILE}" 2>/dev/null; then
+    echo -e "${RED}❌ Error: Failed to download prebuilt release for ${OS}.${ARCH}.${NC}" >&2
+    echo -e "   URL: ${RELEASE_URL}" >&2
+    echo "" >&2
+    echo -e "   To build from source instead, re-run with: ${BOLD}--build${NC}" >&2
+    exit 1
+  fi
+
+  if ! tar -xzf "${TAR_FILE}" -C "${TMP_DIR}" 2>/dev/null; then
+    echo -e "${RED}❌ Error: Failed to extract release archive.${NC}" >&2
+    exit 1
+  fi
+
+  if [ -f "${TMP_DIR}/bin/godoctor" ]; then
+    mv "${TMP_DIR}/bin/godoctor" "${BIN_PATH}"
+  elif [ -f "${TMP_DIR}/godoctor" ]; then
+    mv "${TMP_DIR}/godoctor" "${BIN_PATH}"
+  else
+    echo -e "${RED}❌ Error: Binary not found in extracted archive.${NC}" >&2
+    exit 1
+  fi
+
+  chmod +x "${BIN_PATH}"
+  echo -e "  ${GREEN}✓ Downloaded and installed to ${BIN_PATH}${NC}"
+  rm -rf "${TMP_DIR}"
+
+else
+  # 2. Build from source (Explicitly requested via --build)
   echo -e "🔨 ${BLUE}[Binary] Compiling from source via 'go install'...${NC}"
   if ! command -v go &> /dev/null; then
     echo -e "${RED}❌ Error: 'go' toolchain is required to build from source.${NC}" >&2

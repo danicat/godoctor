@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
+	"github.com/danicat/godoctor/internal/versioncheck"
 )
 
 func TestRun_NoArgs_PrintsHelp(t *testing.T) {
@@ -67,6 +69,88 @@ func TestRun_List(t *testing.T) {
 		if !strings.Contains(out, tool) {
 			t.Errorf("expected tool %q in list output, got:\n%s", tool, out)
 		}
+	}
+}
+
+func TestRun_Init_GeneratesConfigFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. First run creates .godoctor.yaml
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), "dev", []string{"init", "--dir", tmpDir}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on init: %v", err)
+	}
+
+	configPath := filepath.Join(tmpDir, ".godoctor.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("failed to read created config file: %v", err)
+	}
+
+	if !strings.Contains(string(data), "GoDoctor Configuration File") || !strings.Contains(string(data), `version: "1"`) {
+		t.Errorf("expected standard template content in %s, got:\n%s", configPath, string(data))
+	}
+
+	// 2. Second run without --force should fail
+	stdout.Reset()
+	stderr.Reset()
+	err = Run(context.Background(), "dev", []string{"init", "--dir", tmpDir}, nil, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error when config file already exists and --force is not set")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Errorf("expected 'already exists' in error, got: %v", err)
+	}
+
+	// 3. Third run with --force should succeed
+	stdout.Reset()
+	stderr.Reset()
+	err = Run(context.Background(), "dev", []string{"init", "--dir", tmpDir, "--force"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on init with --force: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "Created") {
+		t.Errorf("expected success message in stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRun_Check(t *testing.T) {
+	// 1. Standard table output
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), "dev", []string{"check"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on check: %v", err)
+	}
+	tableOut := stdout.String()
+	if !strings.Contains(tableOut, "GoDoctor Environment & Tool Diagnostic Check") {
+		t.Errorf("expected diagnostic check title, got:\n%s", tableOut)
+	}
+	if !strings.Contains(tableOut, "golangci-lint") || !strings.Contains(tableOut, "modernize") {
+		t.Errorf("expected tool names in check output, got:\n%s", tableOut)
+	}
+
+	// 2. JSON output
+	stdout.Reset()
+	stderr.Reset()
+	err = Run(context.Background(), "dev", []string{"check", "--json"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on check --json: %v", err)
+	}
+	var statuses []versioncheck.ToolStatus
+	if err := json.Unmarshal(stdout.Bytes(), &statuses); err != nil {
+		t.Fatalf("failed to unmarshal JSON output from check --json: %v\nOutput was: %s", err, stdout.String())
+	}
+	if len(statuses) == 0 {
+		t.Errorf("expected non-empty statuses list in JSON output")
+	}
+}
+
+func TestRun_GlobalFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), "dev", []string{"--quiet", "-V", "list"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error with global flags: %v", err)
 	}
 }
 
@@ -238,5 +322,14 @@ func TestRun_Call_Build_OutputTarget(t *testing.T) {
 	}
 	if !foundBuildWithO {
 		t.Errorf("expected go build -o bin/jsonbin in runner calls, got: %+v", runner.calls)
+	}
+}
+
+func TestPrintHelp(t *testing.T) {
+	var buf bytes.Buffer
+	PrintHelp(&buf, "1.0.0")
+	out := buf.String()
+	if !strings.Contains(out, "godoctor 1.0.0") || !strings.Contains(out, "Usage:") {
+		t.Errorf("PrintHelp output missing expected content: %s", out)
 	}
 }

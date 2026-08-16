@@ -19,7 +19,7 @@ func Register(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "test_query",
 		Title:       "Test Query",
-		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Uses a persistent SQLite database (testquery.db) to avoid re-running tests on every query. Set rebuild=true after code changes to refresh the database. Available tables: all_tests (time, action, package, test, elapsed, output), all_coverage (package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), test_coverage (test_name, package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), all_code (package, file, line_number, content), metadata (key, value).",
+		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Uses a persistent SQLite database (.godoctor/testquery.db or testquery.db) to avoid re-running tests on every query. Set rebuild=true after code changes to refresh the database. Available tables: all_tests (time, action, package, test, elapsed, output), all_coverage (package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), test_coverage (test_name, package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), all_code (package, file, line_number, content), metadata (key, value).",
 	}, Handler)
 }
 
@@ -70,16 +70,21 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 var CommandRunner Runner = &stdRunner{}
 
 const (
-	cmdTestQuery = "testquery"
-	cmdTQ        = "tq"
-	dbFile       = "testquery.db"
-	flagOutput   = "--output"
-	flagDB       = "--db"
-	flagPkg      = "--pkg"
-	flagFormat   = "--format"
-	flagTable    = "table"
-	cmdBuild     = "build"
-	cmdQuery     = "query"
+	cmdTestQuery       = "testquery"
+	cmdTQ              = "tq"
+	cmdSQLite3         = "sqlite3"
+	dbFile             = "testquery.db"
+	legacyDBFile       = "testquery.db"
+	defaultDBDir       = ".godoctor"
+	defaultFallbackPkg = "github.com/danicat/testquery@latest"
+	flagOutput         = "--output"
+	flagDB             = "--db"
+	flagPkg            = "--pkg"
+	flagFormat         = "--format"
+	flagTable          = "table"
+	cmdBuild           = "build"
+	cmdQuery           = "query"
+	pragmaWAL          = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"
 )
 
 // Handler handles the test_query tool execution.
@@ -89,15 +94,15 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 		return errorResult(err.Error()), nil, nil
 	}
 
-	dbPath := filepath.Join(absDir, dbFile)
+	relDBPath, absDBPath := resolveDBPath(absDir)
 
-	if args.Rebuild || !fileExists(dbPath) {
-		if errRes := buildDB(ctx, absDir, args, dbPath); errRes != nil {
+	if args.Rebuild || !fileExists(absDBPath) {
+		if errRes := buildDB(ctx, absDir, args, relDBPath, absDBPath); errRes != nil {
 			return errRes, nil, nil
 		}
 	}
 
-	return runQuery(ctx, absDir, args.Query)
+	return runQuery(ctx, absDir, relDBPath, absDBPath, args.Query)
 }
 
 func validateParams(_ *mcp.CallToolRequest, args Params) (string, error) {
@@ -112,57 +117,70 @@ func validateParams(_ *mcp.CallToolRequest, args Params) (string, error) {
 	return filepath.Clean(args.Dir), nil
 }
 
-func buildDB(ctx context.Context, absDir string, args Params, dbPath string) *mcp.CallToolResult {
+func resolveDBPath(absDir string) (string, string) {
+	legacyPath := filepath.Join(absDir, legacyDBFile)
+	if fileExists(legacyPath) {
+		return legacyDBFile, legacyPath
+	}
+
+	preferredRel := filepath.Join(defaultDBDir, dbFile)
+	return preferredRel, filepath.Join(absDir, preferredRel)
+}
+
+func getTQCommand(runner Runner, args ...string) (string, []string) {
+	if _, err := runner.LookPath(cmdTestQuery); err == nil {
+		return cmdTestQuery, args
+	}
+	if _, err := runner.LookPath(cmdTQ); err == nil {
+		return cmdTQ, args
+	}
+	goArgs := append([]string{"run", defaultFallbackPkg}, args...)
+	return "go", goArgs
+}
+
+func ensureWALMode(ctx context.Context, absDir, relDBPath string) {
+	if _, err := CommandRunner.LookPath(cmdSQLite3); err == nil {
+		_ = CommandRunner.Run(ctx, absDir, cmdSQLite3, relDBPath, pragmaWAL)
+		return
+	}
+	tqCmd, tqArgs := getTQCommand(CommandRunner, cmdQuery, flagDB, relDBPath, flagFormat, flagTable, pragmaWAL)
+	_ = CommandRunner.Run(ctx, absDir, tqCmd, tqArgs...)
+}
+
+func buildDB(ctx context.Context, absDir string, args Params, relDBPath, absDBPath string) *mcp.CallToolResult {
+	if err := os.MkdirAll(filepath.Dir(absDBPath), 0755); err != nil {
+		return errorResult(fmt.Sprintf("failed to create database directory: %v", err))
+	}
+
 	pkg := args.Pkg
 	if pkg == "" {
 		pkg = "./..."
 	}
 
-	var tqCmd string
-	var tqArgs []string
-	if _, err := CommandRunner.LookPath(cmdTestQuery); err == nil {
-		tqCmd = cmdTestQuery
-		tqArgs = []string{cmdBuild, flagPkg, pkg, flagOutput, dbFile}
-	} else if _, err := CommandRunner.LookPath(cmdTQ); err == nil {
-		tqCmd = cmdTQ
-		tqArgs = []string{cmdBuild, flagPkg, pkg, flagOutput, dbFile}
-	} else {
-		tqCmd = "go"
-		tqArgs = []string{
-			"run", "github.com/danicat/testquery@latest",
-			cmdBuild, flagPkg, pkg, flagOutput, dbFile,
-		}
-	}
+	tqCmd, tqArgs := getTQCommand(CommandRunner, cmdBuild, flagPkg, pkg, flagOutput, relDBPath)
 
 	out, buildErr := CommandRunner.RunWithOutput(ctx, absDir, tqCmd, tqArgs...)
 	buildOutput := filterNoise(out)
 
 	if buildErr != nil {
-		if !fileExists(dbPath) {
-			hint := "**HINT:** Ensure Go tests compile cleanly. " +
-				"Run `smart_build` or `smart_test` first to identify any compilation or syntax errors."
-			return errorResult(fmt.Sprintf("failed to build test database: %v\n%s\n\n%s", buildErr, buildOutput, hint))
+		hint := "**HINT:** Ensure Go tests compile cleanly. " +
+			"Run `smart_build` or `smart_test` first to identify any compilation or syntax errors."
+		if fileExists(absDBPath) {
+			return errorResult(fmt.Sprintf("failed to rebuild test database (stale database exists): %v\n%s\n\n%s", buildErr, buildOutput, hint))
 		}
+		return errorResult(fmt.Sprintf("failed to build test database: %v\n%s\n\n%s", buildErr, buildOutput, hint))
 	}
+
+	ensureWALMode(ctx, absDir, relDBPath)
 	return nil
 }
 
-func runQuery(ctx context.Context, absDir, query string) (*mcp.CallToolResult, any, error) {
-	var tqCmd string
-	var tqArgs []string
-	if _, err := CommandRunner.LookPath(cmdTestQuery); err == nil {
-		tqCmd = cmdTestQuery
-		tqArgs = []string{cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
-	} else if _, err := CommandRunner.LookPath(cmdTQ); err == nil {
-		tqCmd = cmdTQ
-		tqArgs = []string{cmdQuery, flagDB, dbFile, flagFormat, flagTable, query}
-	} else {
-		tqCmd = "go"
-		tqArgs = []string{
-			"run", "github.com/danicat/testquery@latest",
-			cmdQuery, flagDB, dbFile, flagFormat, flagTable, query,
-		}
+func runQuery(ctx context.Context, absDir, relDBPath, absDBPath, query string) (*mcp.CallToolResult, any, error) {
+	if fileExists(absDBPath) {
+		ensureWALMode(ctx, absDir, relDBPath)
 	}
+
+	tqCmd, tqArgs := getTQCommand(CommandRunner, cmdQuery, flagDB, relDBPath, flagFormat, flagTable, query)
 
 	out, runErr := CommandRunner.RunWithOutput(ctx, absDir, tqCmd, tqArgs...)
 	output := filterNoise(out)
@@ -214,7 +232,8 @@ func filterNoise(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	var filtered []string
 	for _, line := range lines {
-		if strings.HasPrefix(line, "go: downloading ") || strings.Contains(line, "exit status") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "go: downloading ") || strings.HasPrefix(trimmed, "exit status ") || trimmed == "exit status" {
 			continue
 		}
 		filtered = append(filtered, line)

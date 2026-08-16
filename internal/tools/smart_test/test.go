@@ -166,10 +166,20 @@ func runFastLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb 
 func runBasicLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb *strings.Builder) error {
 	sb.WriteString("### 🧪 Test & Coverage Analysis\n\n")
 
-	covFile := filepath.Join(workspaceDir, "coverage.out")
-	defer func() {
-		_ = os.Remove(covFile)
-	}()
+	tmpFile, err := os.CreateTemp("", "godoctor-coverage-*.out")
+	var covFile string
+	if err == nil {
+		covFile = tmpFile.Name()
+		_ = tmpFile.Close()
+		defer func() {
+			_ = os.Remove(covFile)
+		}()
+	} else {
+		covFile = filepath.Join(workspaceDir, "coverage.out")
+		defer func() {
+			_ = os.Remove(covFile)
+		}()
+	}
 
 	pkgList := parsePackages(pkgs)
 	testArgs := make([]string, 0, 4+len(pkgList))
@@ -304,7 +314,7 @@ func parsePackageCoverage(testOut string, sb *strings.Builder) {
 			continue
 		}
 		covStr := parts[covIdx+1]
-		if covStr == "0.0%" || covStr == "[no" {
+		if covStr == "[no" {
 			continue
 		}
 		if !hasPkg {
@@ -349,14 +359,17 @@ func formatFailures(out string) string {
 	inFailBlock := false
 
 	for _, line := range lines {
-		if strings.Contains(line, "--- FAIL:") || strings.Contains(line, "FAIL\t") {
+		if strings.Contains(line, "--- FAIL:") ||
+			strings.HasPrefix(line, "FAIL\t") ||
+			strings.HasPrefix(line, "FAIL ") ||
+			line == "FAIL" {
 			inFailBlock = true
+		} else if inFailBlock && isTestBoundary(line) {
+			inFailBlock = false
 		}
+
 		if inFailBlock {
 			failures = append(failures, line)
-			if strings.TrimSpace(line) == "" {
-				inFailBlock = false
-			}
 		}
 	}
 
@@ -364,6 +377,19 @@ func formatFailures(out string) string {
 		return "```text\n" + strings.TrimSpace(strings.Join(failures, "\n")) + "\n```\n"
 	}
 	return formatOutput(out)
+}
+
+func isTestBoundary(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(line, "=== RUN") ||
+		strings.HasPrefix(line, "--- PASS:") ||
+		strings.HasPrefix(line, "--- SKIP:") ||
+		strings.HasPrefix(trimmed, "ok\t") ||
+		strings.HasPrefix(trimmed, "ok ") ||
+		trimmed == "PASS" {
+		return true
+	}
+	return false
 }
 
 func formatTestSummary(out string) string {
@@ -429,7 +455,10 @@ func filterNoise(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	var filtered []string
 	for _, line := range lines {
-		if strings.HasPrefix(line, "go: downloading ") || strings.Contains(line, "exit status") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "go: downloading ") ||
+			strings.HasPrefix(trimmed, "exit status ") ||
+			trimmed == "exit status" {
 			continue
 		}
 		filtered = append(filtered, line)

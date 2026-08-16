@@ -1,13 +1,14 @@
-// Package cli implements the command-line interface for godoctor.
+// Package cli implements the command-line interface for godoctor using Cobra.
 package cli
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/danicat/godoctor/internal/server"
@@ -17,8 +18,58 @@ import (
 	smartedit "github.com/danicat/godoctor/internal/tools/smart_edit"
 	smarttest "github.com/danicat/godoctor/internal/tools/smart_test"
 	testquery "github.com/danicat/godoctor/internal/tools/test_query"
+	"github.com/danicat/godoctor/internal/versioncheck"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/cobra"
 )
+
+// DefaultConfigFileTemplate is the template for generated .godoctor.yaml.
+const DefaultConfigFileTemplate = `# ==============================================================================
+# GoDoctor Configuration File (.godoctor.yaml)
+# Centralized configuration for Go Developer Intelligence & MCP Server
+# ==============================================================================
+version: "1"
+
+# CLI & Runtime Execution Settings
+cli:
+  timeout: "60s"          # Default execution timeout for tool invocations
+  output_format: "text"   # Output format: text | json | yaml
+  color: true             # Enable ANSI color in terminal output
+  log_level: "info"       # Logging level: debug | info | warn | error
+
+# MCP Server Settings
+mcp:
+  listen_address: ""      # HTTP address (e.g. ":8080") or empty for stdio
+  instructions_file: ""   # Optional path to custom instruction markdown
+
+# External Tool Version Tracking & Execution Config
+tools:
+  golangci_lint:
+    recommended_version: "v2.12.2"
+    pkg: "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
+    config: ".golangci.yml"
+  modernize:
+    recommended_version: "latest"
+    pkg: "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest"
+  deadcode:
+    recommended_version: "latest"
+    pkg: "golang.org/x/tools/cmd/deadcode@latest"
+  selene:
+    recommended_version: "latest"
+    pkg: "github.com/danicat/selene/cmd/selene@latest"
+    timeout: "60s"
+  testquery:
+    recommended_version: "latest"
+    pkg: "github.com/danicat/testquery@latest"
+    db_path: "testquery.db"
+
+# Global Feature Flags
+features:
+  autofix: true               # Enable automatic code fixes in build pipeline
+  deadcode_check: true        # Run dead code analysis in build pipeline
+  testquery_sync: true        # Automatically index test runs into testquery.db
+  version_check_hints: true   # Display upgrade recommendations when tools are outdated
+`
 
 // ToolDef represents metadata and invoker for a tool.
 type ToolDef struct {
@@ -95,46 +146,263 @@ func FindTool(name string) *ToolDef {
 	return nil
 }
 
-// Run executes the CLI with the given arguments.
-func Run(ctx context.Context, version string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) == 0 {
-		PrintHelp(stdout, version)
-		return nil
+// GlobalOptions holds global CLI flags.
+type GlobalOptions struct {
+	ConfigPath string
+	Verbose    bool
+	Quiet      bool
+}
+
+// NewRootCmd constructs the main Cobra command tree.
+func NewRootCmd(version string, stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
+	var globalOpts GlobalOptions
+
+	rootCmd := &cobra.Command{
+		Use:           "godoctor",
+		Short:         "Go Developer Intelligence and MCP Server",
+		Version:       version,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 	}
 
-	cmd := args[0]
-	cmdArgs := args[1:]
+	rootCmd.SetVersionTemplate("{{.Version}}\n")
+	rootCmd.SetIn(stdin)
+	rootCmd.SetOut(stdout)
+	rootCmd.SetErr(stderr)
 
-	switch cmd {
-	case "help", "-h", "--help", "-help":
-		PrintHelp(stdout, version)
-		return nil
+	// Global Flags
+	rootCmd.PersistentFlags().StringVarP(&globalOpts.ConfigPath, "config", "c", "", "Path to .godoctor.yaml configuration file")
+	rootCmd.PersistentFlags().BoolVarP(&globalOpts.Verbose, "verbose", "V", false, "Verbose output")
+	rootCmd.PersistentFlags().BoolVarP(&globalOpts.Quiet, "quiet", "q", false, "Quiet output")
 
-	case "version", "-v", "--version", "-version":
-		fmt.Fprintln(stdout, version)
-		return nil
+	// Subcommands
+	rootCmd.AddCommand(newCallCmd(stdin, stdout, stderr))
+	rootCmd.AddCommand(newMCPCmd(version, stdout, stderr))
+	rootCmd.AddCommand(newInitCmd(stdout, stderr))
+	rootCmd.AddCommand(newCheckCmd(stdout, stderr))
+	rootCmd.AddCommand(newInstallCmd(stdout, stderr))
+	rootCmd.AddCommand(newUninstallCmd(stdout, stderr))
+	rootCmd.AddCommand(newListCmd(stdout))
+	rootCmd.AddCommand(newVersionCmd(version, stdout))
 
-	case "list":
-		return runList(stdout)
+	return rootCmd
+}
 
-	case "call":
-		return runCall(ctx, cmdArgs, stdin, stdout, stderr)
+// Run executes the CLI with the given arguments and streams.
+func Run(ctx context.Context, version string, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	rootCmd := NewRootCmd(version, stdin, stdout, stderr)
+	rootCmd.SetArgs(args)
 
-	case "install", "init":
-		return runInstall(ctx, cmdArgs, stdout, stderr)
+	if len(args) == 0 {
+		return rootCmd.Help()
+	}
 
-	case "uninstall":
-		return runUninstall(ctx, cmdArgs, stdout, stderr)
+	return rootCmd.ExecuteContext(ctx)
+}
 
-	case "mcp":
-		return runMCP(ctx, version, cmdArgs)
+func newCallCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "call <tool-name> [json-arguments]",
+		Short: "Invoke a tool directly from the CLI",
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return errors.New("missing tool name\nUsage: godoctor call <tool-name> '<json-arguments>'")
+			}
 
-	default:
-		// If unknown subcommand or flag
-		if strings.HasPrefix(cmd, "-") {
-			return fmt.Errorf("unknown flag: %s\nRun 'godoctor help' for usage", cmd)
-		}
-		return fmt.Errorf("unknown command: %s\nRun 'godoctor help' for usage", cmd)
+			toolName := args[0]
+			tool := FindTool(toolName)
+			if tool == nil {
+				return fmt.Errorf("unknown tool: %q\nRun 'godoctor list' to see available tools", toolName)
+			}
+
+			res, err := tool.Invoke(cmd.Context(), args[1:], stdin)
+			if err != nil {
+				return err
+			}
+
+			if res == nil {
+				return nil
+			}
+
+			for _, content := range res.Content {
+				if tc, ok := content.(*mcp.TextContent); ok {
+					if res.IsError {
+						fmt.Fprintln(stderr, tc.Text)
+					} else {
+						fmt.Fprintln(stdout, tc.Text)
+					}
+				}
+			}
+
+			if res.IsError {
+				return errors.New("tool execution returned an error")
+			}
+
+			return nil
+		},
+	}
+}
+
+func newMCPCmd(version string, stdout, stderr io.Writer) *cobra.Command {
+	_ = stdout
+	_ = stderr
+	var listenAddr string
+
+	cmd := &cobra.Command{
+		Use:   "mcp",
+		Short: "Run in Model Context Protocol (MCP) server mode",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			srv := server.New(version)
+			if listenAddr != "" {
+				return srv.ServeHTTP(cmd.Context(), listenAddr)
+			}
+			return srv.Run(cmd.Context())
+		},
+	}
+
+	cmd.Flags().StringVarP(&listenAddr, "listen", "l", "", "HTTP listen address (e.g. :8080)")
+	return cmd
+}
+
+func newInitCmd(stdout, stderr io.Writer) *cobra.Command {
+	_ = stderr
+	var force bool
+	var targetDir string
+
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Generate a commented .godoctor.yaml configuration file",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if targetDir == "" {
+				targetDir = "."
+			}
+
+			targetPath := filepath.Join(targetDir, ".godoctor.yaml")
+			if _, err := os.Stat(targetPath); err == nil && !force {
+				return fmt.Errorf("%s already exists (use --force to overwrite)", targetPath)
+			}
+
+			if err := os.WriteFile(targetPath, []byte(DefaultConfigFileTemplate), 0644); err != nil {
+				return fmt.Errorf("failed to write %s: %w", targetPath, err)
+			}
+
+			fmt.Fprintf(stdout, "Created %s successfully.\n", targetPath)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force overwrite of existing .godoctor.yaml")
+	cmd.Flags().StringVarP(&targetDir, "dir", "d", "", "Directory to create .godoctor.yaml in (default: current directory)")
+	return cmd
+}
+
+func newCheckCmd(stdout, stderr io.Writer) *cobra.Command {
+	_ = stderr
+	var jsonOutput bool
+
+	cmd := &cobra.Command{
+		Use:   "check",
+		Short: "Inspect installed external tools, versions, and health status",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			statuses, err := versioncheck.CheckAll(cmd.Context(), nil)
+			if err != nil {
+				return fmt.Errorf("tool check failed: %w", err)
+			}
+
+			if jsonOutput {
+				data, err := json.MarshalIndent(statuses, "", "  ")
+				if err != nil {
+					return fmt.Errorf("failed to format JSON: %w", err)
+				}
+				fmt.Fprintln(stdout, string(data))
+				return nil
+			}
+
+			table := versioncheck.FormatStatusTable(statuses)
+			fmt.Fprint(stdout, table)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output check results in JSON format")
+	return cmd
+}
+
+func newInstallCmd(stdout, stderr io.Writer) *cobra.Command {
+	var opts InstallOptions
+
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Configure MCP server registration and unpack agent skills",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !opts.InstallMCP && !opts.InstallSkills {
+				opts.InstallMCP = true
+				opts.InstallSkills = true
+			}
+			return ExecuteInstall(opts, stdout, stderr)
+		},
+	}
+
+	cmd.Flags().BoolVar(&opts.InstallMCP, "mcp", false, "Register the MCP server in mcp_config.json")
+	cmd.Flags().BoolVar(&opts.InstallSkills, "skills", false, "Unpack embedded skills (@godoctor, @selene, @testquery)")
+	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Install to workspace scope (.agents/)")
+	cmd.Flags().BoolVarP(&opts.Global, "global", "g", false, "Install to global user config (Default: ~/.gemini/config)")
+	cmd.Flags().BoolVarP(&opts.Force, "force", "f", false, "Force overwrite of existing skill files")
+	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Quiet / script-friendly output")
+	cmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Explicit path to mcp_config.json")
+	cmd.Flags().StringVarP(&opts.SkillsDir, "skills-dir", "s", "", "Explicit directory for skills installation")
+
+	return cmd
+}
+
+func newUninstallCmd(stdout, stderr io.Writer) *cobra.Command {
+	var opts UninstallOptions
+
+	cmd := &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove MCP server registration and agent skills",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !opts.UninstallMCP && !opts.UninstallSkills {
+				opts.UninstallMCP = true
+				opts.UninstallSkills = true
+			}
+			return ExecuteUninstall(opts, stdout, stderr)
+		},
+	}
+
+	cmd.Flags().BoolVar(&opts.UninstallMCP, "mcp", false, "Remove GoDoctor from mcp_config.json")
+	cmd.Flags().BoolVar(&opts.UninstallSkills, "skills", false, "Remove GoDoctor skills (@godoctor, @selene, @testquery)")
+	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Uninstall from workspace scope (.agents/)")
+	cmd.Flags().BoolVarP(&opts.Global, "global", "g", false, "Uninstall from global user config (Default: ~/.gemini/config)")
+	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Quiet / script-friendly output")
+	cmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Explicit path to mcp_config.json")
+	cmd.Flags().StringVarP(&opts.SkillsDir, "skills-dir", "s", "", "Explicit directory for skills removal")
+
+	return cmd
+}
+
+func newListCmd(stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all available intelligence tools",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return runList(stdout)
+		},
+	}
+}
+
+func newVersionCmd(version string, stdout io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "version",
+		Short: "Print the godoctor version",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			fmt.Fprintln(stdout, version)
+			return nil
+		},
 	}
 }
 
@@ -149,6 +417,8 @@ Available Commands:
   install        Configure MCP server registration and unpack agent skills
   uninstall      Remove MCP server registration and agent skills
   mcp            Run in Model Context Protocol (MCP) server mode
+  init           Generate a commented .godoctor.yaml configuration file
+  check          Inspect installed external tools, versions, and health status
   list           List all available intelligence tools
   call           Invoke a tool directly from the CLI
   version        Print the godoctor version
@@ -162,6 +432,10 @@ Surface Management:
   godoctor uninstall            Remove MCP server and skills (Global)
   godoctor uninstall -w         Remove MCP server and skills (Workspace)
 
+Configuration & Health:
+  godoctor init                 Generate default .godoctor.yaml in current repository
+  godoctor check                Inspect versions and health of all workspace tools
+
 MCP Server Mode:
   godoctor mcp                  Run MCP server using standard I/O (default for MCP clients)
   godoctor mcp -listen=:8080    Run MCP server as Streamable HTTP service on specified address
@@ -174,6 +448,7 @@ Tools:
 
 Examples:
   godoctor init
+  godoctor check
   godoctor list
   godoctor call edit '{"filename": "/path/to/main.go", "old_content": "...", "new_content": "..."}'
   godoctor call build '{"dir": "/path/to/project"}'
@@ -199,62 +474,7 @@ func runList(w io.Writer) error {
 	return nil
 }
 
-func runCall(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	if len(args) == 0 {
-		return errors.New("missing tool name\nUsage: godoctor call <tool-name> '<json-arguments>'")
-	}
-
-	toolName := args[0]
-	tool := FindTool(toolName)
-	if tool == nil {
-		return fmt.Errorf("unknown tool: %q\nRun 'godoctor list' to see available tools", toolName)
-	}
-
-	res, err := tool.Invoke(ctx, args[1:], stdin)
-	if err != nil {
-		return err
-	}
-
-	if res == nil {
-		return nil
-	}
-
-	for _, content := range res.Content {
-		if tc, ok := content.(*mcp.TextContent); ok {
-			if res.IsError {
-				fmt.Fprintln(stderr, tc.Text)
-			} else {
-				fmt.Fprintln(stdout, tc.Text)
-			}
-		}
-	}
-
-	if res.IsError {
-		return errors.New("tool execution returned an error")
-	}
-
-	return nil
-}
-
-func runMCP(ctx context.Context, version string, args []string) error {
-	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
-	var listenAddr string
-	fs.StringVar(&listenAddr, "listen", "", "HTTP listen address (e.g. :8080)")
-
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-
-	srv := server.New(version)
-
-	if listenAddr != "" {
-		return srv.ServeHTTP(ctx, listenAddr)
-	}
-
-	return srv.Run(ctx)
-}
-
-// Helper to parse arguments into a struct, supporting JSON string argument or stdin JSON.
+// parseArgs parses arguments into a struct, supporting JSON string argument or stdin JSON.
 func parseArgs(rawArgs []string, stdin io.Reader, target any) error {
 	// 1. If single argument looks like JSON:
 	if len(rawArgs) == 1 {
@@ -275,11 +495,15 @@ func parseArgs(rawArgs []string, stdin io.Reader, target any) error {
 	// 3. If no args provided, try reading from stdin
 	if len(rawArgs) == 0 && stdin != nil {
 		data, err := io.ReadAll(stdin)
-		if err == nil && len(strings.TrimSpace(string(data))) > 0 {
-			trimmed := strings.TrimSpace(string(data))
+		if err != nil {
+			return fmt.Errorf("failed to read from stdin: %w", err)
+		}
+		trimmed := strings.TrimSpace(string(data))
+		if len(trimmed) > 0 {
 			if strings.HasPrefix(trimmed, "{") {
 				return json.Unmarshal([]byte(trimmed), target)
 			}
+			return fmt.Errorf("invalid JSON from stdin: expected object starting with '{'")
 		}
 	}
 

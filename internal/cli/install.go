@@ -18,8 +18,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -42,80 +40,13 @@ type InstallOptions struct {
 	SkillsDir     string
 }
 
-// runInstall parses arguments and executes the godoctor install / init command.
+// runInstall parses arguments and executes the godoctor install command using Cobra.
 func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	_ = ctx
-	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-
-	var (
-		mcpFlag       = fs.Bool("mcp", false, "Register the MCP server in mcp_config.json")
-		skillsFlag    = fs.Bool("skills", false, "Unpack embedded skills (@godoctor, @selene, @testquery)")
-		workspaceFlag = fs.Bool("w", false, "Install to workspace scope (.agents/)")
-		workspaceLong = fs.Bool("workspace", false, "Install to workspace scope (.agents/)")
-		globalFlag    = fs.Bool("g", false, "Install to global user config (Default: ~/.gemini/config)")
-		globalLong    = fs.Bool("global", false, "Install to global user config (Default: ~/.gemini/config)")
-		forceFlag     = fs.Bool("f", false, "Force overwrite of existing skill files")
-		forceLong     = fs.Bool("force", false, "Force overwrite of existing skill files")
-		quietFlag     = fs.Bool("q", false, "Quiet / script-friendly output")
-		quietLong     = fs.Bool("quiet", false, "Quiet / script-friendly output")
-		configFlag    = fs.String("c", "", "Explicit path to mcp_config.json")
-		configLong    = fs.String("config", "", "Explicit path to mcp_config.json")
-		skillsDirFlag = fs.String("s", "", "Explicit directory for skills installation")
-		skillsDirLong = fs.String("skills-dir", "", "Explicit directory for skills installation")
-	)
-
-	fs.Usage = func() {
-		fmt.Fprintf(stdout, `Usage:
-  godoctor install [components] [options]
-
-Components (default: all):
-  --mcp                    Register the MCP server in mcp_config.json
-  --skills                 Unpack embedded skills (@godoctor, @selene, @testquery)
-
-Options:
-  -g, --global             Install to global user config (Default: ~/.gemini/config)
-  -w, --workspace          Install to workspace scope (.agents/)
-  -f, --force              Force overwrite of existing skill files
-  -q, --quiet              Quiet / script-friendly output
-  -c, --config <path>      Explicit path to mcp_config.json
-  -s, --skills-dir <dir>   Explicit directory for skills installation
-  -h, --help               Show this help message
-`)
-	}
-
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
-	}
-
-	opts := InstallOptions{
-		InstallMCP:    *mcpFlag,
-		InstallSkills: *skillsFlag,
-		Workspace:     *workspaceFlag || *workspaceLong,
-		Global:        *globalFlag || *globalLong,
-		Force:         *forceFlag || *forceLong,
-		Quiet:         *quietFlag || *quietLong,
-		ConfigPath:    *configFlag,
-		SkillsDir:     *skillsDirFlag,
-	}
-
-	if *configLong != "" {
-		opts.ConfigPath = *configLong
-	}
-	if *skillsDirLong != "" {
-		opts.SkillsDir = *skillsDirLong
-	}
-
-	// Default: if neither --mcp nor --skills is explicitly specified, install both
-	if !opts.InstallMCP && !opts.InstallSkills {
-		opts.InstallMCP = true
-		opts.InstallSkills = true
-	}
-
-	return ExecuteInstall(opts, stdout, stderr)
+	cmd := newInstallCmd(stdout, stderr)
+	cmd.SetArgs(args)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	return cmd.ExecuteContext(ctx)
 }
 
 // ExecuteInstall performs the installation according to the given options.

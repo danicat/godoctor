@@ -67,6 +67,18 @@ func TestToolHandler(t *testing.T) {
 			wantErr:     true,
 			wantContent: "import_path cannot be empty",
 		},
+		{
+			name:        "JSON Format Output",
+			params:      readdocs.Params{ImportPath: "fmt", SymbolName: "Println", Format: "json"},
+			wantErr:     false,
+			wantContent: `"package": "fmt"`,
+		},
+		{
+			name:        "Invalid Format",
+			params:      readdocs.Params{ImportPath: "fmt", Format: "yaml"},
+			wantErr:     true,
+			wantContent: "invalid format: must be 'markdown' or 'json'",
+		},
 	}
 
 	for _, tc := range testCases {

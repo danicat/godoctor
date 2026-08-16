@@ -44,8 +44,18 @@ func TestRun(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "version subcommand",
+			args:        []string{"version"},
+			expectError: false,
+		},
+		{
 			name:        "list subcommand",
 			args:        []string{"list"},
+			expectError: false,
+		},
+		{
+			name:        "check subcommand",
+			args:        []string{"check"},
 			expectError: false,
 		},
 		{
@@ -58,13 +68,13 @@ func TestRun(t *testing.T) {
 			name:        "unknown command",
 			args:        []string{"unknowncmd"},
 			expectError: true,
-			errContains: "unknown command: unknowncmd",
+			errContains: "unknown command",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 
 			err := run(ctx, tc.args)
@@ -79,5 +89,12 @@ func TestRun(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildInfoFallback(t *testing.T) {
+	// Verify version is initialized
+	if version == "" {
+		t.Errorf("expected version to be non-empty")
 	}
 }

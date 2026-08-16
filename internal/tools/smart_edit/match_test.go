@@ -2,6 +2,7 @@ package smartedit
 
 import (
 	"testing"
+	"unicode/utf8"
 
 	"github.com/danicat/godoctor/internal/text"
 )
@@ -37,7 +38,6 @@ var findBestMatchTests = []struct {
 		minScore:    0.8,
 	},
 	{
-		// Re-adding the problematic test case
 		name:        "Long Block with Typo (Seeding)",
 		content:     "func long() {\n\tline1()\n\tline2()\n\tline3()\n\tline4()\n}",
 		search:      "func long() { line1() line2() line3-typo() line4() }",
@@ -75,6 +75,34 @@ var findBestMatchTests = []struct {
 		search:      "fmt.Println(\"こんにちは\")",
 		expectMatch: true,
 		minScore:    1.0,
+	},
+	{
+		name:        "Unicode Fuzzy Typo (Japanese)",
+		content:     "func greet() { fmt.Println(\"こんにちは世界\") }",
+		search:      "fmt.Println(\"こんには世界\")", // 1 missing rune
+		expectMatch: true,
+		minScore:    0.85,
+	},
+	{
+		name:        "Unicode Fuzzy Typo (Cyrillic)",
+		content:     "func greet() { return \"Привет мир\" }",
+		search:      "return \"Привед мир\"", // 1 typo in Cyrillic
+		expectMatch: true,
+		minScore:    0.9,
+	},
+	{
+		name:        "Unicode Emoji Fuzzy Typo",
+		content:     "const rocket = \"🚀 launch sequence\"",
+		search:      "rocket = \"🚀 luanch sequence\"",
+		expectMatch: true,
+		minScore:    0.9,
+	},
+	{
+		name:        "Short Expression with Typo (< 4 chars)",
+		content:     "x = 10\ni++\ny = 20",
+		search:      "i+-", // 3 chars with 1 typo
+		expectMatch: true,
+		minScore:    0.6,
 	},
 	{
 		name:        "Typos at Start",
@@ -118,7 +146,36 @@ func TestFindBestMatch(t *testing.T) {
 			if start > end {
 				t.Errorf("invalid bounds start > end: %d-%d", start, end)
 			}
+
+			if start < 0 || end > len(tt.content) {
+				t.Errorf("bounds out of range: %d-%d (content len: %d)", start, end, len(tt.content))
+			}
+
+			// Validate UTF-8 slice boundary
+			matchedSlice := tt.content[start:end]
+			if !utf8.ValidString(matchedSlice) {
+				t.Errorf("matched slice %q is not valid UTF-8", matchedSlice)
+			}
 		})
+	}
+}
+
+func TestFindBestMatch_UTF8_Boundary(t *testing.T) {
+	// Search target ends with multi-byte rune 'は'
+	content := "prefix こんにちは suffix"
+	search := "こんにちは"
+
+	start, end, score := findBestMatch(content, search)
+	if score != 1.0 {
+		t.Fatalf("expected 1.0 score, got %f", score)
+	}
+
+	got := content[start:end]
+	if got != "こんにちは" {
+		t.Errorf("expected %q, got %q (bytes: %d..%d)", "こんにちは", got, start, end)
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("expected valid UTF-8 slice, got invalid: %x", got)
 	}
 }
 
@@ -137,5 +194,23 @@ func TestLevenshtein(t *testing.T) {
 	}
 	if d := text.Levenshtein("abc", "abc"); d != 0 {
 		t.Errorf("Levenshtein(abc, abc) = %d, want 0", d)
+	}
+}
+
+func BenchmarkFindBestMatch_Exact(b *testing.B) {
+	content := "package main\n\nfunc ProcessData(items []Item) error {\n\tfor _, item := range items {\n\t\titem.Process()\n\t}\n\treturn nil\n}\n"
+	search := "for _, item := range items {\n\titem.Process()\n}"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		findBestMatch(content, search)
+	}
+}
+
+func BenchmarkFindBestMatch_Fuzzy(b *testing.B) {
+	content := "package main\n\nfunc ProcessData(items []Item) error {\n\tfor _, item := range items {\n\t\titem.Process()\n\t}\n\treturn nil\n}\n"
+	search := "for _, item := range itms {\n\titem.Proces()\n}"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		findBestMatch(content, search)
 	}
 }

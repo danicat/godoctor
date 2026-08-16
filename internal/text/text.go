@@ -4,13 +4,24 @@ package text
 import (
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Levenshtein computes the Levenshtein edit distance between two strings.
 // It operates on runes to correctly handle multi-byte characters.
 func Levenshtein(s1, s2 string) int {
+	if s1 == s2 {
+		return 0
+	}
 	r1, r2 := []rune(s1), []rune(s2)
 	n, m := len(r1), len(r2)
+	if n == 0 {
+		return m
+	}
+	if m == 0 {
+		return n
+	}
 	if n > m {
 		r1, r2 = r2, r1
 		n, m = m, n
@@ -37,6 +48,10 @@ func Levenshtein(s1, s2 string) int {
 
 // GetLineOffsets returns the start and end byte offsets for the given 1-based line range in content.
 func GetLineOffsets(content string, startLine, endLine int) (int, int, error) {
+	if endLine > 0 && endLine < startLine {
+		return 0, 0, fmt.Errorf("end_line %d cannot be less than start_line %d", endLine, startLine)
+	}
+
 	currentLine := 1
 	startOffset := 0
 	endOffset := len(content)
@@ -97,13 +112,13 @@ func GetSnippet(content string, lineNum int) string {
 	return sb.String()
 }
 
-// IsWhitespace reports whether a rune is a standard space, tab, or newline character.
+// IsWhitespace reports whether a rune is a standard space, tab, newline, or unicode whitespace character.
 func IsWhitespace(r rune) bool {
 	switch r {
 	case ' ', '\t', '\n', '\r':
 		return true
 	}
-	return false
+	return unicode.IsSpace(r)
 }
 
 // Normalize strips all whitespace characters from a string.
@@ -123,8 +138,8 @@ func Similarity(s1, s2 string) float64 {
 		return 1.0
 	}
 	d := Levenshtein(s1, s2)
-	maxLen := len([]rune(s1))
-	if l2 := len([]rune(s2)); l2 > maxLen {
+	maxLen := utf8.RuneCountInString(s1)
+	if l2 := utf8.RuneCountInString(s2); l2 > maxLen {
 		maxLen = l2
 	}
 	if maxLen == 0 {

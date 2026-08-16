@@ -359,6 +359,50 @@ func HandleRequest() {}
 			t.Errorf("expected suggestion 2 %q, got: %s", expected2, suggestion)
 		}
 	})
+	t.Run("windows path pattern", func(t *testing.T) {
+		filePath := setupWorkspace(t)
+		// Emulate a Windows drive path in the compiler output
+		winPath := `C:\workspace\` + filepath.Base(filePath)
+		errMsg := winPath + ":10:5: undeclared name: GoodSim"
+
+		// Use the actual file path for AST symbol extraction simulation
+		// fileErrorRegex matches the winPath as filePath
+		matches := fileErrorRegex.FindStringSubmatch(errMsg)
+		if len(matches) < 5 {
+			t.Fatalf("expected at least 5 matches for Windows path, got %d", len(matches))
+		}
+		if matches[1] != winPath {
+			t.Errorf("expected filePath %q, got %q", winPath, matches[1])
+		}
+		if matches[2] != "10" || matches[3] != "5" {
+			t.Errorf("expected line 10, col 5, got line %s, col %s", matches[2], matches[3])
+		}
+	})
+}
+
+func TestFindWorkspaceRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	nestedDir := filepath.Join(tmpDir, "pkg", "subpkg", "deep")
+	if err := os.MkdirAll(nestedDir, 0750); err != nil {
+		t.Fatalf("failed to create nested dir: %v", err)
+	}
+
+	// Case 1: go.mod at root
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module testroot\n"), 0600); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
+
+	deepFile := filepath.Join(nestedDir, "deep.go")
+	root := findWorkspaceRoot([]string{deepFile})
+	if root != tmpDir {
+		t.Errorf("expected workspace root %q, got %q", tmpDir, root)
+	}
+
+	// Case 2: empty paths returns empty string
+	if r := findWorkspaceRoot(nil); r != "" {
+		t.Errorf("expected empty string for nil paths, got %q", r)
+	}
 }
 
 func TestExtractErrorSnippet(t *testing.T) {
@@ -529,10 +573,11 @@ func TestWriteAndVerify(t *testing.T) {
 		newContent := []byte("package main\n\nimport \"fmt\"\n\n" +
 			"func main() {\n\tfmt.Println(\"updated\")\n}\n")
 		currentContents := map[string][]byte{mainFile: newContent}
-		backups := map[string][]byte{mainFile: origContent}
-		newlyCreated := map[string]bool{mainFile: false}
+		backups := map[string]FileBackup{
+			mainFile: {Content: origContent, Mode: 0600, Existed: true},
+		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err != nil {
 			t.Fatalf("unexpected error from writeAndVerify: %v", err)
 		}
@@ -546,6 +591,42 @@ func TestWriteAndVerify(t *testing.T) {
 		}
 		if string(written) != string(newContent) {
 			t.Errorf("file content mismatch, expected %q, got %q", string(newContent), string(written))
+		}
+	})
+
+	t.Run("permission preservation across write and rollback", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		goModPath := filepath.Join(tmpDir, "go.mod")
+		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
+			t.Fatalf("failed to write go.mod: %v", err)
+		}
+
+		scriptFile := filepath.Join(tmpDir, "script.go")
+		origContent := []byte("package main\n\nfunc main() {}\n")
+		// Executable permissions
+		if err := os.WriteFile(scriptFile, origContent, 0755); err != nil {
+			t.Fatalf("failed to write script.go: %v", err)
+		}
+
+		// Edit with vet error to trigger rollback
+		badContent := []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
+		currentContents := map[string][]byte{scriptFile: badContent}
+		backups := map[string]FileBackup{
+			scriptFile: {Content: origContent, Mode: 0755, Existed: true},
+		}
+
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
+		if err == nil || !res.IsError {
+			t.Fatalf("expected vet error, got: res=%v, err=%v", res, err)
+		}
+
+		// Verify file mode was preserved after rollback
+		info, err := os.Stat(scriptFile)
+		if err != nil {
+			t.Fatalf("failed to stat restored file: %v", err)
+		}
+		if info.Mode().Perm() != 0755 {
+			t.Errorf("expected restored permissions 0755, got: %o", info.Mode().Perm())
 		}
 	})
 
@@ -569,10 +650,11 @@ func TestWriteAndVerify(t *testing.T) {
 			"func ValidFunction() {\n\tfmt.Printf(\"%d\", \"not an int\")\n}\n" +
 			"func main() {\n\tValidFunction()\n}\n")
 		currentContents := map[string][]byte{mainFile: badContent}
-		backups := map[string][]byte{mainFile: origContent}
-		newlyCreated := map[string]bool{mainFile: false}
+		backups := map[string]FileBackup{
+			mainFile: {Content: origContent, Mode: 0600, Existed: true},
+		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err == nil {
 			t.Fatalf("expected error from writeAndVerify on vet failure, got nil")
 		}
@@ -596,7 +678,7 @@ func TestWriteAndVerify(t *testing.T) {
 		}
 	})
 
-	t.Run("rollback removes newly created file on go vet failure", func(t *testing.T) {
+	t.Run("rollback removes newly created file and directory on go vet failure", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		goModPath := filepath.Join(tmpDir, "go.mod")
 		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
@@ -609,16 +691,18 @@ func TestWriteAndVerify(t *testing.T) {
 			t.Fatalf("failed to write main.go: %v", err)
 		}
 
-		newFile := filepath.Join(tmpDir, "extra.go")
+		nestedDir := filepath.Join(tmpDir, "newpkg")
+		newFile := filepath.Join(nestedDir, "extra.go")
 		// Invalid vet: fmt.Printf format %d with string
 		newFileContent := []byte("package main\n\nimport \"fmt\"\n\n" +
 			"func Extra() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
 
 		currentContents := map[string][]byte{newFile: newFileContent}
-		backups := map[string][]byte{newFile: nil}
-		newlyCreated := map[string]bool{newFile: true}
+		backups := map[string]FileBackup{
+			newFile: {Content: nil, Mode: 0600, Existed: false},
+		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err == nil {
 			t.Fatalf("expected error on vet failure, got nil")
 		}
@@ -630,6 +714,10 @@ func TestWriteAndVerify(t *testing.T) {
 		if _, err := os.Stat(newFile); !os.IsNotExist(err) {
 			t.Errorf("expected newly created file %s to be removed on rollback, but it exists", newFile)
 		}
+		// Verify newly created directory was deleted during rollback
+		if _, err := os.Stat(nestedDir); !os.IsNotExist(err) {
+			t.Errorf("expected newly created dir %s to be removed on rollback, but it exists", nestedDir)
+		}
 	})
 
 	t.Run("rollback on write error", func(t *testing.T) {
@@ -640,29 +728,25 @@ func TestWriteAndVerify(t *testing.T) {
 			t.Fatalf("failed to write main.go: %v", err)
 		}
 
-		// Create a conflict path: a directory where a file is expected, or read-only location
-		conflictDir := filepath.Join(tmpDir, "conflict_as_file")
-		if err := os.WriteFile(conflictDir, []byte("i am a file"), 0600); err != nil {
+		// Create a conflict path: a file where a directory is expected
+		conflictFile := filepath.Join(tmpDir, "conflict_as_file")
+		if err := os.WriteFile(conflictFile, []byte("i am a file"), 0600); err != nil {
 			t.Fatalf("failed to write conflict file: %v", err)
 		}
 
 		// Attempting to create sub-file inside a file will fail
-		unwritableFile := filepath.Join(conflictDir, "sub.go")
+		unwritableFile := filepath.Join(conflictFile, "sub.go")
 
 		currentContents := map[string][]byte{
 			mainFile:       []byte("package main\n\nfunc main() { /* changed */ }\n"),
 			unwritableFile: []byte("package main\n"),
 		}
-		backups := map[string][]byte{
-			mainFile:       origContent,
-			unwritableFile: nil,
-		}
-		newlyCreated := map[string]bool{
-			mainFile:       false,
-			unwritableFile: true,
+		backups := map[string]FileBackup{
+			mainFile:       {Content: origContent, Mode: 0600, Existed: true},
+			unwritableFile: {Content: nil, Mode: 0600, Existed: false},
 		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err == nil {
 			t.Fatalf("expected write error, got nil")
 		}
@@ -690,10 +774,11 @@ func TestWriteAndVerify(t *testing.T) {
 
 		newContent := []byte("updated data")
 		currentContents := map[string][]byte{txtFile: newContent}
-		backups := map[string][]byte{txtFile: origContent}
-		newlyCreated := map[string]bool{txtFile: false}
+		backups := map[string]FileBackup{
+			txtFile: {Content: origContent, Mode: 0600, Existed: true},
+		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -726,21 +811,17 @@ func TestWriteAndVerify(t *testing.T) {
 		// Invalid vet: fmt.Printf format %d with string
 		badContent := []byte("package main\n\nimport \"fmt\"\n\n" +
 			"func main() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
-		nonExistentFile := filepath.Join(tmpDir, "non_existent_file.go")
+		nonExistentFile := filepath.Join(tmpDir, "non_existent_dir", "ghost.go")
 
 		currentContents := map[string][]byte{mainFile: badContent}
-		// Non-existent file in backups with newlyCreated=false
-		// causes commitWrite/os.OpenFile to fail on rollback
-		backups := map[string][]byte{
-			mainFile:        origContent,
-			nonExistentFile: []byte("cannot restore"),
-		}
-		newlyCreated := map[string]bool{
-			mainFile:        false,
-			nonExistentFile: false,
+		// Non-existent file in non-existent directory in backups with Existed=true
+		// causes commitWrite to fail on rollback
+		backups := map[string]FileBackup{
+			mainFile:        {Content: origContent, Mode: 0600, Existed: true},
+			nonExistentFile: {Content: []byte("cannot restore"), Mode: 0600, Existed: true},
 		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err == nil {
 			t.Fatalf("expected combined error on vet and rollback failure, got nil")
 		}
@@ -762,21 +843,17 @@ func TestWriteAndVerify(t *testing.T) {
 		}
 
 		unwritableFile := filepath.Join(conflictDir, "child.go")
-		nonExistentFile := filepath.Join(tmpDir, "ghost.go")
+		nonExistentFile := filepath.Join(tmpDir, "non_existent_dir", "ghost.go")
 
 		currentContents := map[string][]byte{
 			unwritableFile: []byte("package main\n"),
 		}
-		backups := map[string][]byte{
-			unwritableFile:  nil,
-			nonExistentFile: []byte("content"),
-		}
-		newlyCreated := map[string]bool{
-			unwritableFile:  true,
-			nonExistentFile: false,
+		backups := map[string]FileBackup{
+			unwritableFile:  {Content: nil, Mode: 0600, Existed: false},
+			nonExistentFile: {Content: []byte("content"), Mode: 0600, Existed: true},
 		}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups, newlyCreated)
+		res, err := writeAndVerify(ctx, nil, currentContents, backups)
 		if err == nil {
 			t.Fatalf("expected error, got nil")
 		}

@@ -1,5 +1,5 @@
 // Package server implements the Model Context Protocol (MCP) server for godoctor.
-// It orchestrates the tool registration, handles incoming client requests (via Stdio or HTTP),
+// It orchestrates tool registration, handles incoming client requests (via Stdio or HTTP),
 // and manages the lifecycle of the server. It connects the core logic (tools, graph)
 // to the external world.
 package server
@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danicat/godoctor/internal/instructions"
@@ -22,26 +24,52 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Server encapsulates the MCP server.
-type Server struct {
-	mcpServer *mcp.Server
-}
+// Option defines a functional option for configuring a Server.
+type Option func(*Server)
 
-// New creates a new Server instance.
-func New(version string) *Server {
-	s := mcp.NewServer(&mcp.Implementation{
-		Name:    "godoctor",
-		Version: version,
-	}, &mcp.ServerOptions{
-		Instructions: instructions.Get(),
-	})
-
-	return &Server{
-		mcpServer: s,
+// WithInstructions configures custom system instructions for the MCP server.
+func WithInstructions(instr string) Option {
+	return func(s *Server) {
+		s.instructions = instr
 	}
 }
 
-// Run starts the MCP server using Stdio.
+// WithAllowedOrigins configures explicit CORS allowed origins for HTTP serving.
+func WithAllowedOrigins(origins []string) Option {
+	return func(s *Server) {
+		s.allowedOrigins = origins
+	}
+}
+
+// Server encapsulates the MCP server and its lifecycle configuration.
+type Server struct {
+	mcpServer      *mcp.Server
+	registerOnce   sync.Once
+	allowedOrigins []string
+	instructions   string
+}
+
+// New creates a new Server instance.
+func New(version string, opts ...Option) *Server {
+	srv := &Server{
+		instructions: instructions.Get(),
+	}
+
+	for _, opt := range opts {
+		opt(srv)
+	}
+
+	srv.mcpServer = mcp.NewServer(&mcp.Implementation{
+		Name:    "godoctor",
+		Version: version,
+	}, &mcp.ServerOptions{
+		Instructions: srv.instructions,
+	})
+
+	return srv
+}
+
+// Run starts the MCP server using Stdio transport.
 func (s *Server) Run(ctx context.Context) error {
 	if err := s.RegisterHandlers(); err != nil {
 		return fmt.Errorf("failed to register handlers: %w", err)
@@ -60,16 +88,19 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 	}, nil)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// CORS headers for browser-based MCP clients
-		origin := r.Header.Get("Origin")
-		if origin != "" {
-			// In production (Cloud Run), the origin should match the expected domain.
-			// For local development, allow localhost/127.0.0.1 origins or all origins
-			if strings.HasPrefix(origin, "http://localhost") ||
-				strings.HasPrefix(origin, "http://127.0.0.1") ||
-				strings.HasPrefix(origin, "https://") {
-				w.Header().Set("Access-Control-Allow-Origin", origin)
+		// Panic recovery middleware
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("panic recovered in HTTP handler: %v", rec)
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			}
+		}()
+
+		origin := r.Header.Get("Origin")
+		isAllowed := origin != "" && s.isAllowedOrigin(origin)
+
+		if isAllowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Mcp-Session-Id")
 			w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
@@ -77,6 +108,10 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 		}
 
 		if r.Method == http.MethodOptions {
+			if origin != "" && !isAllowed {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -87,36 +122,87 @@ func (s *Server) ServeHTTP(ctx context.Context, addr string) error {
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      handler,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 5 * time.Minute,
+		IdleTimeout:  120 * time.Second,
 	}
 
-	//nolint:gosec
+	serverDone := make(chan struct{})
+	var shutdownErr error
+	var wg sync.WaitGroup
+
+	wg.Add(1)
 	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			log.Printf("HTTP server shutdown error: %v", err)
+		defer wg.Done()
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				log.Printf("HTTP server shutdown error: %v", err)
+				shutdownErr = err
+			}
+		case <-serverDone:
+			// Server terminated on its own (or failed ListenAndServe)
+			return
 		}
 	}()
 
 	log.Printf("godoctor MCP server listening on HTTP %s", addr)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	err := srv.ListenAndServe()
+	close(serverDone)
+	wg.Wait()
+
+	if err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP server error: %w", err)
+	}
+
+	if shutdownErr != nil {
+		return fmt.Errorf("HTTP server shutdown error: %w", shutdownErr)
 	}
 
 	return nil
 }
 
-// RegisterHandlers wires all tools.
+// isAllowedOrigin strictly validates CORS origins against localhost / loopback or configured allowed list.
+func (s *Server) isAllowedOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+
+	for _, allowed := range s.allowedOrigins {
+		if allowed == origin || allowed == "*" {
+			return true
+		}
+	}
+
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+
+	hostname := strings.ToLower(u.Hostname())
+	if hostname == "localhost" || hostname == "127.0.0.1" || hostname == "::1" || hostname == "[::1]" {
+		return true
+	}
+
+	return false
+}
+
+// RegisterHandlers wires all tools idempotently.
 func (s *Server) RegisterHandlers() error {
-	smartedit.Register(s.mcpServer)
-	smartbuild.Register(s.mcpServer)
-	smarttest.Register(s.mcpServer)
-	readdocs.Register(s.mcpServer)
-	testquery.Register(s.mcpServer)
-	selene.Register(s.mcpServer)
+	s.registerOnce.Do(func() {
+		smartedit.Register(s.mcpServer)
+		smartbuild.Register(s.mcpServer)
+		smarttest.Register(s.mcpServer)
+		readdocs.Register(s.mcpServer)
+		testquery.Register(s.mcpServer)
+		selene.Register(s.mcpServer)
+	})
 	return nil
 }

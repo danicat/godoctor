@@ -2,6 +2,7 @@ package smartedit
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/danicat/godoctor/internal/text"
 )
@@ -24,6 +25,10 @@ func findBestMatch(content, search string) (int, int, float64) {
 			mapped = append(mapped, charMap{char, offset})
 		}
 	}
+	if len(mapped) == 0 {
+		return 0, 0, 0
+	}
+
 	normContentRunes := make([]rune, len(mapped))
 	for i, cm := range mapped {
 		normContentRunes[i] = cm.char
@@ -31,9 +36,11 @@ func findBestMatch(content, search string) (int, int, float64) {
 	normContent := string(normContentRunes)
 
 	if before, _, ok := strings.Cut(normContent, normSearch); ok {
-		runeIdx := len([]rune(before))
+		runeIdx := utf8.RuneCountInString(before)
+		searchRuneCount := utf8.RuneCountInString(normSearch)
 		start := mapped[runeIdx].offset
-		end := mapped[runeIdx+len([]rune(normSearch))-1].offset + 1
+		lastMapped := mapped[runeIdx+searchRuneCount-1]
+		end := lastMapped.offset + utf8.RuneLen(lastMapped.char)
 		return start, end, 1.0
 	}
 
@@ -51,7 +58,8 @@ func findBestMatch(content, search string) (int, int, float64) {
 
 	if bestScore > 0 {
 		start := mapped[bestStartIdx].offset
-		end := mapped[bestEndIdx-1].offset + 1
+		lastMapped := mapped[bestEndIdx-1]
+		end := lastMapped.offset + utf8.RuneLen(lastMapped.char)
 		return start, end, bestScore
 	}
 
@@ -62,14 +70,29 @@ func collectCandidates(normContent string, normContentRunes, searchRunes []rune,
 	seedLen := 16
 	step := 8
 
-	if searchLen < 64 {
+	switch {
+	case searchLen < 4:
+		seedLen = 1
+		step = 1
+	case searchLen < 8:
+		seedLen = 2
+		step = 1
+	case searchLen < 16:
+		seedLen = 4
+		step = 2
+	case searchLen < 64:
 		seedLen = 8
 		step = 4
 	}
-	if searchLen < seedLen {
-		seedLen = 4
-		step = 2
+
+	// Map byte offset in normContent to rune index in normContentRunes.
+	byteToNormRune := make([]int, len(normContent)+1)
+	runeIdx := 0
+	for byteOffset := range normContent {
+		byteToNormRune[byteOffset] = runeIdx
+		runeIdx++
 	}
+	byteToNormRune[len(normContent)] = runeIdx
 
 	candidates := make(map[int]int)
 
@@ -82,11 +105,15 @@ func collectCandidates(normContent string, normContentRunes, searchRunes []rune,
 				break
 			}
 			realIdx := startSearch + idx
-			projectedStart := realIdx - offset
+			runePos := byteToNormRune[realIdx]
+			projectedStart := runePos - offset
 			if projectedStart >= 0 && projectedStart <= len(normContentRunes)-searchLen {
 				candidates[projectedStart]++
 			}
 			startSearch = realIdx + 1
+			if startSearch >= len(normContent) {
+				break
+			}
 		}
 	}
 
@@ -100,6 +127,14 @@ func collectCandidates(normContent string, normContentRunes, searchRunes []rune,
 			checkSeed(tailOffset)
 		}
 	}
+
+	// Fallback for short searches or small files if no seeds matched
+	if len(candidates) == 0 && (searchLen <= 8 || len(normContentRunes) <= 256) {
+		for i := 0; i <= len(normContentRunes)-searchLen; i++ {
+			candidates[i] = 1
+		}
+	}
+
 	return candidates
 }
 

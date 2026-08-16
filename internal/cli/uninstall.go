@@ -18,8 +18,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -37,76 +35,13 @@ type UninstallOptions struct {
 	SkillsDir       string
 }
 
-// runUninstall parses arguments and executes the godoctor uninstall command.
+// runUninstall parses arguments and executes the godoctor uninstall command using Cobra.
 func runUninstall(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	_ = ctx
-	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-
-	var (
-		mcpFlag       = fs.Bool("mcp", false, "Remove GoDoctor from mcp_config.json")
-		skillsFlag    = fs.Bool("skills", false, "Remove GoDoctor skills (@godoctor, @selene, @testquery)")
-		workspaceFlag = fs.Bool("w", false, "Uninstall from workspace scope (.agents/)")
-		workspaceLong = fs.Bool("workspace", false, "Uninstall from workspace scope (.agents/)")
-		globalFlag    = fs.Bool("g", false, "Uninstall from global user config (Default: ~/.gemini/config)")
-		globalLong    = fs.Bool("global", false, "Uninstall from global user config (Default: ~/.gemini/config)")
-		quietFlag     = fs.Bool("q", false, "Quiet / script-friendly output")
-		quietLong     = fs.Bool("quiet", false, "Quiet / script-friendly output")
-		configFlag    = fs.String("c", "", "Explicit path to mcp_config.json")
-		configLong    = fs.String("config", "", "Explicit path to mcp_config.json")
-		skillsDirFlag = fs.String("s", "", "Explicit directory for skills removal")
-		skillsDirLong = fs.String("skills-dir", "", "Explicit directory for skills removal")
-	)
-
-	fs.Usage = func() {
-		fmt.Fprintf(stdout, `Usage:
-  godoctor uninstall [components] [options]
-
-Components (default: all):
-  --mcp                    Remove GoDoctor from mcp_config.json
-  --skills                 Remove GoDoctor skills (@godoctor, @selene, @testquery)
-
-Options:
-  -g, --global             Uninstall from global user config (Default: ~/.gemini/config)
-  -w, --workspace          Uninstall from workspace scope (.agents/)
-  -q, --quiet              Quiet / script-friendly output
-  -c, --config <path>      Explicit path to mcp_config.json
-  -s, --skills-dir <dir>   Explicit directory for skills removal
-  -h, --help               Show this help message
-`)
-	}
-
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return nil
-		}
-		return err
-	}
-
-	opts := UninstallOptions{
-		UninstallMCP:    *mcpFlag,
-		UninstallSkills: *skillsFlag,
-		Workspace:       *workspaceFlag || *workspaceLong,
-		Global:          *globalFlag || *globalLong,
-		Quiet:           *quietFlag || *quietLong,
-		ConfigPath:      *configFlag,
-		SkillsDir:       *skillsDirFlag,
-	}
-
-	if *configLong != "" {
-		opts.ConfigPath = *configLong
-	}
-	if *skillsDirLong != "" {
-		opts.SkillsDir = *skillsDirLong
-	}
-
-	// Default: if neither --mcp nor --skills is explicitly specified, uninstall both
-	if !opts.UninstallMCP && !opts.UninstallSkills {
-		opts.UninstallMCP = true
-		opts.UninstallSkills = true
-	}
-
-	return ExecuteUninstall(opts, stdout, stderr)
+	cmd := newUninstallCmd(stdout, stderr)
+	cmd.SetArgs(args)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	return cmd.ExecuteContext(ctx)
 }
 
 // ExecuteUninstall performs the uninstallation according to the given options.

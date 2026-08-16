@@ -260,14 +260,95 @@ func TestHandler_Failure_SurvivingMutants(t *testing.T) {
 	}
 }
 
+func TestHandler_PackagesParameter(t *testing.T) {
+	tests := []struct {
+		name        string
+		packages    string
+		lookPaths   map[string]string
+		expectedCmd string
+	}{
+		{
+			name:     "custom packages with local binary",
+			packages: "./pkg1/..., ./pkg2/...",
+			lookPaths: map[string]string{
+				"selene": "/usr/bin/selene",
+			},
+			expectedCmd: "selene ./pkg1/... ./pkg2/...",
+		},
+		{
+			name:     "custom packages with fallback",
+			packages: "./pkg/calc",
+			lookPaths: map[string]string{
+				"selene": "",
+			},
+			expectedCmd: "go run github.com/danicat/selene/cmd/selene@latest ./pkg/calc",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			oldRunner := CommandRunner
+			defer func() { CommandRunner = oldRunner }()
+
+			mock := &mockRunner{
+				outputs: map[string]string{
+					"selene": "mutations checked",
+				},
+				lookPaths: tc.lookPaths,
+			}
+			CommandRunner = mock
+
+			res, _, err := Handler(context.Background(), nil, Params{
+				Dir:      "/absolute/path",
+				Packages: tc.packages,
+			})
+			if err != nil {
+				t.Fatalf("unexpected handler error: %v", err)
+			}
+			if res.IsError {
+				t.Fatalf("expected success result")
+			}
+			if len(mock.calls) == 0 || mock.calls[0] != tc.expectedCmd {
+				t.Errorf("expected cmd %q, got %q", tc.expectedCmd, mock.calls[0])
+			}
+		})
+	}
+}
+
+func TestParsePackages(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected []string
+	}{
+		{"", []string{"./..."}},
+		{"   ", []string{"./..."}},
+		{"./pkg1/...", []string{"./pkg1/..."}},
+		{"./pkg1/...,./pkg2/...", []string{"./pkg1/...", "./pkg2/..."}},
+		{"./pkg1/... ./pkg2/...", []string{"./pkg1/...", "./pkg2/..."}},
+	}
+
+	for _, tc := range cases {
+		got := parsePackages(tc.input)
+		if len(got) != len(tc.expected) {
+			t.Fatalf("for %q: expected len %d, got %d (%v)", tc.input, len(tc.expected), len(got), got)
+		}
+		for i := range got {
+			if got[i] != tc.expected[i] {
+				t.Errorf("for %q at %d: expected %q, got %q", tc.input, i, tc.expected[i], got[i])
+			}
+		}
+	}
+}
+
 func TestFilterNoise(t *testing.T) {
 	input := `go: downloading github.com/danicat/selene v0.1.0
 mutations generated: 12
 mutations killed: 12
 exit status 1
-summary: all tests passed`
+summary: all tests passed
+assertion failure: expected exit status 0, got 1`
 
-	expected := "mutations generated: 12\nmutations killed: 12\nsummary: all tests passed"
+	expected := "mutations generated: 12\nmutations killed: 12\nsummary: all tests passed\nassertion failure: expected exit status 0, got 1"
 	got := filterNoise(input)
 	if got != expected {
 		t.Errorf("expected filtered noise:\n%s\ngot:\n%s", expected, got)

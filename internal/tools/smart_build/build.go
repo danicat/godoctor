@@ -3,6 +3,7 @@ package smartbuild
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 )
 
 const (
+	allPackagesPattern = "./..."
 	cmdRun             = "run"
 	cmdDeadcode        = "deadcode"
 	cmdModernize       = "modernize"
@@ -79,6 +81,19 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 // CommandRunner is used to execute CLI commands.
 var CommandRunner Runner = &stdRunner{}
 
+// parsePackages splits comma- or whitespace-separated packages into a slice.
+func parsePackages(pkgs string) []string {
+	if strings.TrimSpace(pkgs) == "" {
+		return []string{allPackagesPattern}
+	}
+	normalized := strings.ReplaceAll(pkgs, ",", " ")
+	fields := strings.Fields(normalized)
+	if len(fields) == 0 {
+		return []string{allPackagesPattern}
+	}
+	return fields
+}
+
 // Handler executes the smart_build tool.
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(args.Dir) == "" || !filepath.IsAbs(args.Dir) {
@@ -86,8 +101,8 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}
 	workspaceDir := filepath.Clean(args.Dir)
 	pkgs := args.Packages
-	if pkgs == "" {
-		pkgs = "./..."
+	if strings.TrimSpace(pkgs) == "" {
+		pkgs = allPackagesPattern
 	}
 	output := strings.TrimSpace(args.Output)
 
@@ -95,21 +110,35 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	fmt.Fprintf(&sb, "# Smart Build Report (`%s`)\n\n", pkgs)
 
 	runAutoFix(ctx, workspaceDir, pkgs, &sb)
+	if ctx.Err() != nil {
+		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
+	}
 
 	if err := runBuild(ctx, workspaceDir, pkgs, output, &sb); err != nil {
 		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
 		return result(sb.String(), true), nil, nil
+	}
+	if ctx.Err() != nil {
+		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
 	}
 
 	if err := runTestsPhase(ctx, workspaceDir, pkgs, &sb); err != nil {
 		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
 		return result(sb.String(), true), nil, nil
 	}
+	if ctx.Err() != nil {
+		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
+	}
 
 	if err := runLinterPhase(ctx, workspaceDir, pkgs, &sb); err != nil {
 		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
 		return result(sb.String(), true), nil, nil
 	}
+	if ctx.Err() != nil {
+		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
+	}
+
+	runDeadcodePhase(ctx, workspaceDir, pkgs, &sb)
 
 	return result(sb.String(), false), nil, nil
 }
@@ -127,22 +156,30 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 		return
 	}
 
+	pkgList := parsePackages(pkgs)
 	var modCmd string
 	var modArgs []string
 	if _, err := CommandRunner.LookPath(cmdModernize); err == nil {
 		modCmd = cmdModernize
-		modArgs = []string{"-fix", pkgs}
+		modArgs = append([]string{"-fix"}, pkgList...)
 	} else {
 		modCmd = "go"
-		modArgs = []string{cmdRun, "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest", "-fix", pkgs}
+		modArgs = append([]string{cmdRun, "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest", "-fix"}, pkgList...)
 	}
 
 	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, modCmd, modArgs...)
 	if err != nil {
-		if strings.Contains(err.Error(), "exit status 3") {
+		var exitErr *exec.ExitError
+		if (errors.As(err, &exitErr) && exitErr.ExitCode() == 3) || strings.Contains(err.Error(), "exit status 3") {
 			sb.WriteString("  - ✅ Go Modernizer: SUCCESS (Issues found and auto-fixed)\n")
+			if trimmed := strings.TrimSpace(out); trimmed != "" {
+				sb.WriteString(formatOutput(trimmed))
+			}
 		} else {
-			fmt.Fprintf(sb, "  - ❌ Go Modernizer: FAILED (%v)\n    %s\n", err, strings.TrimSpace(out))
+			fmt.Fprintf(sb, "  - ❌ Go Modernizer: FAILED (%v)\n", err)
+			if trimmed := strings.TrimSpace(out); trimmed != "" {
+				sb.WriteString(formatOutput(trimmed))
+			}
 		}
 	} else {
 		sb.WriteString("  - ✅ Go Modernizer: SUCCESS (No issues found)\n")
@@ -157,41 +194,17 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 	} else {
 		sb.WriteString("  - ✅ Go Code Formatter: SUCCESS\n")
 	}
-
-	if ctx.Err() != nil {
-		return
-	}
-
-	var deadCmd string
-	var deadcodeArgs []string
-	if _, err := CommandRunner.LookPath(cmdDeadcode); err == nil {
-		deadCmd = cmdDeadcode
-		deadcodeArgs = strings.Fields(pkgs)
-	} else {
-		deadCmd = "go"
-		deadcodeArgs = append([]string{cmdRun, "golang.org/x/tools/cmd/deadcode@latest"}, strings.Fields(pkgs)...)
-	}
-	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, deadCmd, deadcodeArgs...)
-	if deadErr != nil {
-		fmt.Fprintf(sb, "  - ❌ Deadcode Analysis: FAILED (%v)\n", deadErr)
-	} else {
-		trimmed := strings.TrimSpace(deadOut)
-		if trimmed == "" {
-			sb.WriteString("  - ✅ Deadcode Analysis: SUCCESS (No unreachable code found)\n")
-		} else {
-			fmt.Fprintf(sb, "  - ⚠️ Deadcode Analysis: Unreachable functions detected:\n%s\n", formatOutput(deadOut))
-		}
-	}
 	sb.WriteString("\n")
 }
 
 func runBuild(ctx context.Context, workspaceDir, pkgs, output string, sb *strings.Builder) error {
 	sb.WriteString("### 🛠  Build: ")
+	pkgList := parsePackages(pkgs)
 	buildArgs := []string{"build"}
 	if output != "" {
 		buildArgs = append(buildArgs, "-o", output)
 	}
-	buildArgs = append(buildArgs, pkgs)
+	buildArgs = append(buildArgs, pkgList...)
 	buildOut, buildErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", buildArgs...)
 	if buildErr != nil {
 		sb.WriteString("❌ FAILED\n\n")
@@ -206,14 +219,22 @@ func runBuild(ctx context.Context, workspaceDir, pkgs, output string, sb *string
 func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) error {
 	sb.WriteString("### 🧪 Tests: ")
 
-	// Create a temporary file for coverage
-	covFile := filepath.Join(workspaceDir, "coverage.out")
+	// Create a temporary file for coverage in OS temp dir to avoid polluting workspace
+	covTmp, err := os.CreateTemp("", "godoctor-coverage-*.out")
+	if err != nil {
+		sb.WriteString(fmt.Sprintf("❌ FAILED (cannot create temp coverage file: %v)\n\n", err))
+		return err
+	}
+	covFile := covTmp.Name()
+	_ = covTmp.Close()
 	defer func() {
 		_ = os.Remove(covFile)
 	}()
 
-	// -v for verbose, -coverprofile for coverage
-	testArgs := []string{"test", "-v", "-coverprofile=" + covFile, pkgs}
+	pkgList := parsePackages(pkgs)
+	testArgs := make([]string, 0, 3+len(pkgList))
+	testArgs = append(testArgs, "test", "-v", "-coverprofile="+covFile)
+	testArgs = append(testArgs, pkgList...)
 	testOut, testErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", testArgs...)
 
 	if testErr != nil {
@@ -242,6 +263,35 @@ func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.B
 	syncTestQueryDB(ctx, workspaceDir, pkgs)
 	sb.WriteString("*Indexed test run to `testquery.db`*\n\n")
 	return nil
+}
+
+func runDeadcodePhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) {
+	sb.WriteString("### 🔍 Deadcode Analysis: ")
+	pkgList := parsePackages(pkgs)
+	var deadCmd string
+	var deadcodeArgs []string
+	if _, err := CommandRunner.LookPath(cmdDeadcode); err == nil {
+		deadCmd = cmdDeadcode
+		deadcodeArgs = pkgList
+	} else {
+		deadCmd = "go"
+		deadcodeArgs = append([]string{cmdRun, "golang.org/x/tools/cmd/deadcode@latest"}, pkgList...)
+	}
+	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, deadCmd, deadcodeArgs...)
+	if deadErr != nil {
+		fmt.Fprintf(sb, "❌ FAILED (%v)\n\n", deadErr)
+		if trimmed := strings.TrimSpace(deadOut); trimmed != "" {
+			sb.WriteString(formatOutput(trimmed))
+		}
+	} else {
+		trimmed := strings.TrimSpace(deadOut)
+		if trimmed == "" {
+			sb.WriteString("✅ PASS (No unreachable code found)\n\n")
+		} else {
+			sb.WriteString("⚠️ Unreachable functions detected:\n")
+			sb.WriteString(formatOutput(deadOut))
+		}
+	}
 }
 
 func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string) {
@@ -357,11 +407,12 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 	sb.WriteString("### 🧹 Lint: ")
 
 	configPath := findConfigFile(workspaceDir)
+	pkgList := parsePackages(pkgs)
 
 	// If no .golangci file is found, fallback to go vet
 	if configPath == "" {
 		lintCmd := "go"
-		lintArgs := []string{"vet", pkgs}
+		lintArgs := append([]string{"vet"}, pkgList...)
 		sb.WriteString("(using `go vet`) ")
 
 		lintOut, lintErr := CommandRunner.RunWithOutput(ctx, workspaceDir, lintCmd, lintArgs...)
@@ -370,7 +421,7 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 			sb.WriteString(formatOutput(lintOut))
 			return lintErr
 		}
-		sb.WriteString("✅ PASS\n")
+		sb.WriteString("✅ PASS\n\n")
 		return nil
 	}
 
@@ -379,11 +430,11 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 
 	if _, err := CommandRunner.LookPath(cmdGolangCILint); err == nil {
 		lintCmd = cmdGolangCILint
-		lintArgs = []string{"run", "-c", configPath, pkgs}
+		lintArgs = append([]string{"run", "-c", configPath}, pkgList...)
 		sb.WriteString("(using local `golangci-lint`) ")
 	} else {
 		lintCmd = "go"
-		lintArgs = []string{cmdRun, defaultGolangCILintPkg, cmdRun, "-c", configPath, pkgs}
+		lintArgs = append([]string{cmdRun, defaultGolangCILintPkg, cmdRun, "-c", configPath}, pkgList...)
 		sb.WriteString("(using `golangci-lint v2.12.2`) ")
 	}
 
@@ -393,7 +444,7 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 		sb.WriteString(formatOutput(lintOut))
 		return lintErr
 	}
-	sb.WriteString("✅ PASS\n")
+	sb.WriteString("✅ PASS\n\n")
 	return nil
 }
 

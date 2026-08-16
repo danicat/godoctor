@@ -28,6 +28,8 @@ func Register(server *mcp.Server) {
 type Params struct {
 	//nolint:lll
 	Dir string `json:"dir" jsonschema:"The absolute directory path to run mutation testing in. Required. Relative paths are rejected."`
+	//nolint:lll
+	Packages string `json:"packages,omitempty" jsonschema:"Packages to run mutation testing on (default: ./...)"`
 }
 
 // Runner defines the interface for running CLI commands.
@@ -73,14 +75,20 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 
 	absDir := filepath.Clean(args.Dir)
 
+	pkgs := args.Packages
+	if strings.TrimSpace(pkgs) == "" {
+		pkgs = "./..."
+	}
+	pkgList := parsePackages(pkgs)
+
 	var seleneCmd string
 	var seleneArgs []string
 	if _, err := CommandRunner.LookPath(toolName); err == nil {
 		seleneCmd = toolName
-		seleneArgs = []string{"./..."}
+		seleneArgs = pkgList
 	} else {
 		seleneCmd = "go"
-		seleneArgs = []string{"run", "github.com/danicat/selene/cmd/selene@latest", "./..."}
+		seleneArgs = append([]string{"run", "github.com/danicat/selene/cmd/selene@latest"}, pkgList...)
 	}
 
 	out, runErr := CommandRunner.RunWithOutput(ctx, absDir, seleneCmd, seleneArgs...)
@@ -116,11 +124,26 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}, nil, nil
 }
 
+func parsePackages(pkgs string) []string {
+	if strings.TrimSpace(pkgs) == "" {
+		return []string{"./..."}
+	}
+	normalized := strings.ReplaceAll(pkgs, ",", " ")
+	fields := strings.Fields(normalized)
+	if len(fields) == 0 {
+		return []string{"./..."}
+	}
+	return fields
+}
+
 func filterNoise(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	var filtered []string
 	for _, line := range lines {
-		if strings.HasPrefix(line, "go: downloading ") || strings.Contains(line, "exit status") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "go: downloading ") ||
+			strings.HasPrefix(trimmed, "exit status ") ||
+			trimmed == "exit status" {
 			continue
 		}
 		filtered = append(filtered, line)
