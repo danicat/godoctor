@@ -96,10 +96,10 @@ godoctor call tq '{"dir": "/path/to/project", "query": "SELECT test, elapsed FRO
   - If `go vet` fails, immediately rolls back disk changes (restoring previous state or deleting newly created files), parses compiler errors, extracts AST package symbols, and returns Levenshtein-based suggestions for misspelled identifiers.
 
 #### `smart_build`
-- **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `packages` (string, optional, default `./...`).
+- **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `packages` (string, optional, default `./...`), `output` (string, optional binary target path passed as `-o`).
 - **Behavior**:
   - **Phase 1 (Auto-Fix & Modernize)**: Runs `go mod tidy`, `modernize -fix` (handling exit status 3 as auto-fix success), `gofmt -w .`, and `deadcode` (reporting unreachable functions as warnings).
-  - **Phase 2 (Build)**: Runs `go build`. If compilation fails, inspects missing imports or undefined symbols to suggest `read_docs` lookups.
+  - **Phase 2 (Build)**: Runs `go build` (with `-o <output>` if specified). If compilation fails, inspects missing imports or undefined symbols to suggest `read_docs` lookups.
   - **Phase 3 (Test & Coverage)**: Runs `go test -v -coverprofile=coverage.out`, parses total statement coverage via `go tool cover -func`, and outputs package breakdown.
   - **Phase 4 (Linter)**: Detects `.golangci.yml/yaml/toml/json` and invokes `golangci-lint` (matching config version v1 or v2), or falls back to `go vet`.
 

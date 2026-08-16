@@ -54,7 +54,7 @@ godoctor uninstall -w
 
 ## Direct CLI Invocation (`godoctor call`)
 
-Tools can be invoked from the command line using standard JSON or CLI flags:
+Tools can be invoked from the command line using a JSON payload argument or piped via stdin:
 
 ### 1. `edit` (Safe Coordinate Editing)
 ```bash
@@ -63,7 +63,11 @@ godoctor call edit '{"filename": "/absolute/path/to/main.go", "old_content": "fm
 
 ### 2. `build` (Comprehensive Hygiene & Lint Pipeline)
 ```bash
+# Standard workspace build
 godoctor call build '{"dir": "/absolute/path/to/project"}'
+
+# Build with specific output binary target
+godoctor call build '{"dir": "/absolute/path/to/project", "packages": "./cmd/godoctor", "output": "bin/godoctor"}'
 ```
 
 ### 3. `test` (Multi-Tier Test Runner)

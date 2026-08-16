@@ -39,6 +39,8 @@ type Params struct {
 	//nolint:lll
 	Dir      string `json:"dir" jsonschema:"The absolute directory path to build in. Required. Relative paths are rejected."`
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to build (default: ./...)"`
+	//nolint:lll
+	Output string `json:"output,omitempty" jsonschema:"The build output binary target path or filename (passed as -o to go build). Optional."`
 }
 
 // Runner defines the interface for running commands.
@@ -87,13 +89,14 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	if pkgs == "" {
 		pkgs = "./..."
 	}
+	output := strings.TrimSpace(args.Output)
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Smart Build Report (`%s`)\n\n", pkgs)
 
 	runAutoFix(ctx, workspaceDir, pkgs, &sb)
 
-	if err := runBuild(ctx, workspaceDir, pkgs, &sb); err != nil {
+	if err := runBuild(ctx, workspaceDir, pkgs, output, &sb); err != nil {
 		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
 		return result(sb.String(), true), nil, nil
 	}
@@ -120,6 +123,10 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 		sb.WriteString("  - ✅ Go Mod Tidy: SUCCESS\n")
 	}
 
+	if ctx.Err() != nil {
+		return
+	}
+
 	var modCmd string
 	var modArgs []string
 	if _, err := CommandRunner.LookPath(cmdModernize); err == nil {
@@ -141,10 +148,18 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 		sb.WriteString("  - ✅ Go Modernizer: SUCCESS (No issues found)\n")
 	}
 
+	if ctx.Err() != nil {
+		return
+	}
+
 	if err := CommandRunner.Run(ctx, workspaceDir, "gofmt", "-w", "."); err != nil {
 		fmt.Fprintf(sb, "  - ❌ Go Code Formatter: FAILED (%v)\n", err)
 	} else {
 		sb.WriteString("  - ✅ Go Code Formatter: SUCCESS\n")
+	}
+
+	if ctx.Err() != nil {
+		return
 	}
 
 	var deadCmd string
@@ -170,9 +185,14 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 	sb.WriteString("\n")
 }
 
-func runBuild(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) error {
+func runBuild(ctx context.Context, workspaceDir, pkgs, output string, sb *strings.Builder) error {
 	sb.WriteString("### 🛠  Build: ")
-	buildOut, buildErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", "build", pkgs)
+	buildArgs := []string{"build"}
+	if output != "" {
+		buildArgs = append(buildArgs, "-o", output)
+	}
+	buildArgs = append(buildArgs, pkgs)
+	buildOut, buildErr := CommandRunner.RunWithOutput(ctx, workspaceDir, "go", buildArgs...)
 	if buildErr != nil {
 		sb.WriteString("❌ FAILED\n\n")
 		sb.WriteString(formatOutput(buildOut))
@@ -187,7 +207,7 @@ func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.B
 	sb.WriteString("### 🧪 Tests: ")
 
 	// Create a temporary file for coverage
-	covFile := "coverage.out"
+	covFile := filepath.Join(workspaceDir, "coverage.out")
 	defer func() {
 		_ = os.Remove(covFile)
 	}()
@@ -311,43 +331,27 @@ func findConfigFile(workspaceDir string) string {
 		".golangci.toml",
 		".golangci.json",
 	}
-	for _, file := range configFiles {
-		path := filepath.Join(workspaceDir, file)
-		if _, err := os.Stat(path); err == nil {
-			return path
+	curr := filepath.Clean(workspaceDir)
+	for {
+		for _, file := range configFiles {
+			path := filepath.Join(curr, file)
+			if _, err := os.Stat(path); err == nil {
+				return path
+			}
 		}
+		if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break
+		}
+		curr = parent
 	}
 	return ""
 }
 
-func parseConfigVersion(configPath string) string {
-	versionStr := "2" // Default to v2 if not found or parse fails
-	//nolint:gosec
-	content, err := os.ReadFile(configPath)
-	if err != nil {
-		return versionStr
-	}
-	lines := strings.SplitSeq(string(content), "\n")
-	for line := range lines {
-		trimmed := strings.TrimSpace(line)
-		isVersionKey := strings.HasPrefix(trimmed, "version:") ||
-			strings.HasPrefix(trimmed, "version=") ||
-			strings.Contains(trimmed, "\"version\"")
-		if isVersionKey {
-			var digits strings.Builder
-			for _, char := range trimmed {
-				if char >= '0' && char <= '9' {
-					digits.WriteRune(char)
-				}
-			}
-			if digits.Len() > 0 {
-				versionStr = digits.String()
-				break
-			}
-		}
-	}
-	return versionStr
-}
+const defaultGolangCILintPkg = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
 
 func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) error {
 	sb.WriteString("### 🧹 Lint: ")
@@ -378,22 +382,9 @@ func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.
 		lintArgs = []string{"run", "-c", configPath, pkgs}
 		sb.WriteString("(using local `golangci-lint`) ")
 	} else {
-		versionStr := parseConfigVersion(configPath)
-
-		// Select the appropriate major version of golangci-lint based on parsed version
-		var linterPkg string
-		if strings.HasPrefix(versionStr, "1") {
-			linterPkg = "github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.5"
-			sb.WriteString("(using `golangci-lint v1`) ")
-		} else {
-			linterPkg = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
-			if versionStr != "2" {
-				fmt.Fprintf(sb, "(using `golangci-lint v%s`) ", versionStr)
-			}
-		}
-
 		lintCmd = "go"
-		lintArgs = []string{cmdRun, linterPkg, cmdRun, "-c", configPath, pkgs}
+		lintArgs = []string{cmdRun, defaultGolangCILintPkg, cmdRun, "-c", configPath, pkgs}
+		sb.WriteString("(using `golangci-lint v2.12.2`) ")
 	}
 
 	lintOut, lintErr := CommandRunner.RunWithOutput(ctx, workspaceDir, lintCmd, lintArgs...)

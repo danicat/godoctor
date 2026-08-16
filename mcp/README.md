@@ -69,6 +69,7 @@ Comprehensive 4-phase workspace health, modernization, test, and linting pipelin
 #### Parameters
 - `dir` (*string, required*): Workspace absolute directory path (relative paths are rejected).
 - `packages` (*string, optional, default: `./...`*): Package pattern to analyze and build.
+- `output` (*string, optional*): Output binary target path or filename (passed as `-o` to `go build`).
 
 #### Real Runtime Pipeline
 1. **Phase 1: Auto-Fix & Modernize**:
@@ -77,7 +78,7 @@ Comprehensive 4-phase workspace health, modernization, test, and linting pipelin
    - Runs `gofmt -w .` across the workspace.
    - Runs Deadcode Analysis (`deadcode <pkgs>` or `go run golang.org/x/tools/cmd/deadcode@latest`). Unreachable functions are printed as warnings without halting the build.
 2. **Phase 2: Compilation**:
-   - Runs `go build <pkgs>`.
+   - Runs `go build <pkgs>` (appending `-o <output>` if specified).
    - On build failure, halts pipeline, inspects compiler errors for missing packages or undefined identifiers, and suggests `read_docs` lookups.
 3. **Phase 3: Tests & Coverage**:
    - Runs `go test -v -coverprofile=coverage.out <pkgs>`.

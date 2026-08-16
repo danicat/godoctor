@@ -201,7 +201,7 @@ func runList(w io.Writer) error {
 
 func runCall(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("missing tool name\nUsage: godoctor call <tool-name> [arguments]")
+		return errors.New("missing tool name\nUsage: godoctor call <tool-name> '<json-arguments>'")
 	}
 
 	toolName := args[0]
@@ -254,7 +254,7 @@ func runMCP(ctx context.Context, version string, args []string) error {
 	return srv.Run(ctx)
 }
 
-// Helper to parse arguments into a struct, supporting JSON string, stdin JSON, flags, or key=value pairs.
+// Helper to parse arguments into a struct, supporting JSON string argument or stdin JSON.
 func parseArgs(rawArgs []string, stdin io.Reader, target any) error {
 	// 1. If single argument looks like JSON:
 	if len(rawArgs) == 1 {
@@ -281,36 +281,6 @@ func parseArgs(rawArgs []string, stdin io.Reader, target any) error {
 				return json.Unmarshal([]byte(trimmed), target)
 			}
 		}
-	}
-
-	// 4. Try parsing key=value or --key=value flags into JSON map
-	kvMap := make(map[string]any)
-	for i := 0; i < len(rawArgs); i++ {
-		arg := rawArgs[i]
-		if strings.HasPrefix(arg, "--") || strings.HasPrefix(arg, "-") {
-			arg = strings.TrimLeft(arg, "-")
-			switch {
-			case strings.Contains(arg, "="):
-				parts := strings.SplitN(arg, "=", 2)
-				kvMap[parts[0]] = parts[1]
-			case i+1 < len(rawArgs) && !strings.HasPrefix(rawArgs[i+1], "-"):
-				kvMap[arg] = rawArgs[i+1]
-				i++
-			default:
-				kvMap[arg] = true
-			}
-		} else if strings.Contains(arg, "=") {
-			parts := strings.SplitN(arg, "=", 2)
-			kvMap[parts[0]] = parts[1]
-		}
-	}
-
-	if len(kvMap) > 0 {
-		b, err := json.Marshal(kvMap)
-		if err != nil {
-			return err
-		}
-		return json.Unmarshal(b, target)
 	}
 
 	if len(rawArgs) == 0 {

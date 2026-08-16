@@ -74,7 +74,13 @@ func Handler(
 	}
 
 	res, err := ExecuteEdits(ctx, session, []FileEdit{edit})
-	return res, nil, err
+	if res != nil {
+		return res, nil, nil
+	}
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
+	return nil, nil, nil
 }
 
 func errorResult(msg string) *mcp.CallToolResult {

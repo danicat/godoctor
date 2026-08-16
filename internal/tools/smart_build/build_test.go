@@ -148,6 +148,43 @@ func TestHandler_Success(t *testing.T) {
 	}
 }
 
+func TestHandler_OutputTarget(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build": "",
+			"go test":  "PASS",
+		},
+	}
+	CommandRunner = runner
+
+	res, _, err := Handler(context.Background(), nil, Params{
+		Dir:    "/path/to/workspace",
+		Output: "bin/godoctor",
+	})
+	if err != nil {
+		t.Fatalf("Handler failed: %v", err)
+	}
+	if res.IsError {
+		t.Error("Expected success, got error result")
+	}
+
+	calls := runner.getCalls()
+	var foundBuildWithO bool
+	for _, call := range calls {
+		if call.Name == "go" && len(call.Args) >= 3 &&
+			call.Args[0] == "build" && call.Args[1] == "-o" && call.Args[2] == "bin/godoctor" {
+			foundBuildWithO = true
+			break
+		}
+	}
+	if !foundBuildWithO {
+		t.Errorf("Expected go build -o bin/godoctor in calls, got: %+v", calls)
+	}
+}
+
 func TestHandler_RelativePathRejected(t *testing.T) {
 	testCases := []struct {
 		name string
@@ -261,90 +298,6 @@ func TestHandler_Deadcode_Fail(t *testing.T) {
 	out := res.Content[0].(*mcp.TextContent).Text
 	if !strings.Contains(out, "Deadcode Analysis: FAILED") {
 		t.Errorf("Expected deadcode failure in output, got:\n%s", out)
-	}
-}
-
-//nolint:funlen
-func TestParseConfigVersion(t *testing.T) {
-	tests := []struct {
-		name     string
-		content  string
-		create   bool
-		expected string
-	}{
-		{
-			name:     "version 1 yaml",
-			content:  "version: 1\nlinters:\n  enable:\n    - errcheck\n",
-			create:   true,
-			expected: "1",
-		},
-		{
-			name:     "version 2 yaml",
-			content:  "version: 2\nlinters:\n  enable:\n    - errcheck\n",
-			create:   true,
-			expected: "2",
-		},
-		{
-			name:     "version toml",
-			content:  "version = 2\n[linters]\nenable = [\"errcheck\"]\n",
-			create:   true,
-			expected: "2",
-		},
-		{
-			name:     "version json string",
-			content:  "{\n  \"version\": \"2\",\n  \"linters\": {}\n}",
-			create:   true,
-			expected: "2",
-		},
-		{
-			name:     "version json number",
-			content:  "{\n  \"version\": 1,\n  \"linters\": {}\n}",
-			create:   true,
-			expected: "1",
-		},
-		{
-			name:     "no version key",
-			content:  "linters:\n  enable:\n    - errcheck\n",
-			create:   true,
-			expected: "2",
-		},
-		{
-			name:     "empty file",
-			content:  "",
-			create:   true,
-			expected: "2",
-		},
-		{
-			name:     "non digit version",
-			content:  "version: latest\n",
-			create:   true,
-			expected: "2",
-		},
-		{
-			name:     "non existent file",
-			create:   false,
-			expected: "2",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var configPath string
-			if tc.create {
-				dir := t.TempDir()
-				configPath = filepath.Join(dir, ".golangci.yml")
-				if err := os.WriteFile(configPath, []byte(tc.content), 0o600); err != nil {
-					t.Fatalf("failed to write test config file: %v", err)
-				}
-			} else {
-				configPath = filepath.Join(t.TempDir(), "nonexistent_config.yml")
-			}
-
-			got := parseConfigVersion(configPath)
-			if got != tc.expected {
-				t.Errorf("parseConfigVersion() = %q, want %q", got, tc.expected)
-			}
-		})
 	}
 }
 
@@ -467,12 +420,39 @@ func TestRunBuild(t *testing.T) {
 		CommandRunner = runner
 
 		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./...", &sb)
+		err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
 		if err != nil {
 			t.Fatalf("expected nil error, got: %v", err)
 		}
 		if !strings.Contains(sb.String(), "### 🛠  Build: ✅ PASS\n\n") {
 			t.Errorf("expected build pass output, got:\n%s", sb.String())
+		}
+	})
+
+	t.Run("build success with output target", func(t *testing.T) {
+		runner := &mockRunner{
+			outputs: map[string]string{
+				"go build -o bin/app ./...": "",
+			},
+		}
+		CommandRunner = runner
+
+		var sb strings.Builder
+		err := runBuild(context.Background(), "/workspace", "./...", "bin/app", &sb)
+		if err != nil {
+			t.Fatalf("expected nil error, got: %v", err)
+		}
+		if !strings.Contains(sb.String(), "### 🛠  Build: ✅ PASS\n\n") {
+			t.Errorf("expected build pass output, got:\n%s", sb.String())
+		}
+		calls := runner.getCalls()
+		if len(calls) == 0 {
+			t.Fatal("expected calls to runner")
+		}
+		lastCall := calls[len(calls)-1]
+		if len(lastCall.Args) < 3 || lastCall.Args[0] != "build" ||
+			lastCall.Args[1] != "-o" || lastCall.Args[2] != "bin/app" {
+			t.Errorf("expected go build -o bin/app args, got: %v", lastCall.Args)
 		}
 	})
 
@@ -488,7 +468,7 @@ func TestRunBuild(t *testing.T) {
 		CommandRunner = runner
 
 		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./...", &sb)
+		err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -516,7 +496,7 @@ func TestRunBuild(t *testing.T) {
 		CommandRunner = runner
 
 		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./...", &sb)
+		err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -884,6 +864,26 @@ func TestFindConfigFile(t *testing.T) {
 		})
 	}
 
+	t.Run("finds config in parent repo root directory", func(t *testing.T) {
+		rootDir := t.TempDir()
+		subDir := filepath.Join(rootDir, "internal", "mypkg")
+		if err := os.MkdirAll(subDir, 0o750); err != nil {
+			t.Fatalf("failed to create subdir: %v", err)
+		}
+		cfgPath := filepath.Join(rootDir, ".golangci.yaml")
+		if err := os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(rootDir, "go.mod"), []byte("module example.com/pkg\n"), 0o600); err != nil {
+			t.Fatalf("failed to write go.mod: %v", err)
+		}
+
+		got := findConfigFile(subDir)
+		if got != cfgPath {
+			t.Errorf("findConfigFile(%s) = %q, want %q", subDir, got, cfgPath)
+		}
+	})
+
 	t.Run("none found in empty dir", func(t *testing.T) {
 		dir := t.TempDir()
 		got := findConfigFile(dir)
@@ -999,35 +999,9 @@ func TestRunLinterPhase(t *testing.T) {
 		}
 	})
 
-	t.Run("config present without local golangci-lint v1", func(t *testing.T) {
+	t.Run("config present without local golangci-lint fallback to v2.12.2", func(t *testing.T) {
 		dir := t.TempDir()
 		cfgPath := filepath.Join(dir, ".golangci.yml")
-		_ = os.WriteFile(cfgPath, []byte("version: 1\n"), 0o600)
-
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"golangci-lint": fmt.Errorf("not found"),
-			},
-			outputs: map[string]string{
-				"golangci-lint@v1.64.5": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./...", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using `golangci-lint v1`) ✅ PASS") {
-			t.Errorf("expected golangci-lint v1 pass, got:\n%s", out)
-		}
-	})
-
-	t.Run("config present without local golangci-lint v2 default", func(t *testing.T) {
-		dir := t.TempDir()
-		cfgPath := filepath.Join(dir, ".golangci.yaml")
 		_ = os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600)
 
 		runner := &mockRunner{
@@ -1035,7 +1009,7 @@ func TestRunLinterPhase(t *testing.T) {
 				"golangci-lint": fmt.Errorf("not found"),
 			},
 			outputs: map[string]string{
-				"golangci-lint/v2": "",
+				"golangci-lint@v2.12.2": "",
 			},
 		}
 		CommandRunner = runner
@@ -1046,34 +1020,8 @@ func TestRunLinterPhase(t *testing.T) {
 			t.Fatalf("expected nil error, got: %v", err)
 		}
 		out := sb.String()
-		if !strings.Contains(out, "### 🧹 Lint: ✅ PASS") {
-			t.Errorf("expected golangci-lint v2 pass, got:\n%s", out)
-		}
-	})
-
-	t.Run("config present without local golangci-lint v3 custom version message", func(t *testing.T) {
-		dir := t.TempDir()
-		cfgPath := filepath.Join(dir, ".golangci.json")
-		_ = os.WriteFile(cfgPath, []byte("{\"version\": 3}"), 0o600)
-
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"golangci-lint": fmt.Errorf("not found"),
-			},
-			outputs: map[string]string{
-				"golangci-lint/v2": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./...", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using `golangci-lint v3`) ✅ PASS") {
-			t.Errorf("expected golangci-lint v3 notice, got:\n%s", out)
+		if !strings.Contains(out, "(using `golangci-lint v2.12.2`) ✅ PASS") {
+			t.Errorf("expected golangci-lint v2.12.2 pass, got:\n%s", out)
 		}
 	})
 }

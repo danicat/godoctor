@@ -115,6 +115,7 @@ if [ "${BUILD_FROM_SOURCE}" != "true" ]; then
     fi
 
     TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "${TMP_DIR}"' EXIT
     TAR_FILE="${TMP_DIR}/godoctor.tar.gz"
 
     if curl -fsSL "${RELEASE_URL}" -o "${TAR_FILE}" 2>/dev/null; then

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
 )
 
 func TestRun_NoArgs_PrintsHelp(t *testing.T) {
@@ -190,4 +192,51 @@ func TestRun_MCP_Cancellation(_ *testing.T) {
 	var stdout, stderr bytes.Buffer
 	// Running mcp with canceled context should exit cleanly
 	_ = Run(ctx, "dev", []string{"mcp"}, nil, &stdout, &stderr)
+}
+
+type mockCLIRunner struct {
+	calls [][]string
+}
+
+func (m *mockCLIRunner) Run(_ context.Context, _, _ string, _ ...string) error {
+	return nil
+}
+
+func (m *mockCLIRunner) RunWithOutput(_ context.Context, _, name string, args ...string) (string, error) {
+	call := append([]string{name}, args...)
+	m.calls = append(m.calls, call)
+	if name == "go" && len(args) > 0 && args[0] == "test" {
+		return "PASS", nil
+	}
+	return "", nil
+}
+
+func (m *mockCLIRunner) LookPath(file string) (string, error) {
+	return "/usr/bin/" + file, nil
+}
+
+func TestRun_Call_Build_OutputTarget(t *testing.T) {
+	oldRunner := smartbuild.CommandRunner
+	defer func() { smartbuild.CommandRunner = oldRunner }()
+
+	runner := &mockCLIRunner{}
+	smartbuild.CommandRunner = runner
+
+	var stdout, stderr bytes.Buffer
+	args := []string{"call", "build", `{"dir": "/abs/path", "output": "bin/jsonbin"}`}
+	err := Run(context.Background(), "dev", args, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var foundBuildWithO bool
+	for _, call := range runner.calls {
+		if len(call) >= 4 && call[0] == "go" && call[1] == "build" && call[2] == "-o" && call[3] == "bin/jsonbin" {
+			foundBuildWithO = true
+			break
+		}
+	}
+	if !foundBuildWithO {
+		t.Errorf("expected go build -o bin/jsonbin in runner calls, got: %+v", runner.calls)
+	}
 }
