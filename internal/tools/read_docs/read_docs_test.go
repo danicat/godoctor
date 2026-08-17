@@ -22,26 +22,31 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestToolHandler(t *testing.T) {
-	ctx := context.Background()
+const (
+	symbolPrintln = "Println"
+	pkgFmt        = "fmt"
+)
 
-	testCases := []struct {
-		name        string
-		params      readdocs.Params
-		wantErr     bool
-		wantContent string
-	}{
+type docTestCase struct {
+	name        string
+	params      readdocs.Params
+	wantErr     bool
+	wantContent string
+}
+
+func getDocTestCases() []docTestCase {
+	return []docTestCase{
 		{
 			name:        "Standard Library Function (Markdown Check)",
-			params:      readdocs.Params{ImportPath: "fmt", SymbolName: "Println"},
+			params:      readdocs.Params{ImportPath: pkgFmt, SymbolName: symbolPrintln},
 			wantErr:     false,
 			wantContent: "```go\nfunc Println", // Verifies Markdown code block start
 		},
 		{
 			name:        "Fuzzy Match Symbol",
-			params:      readdocs.Params{ImportPath: "fmt", SymbolName: "Pritln"}, // Typo
+			params:      readdocs.Params{ImportPath: pkgFmt, SymbolName: "Pritln"}, // Typo
 			wantErr:     true,
-			wantContent: "Println", // Expect the correct suggestion to appear in the error
+			wantContent: symbolPrintln, // Expect the correct suggestion to appear in the error
 		},
 		{
 			name:        "Package-Level Documentation",
@@ -51,7 +56,7 @@ func TestToolHandler(t *testing.T) {
 		},
 		{
 			name:        "Symbol Not Found",
-			params:      readdocs.Params{ImportPath: "fmt", SymbolName: "NonExistentSymbol"},
+			params:      readdocs.Params{ImportPath: pkgFmt, SymbolName: "NonExistentSymbol"},
 			wantErr:     true,
 			wantContent: "symbol \"NonExistentSymbol\" not found in package fmt",
 		},
@@ -69,17 +74,22 @@ func TestToolHandler(t *testing.T) {
 		},
 		{
 			name:        "JSON Format Output",
-			params:      readdocs.Params{ImportPath: "fmt", SymbolName: "Println", Format: "json"},
+			params:      readdocs.Params{ImportPath: pkgFmt, SymbolName: symbolPrintln, Format: "json"},
 			wantErr:     false,
 			wantContent: `"package": "fmt"`,
 		},
 		{
 			name:        "Invalid Format",
-			params:      readdocs.Params{ImportPath: "fmt", Format: "yaml"},
+			params:      readdocs.Params{ImportPath: pkgFmt, Format: "yaml"},
 			wantErr:     true,
 			wantContent: "invalid format: must be 'markdown' or 'json'",
 		},
 	}
+}
+
+func TestToolHandler(t *testing.T) {
+	ctx := context.Background()
+	testCases := getDocTestCases()
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {

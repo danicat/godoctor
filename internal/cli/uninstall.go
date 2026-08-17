@@ -15,7 +15,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +25,7 @@ import (
 
 // UninstallOptions holds parsed options for the uninstall command.
 type UninstallOptions struct {
+	UninstallAll    bool
 	UninstallMCP    bool
 	UninstallSkills bool
 	Workspace       bool
@@ -35,21 +35,11 @@ type UninstallOptions struct {
 	SkillsDir       string
 }
 
-// runUninstall parses arguments and executes the godoctor uninstall command using Cobra.
-func runUninstall(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	cmd := newUninstallCmd(stdout, stderr)
-	cmd.SetArgs(args)
-	cmd.SetOut(stdout)
-	cmd.SetErr(stderr)
-	return cmd.ExecuteContext(ctx)
-}
-
-// ExecuteUninstall performs the uninstallation according to the given options.
-func ExecuteUninstall(opts UninstallOptions, stdout, stderr io.Writer) error {
-	_ = stderr
+// resolveUninstallPaths determines target scopes and paths for uninstallation.
+func resolveUninstallPaths(opts UninstallOptions) (string, string, string, string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to determine user home directory: %w", err)
+		return "", "", "", "", fmt.Errorf("failed to determine user home directory: %w", err)
 	}
 
 	var targetRoot string
@@ -57,11 +47,11 @@ func ExecuteUninstall(opts UninstallOptions, stdout, stderr io.Writer) error {
 
 	if opts.Workspace {
 		scopeName = "workspace"
-		targetRoot = filepath.Join(".", ".agents")
+		targetRoot = filepath.Clean(".")
 	} else {
 		geminiConfig := os.Getenv("GEMINI_CONFIG_DIR")
 		if geminiConfig != "" {
-			targetRoot = geminiConfig
+			targetRoot = filepath.Clean(geminiConfig)
 		} else {
 			targetRoot = filepath.Join(homeDir, ".gemini", "config")
 		}
@@ -77,11 +67,29 @@ func ExecuteUninstall(opts UninstallOptions, stdout, stderr io.Writer) error {
 		skillsTargetDir = filepath.Join(targetRoot, "skills")
 	}
 
+	return scopeName, targetRoot, mcpConfigFile, skillsTargetDir, nil
+}
+
+// ExecuteUninstall performs the uninstallation according to the given options.
+func ExecuteUninstall(ctx context.Context, opts UninstallOptions, stdout, stderr io.Writer) error {
+	_ = stderr
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	scopeName, targetRoot, mcpConfigFile, skillsTargetDir, err := resolveUninstallPaths(opts)
+	if err != nil {
+		return err
+	}
+
 	var mcpRemoved bool
 	var removedSkills []string
 
 	// 1. Remove MCP Server registration
 	if opts.UninstallMCP {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		removed, err := removeMCPServer(mcpConfigFile)
 		if err != nil {
 			return fmt.Errorf("failed to remove MCP server from %s: %w", mcpConfigFile, err)
@@ -91,8 +99,10 @@ func ExecuteUninstall(opts UninstallOptions, stdout, stderr io.Writer) error {
 
 	// 2. Remove Skills
 	if opts.UninstallSkills {
-		removed := removeSkills(skillsTargetDir)
-		removedSkills = removed
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		removedSkills = removeSkills(skillsTargetDir)
 	}
 
 	// 3. Summary Output
@@ -105,42 +115,39 @@ func ExecuteUninstall(opts UninstallOptions, stdout, stderr io.Writer) error {
 
 // removeMCPServer deletes the "godoctor" entry from mcp_config.json.
 func removeMCPServer(configPath string) (bool, error) {
-	data, err := os.ReadFile(configPath)
+	cleanPath := filepath.Clean(configPath)
+	data, err := os.ReadFile(cleanPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, err
+		return false, fmt.Errorf("failed to read %s: %w", cleanPath, err)
 	}
 
-	if len(bytes.TrimSpace(data)) == 0 {
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return false, fmt.Errorf("failed to parse JSON from %s: %w", configPath, err)
+	}
+
+	mcpServers, ok := raw["mcpServers"].(map[string]any)
+	if !ok || mcpServers == nil {
 		return false, nil
 	}
 
-	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
-		return false, fmt.Errorf("failed to parse %s: %w", configPath, err)
-	}
-
-	servers, ok := root["mcpServers"].(map[string]any)
-	if !ok {
+	if _, exists := mcpServers["godoctor"]; !exists {
 		return false, nil
 	}
 
-	if _, exists := servers["godoctor"]; !exists {
-		return false, nil
-	}
+	delete(mcpServers, "godoctor")
+	raw["mcpServers"] = mcpServers
 
-	delete(servers, "godoctor")
-
-	formatted, err := json.MarshalIndent(root, "", "  ")
+	updatedData, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		return false, fmt.Errorf("failed to serialize updated mcp configuration: %w", err)
+		return false, fmt.Errorf("failed to encode JSON for %s: %w", configPath, err)
 	}
-	formatted = append(formatted, '\n')
 
-	if err := os.WriteFile(configPath, formatted, 0644); err != nil {
-		return false, err
+	if err := os.WriteFile(configPath, updatedData, 0600); err != nil {
+		return false, fmt.Errorf("failed to write %s: %w", configPath, err)
 	}
 
 	return true, nil
@@ -148,11 +155,11 @@ func removeMCPServer(configPath string) (bool, error) {
 
 // removeSkills deletes GoDoctor skill directories.
 func removeSkills(targetDir string) []string {
-	skillsList := []string{"godoctor", "selene", "testquery"}
+	skillsList := []string{AppName, ToolNameSelene, ToolNameTestQuery}
 	var removed []string
 
 	for _, skillName := range skillsList {
-		skillDir := filepath.Join(targetDir, skillName)
+		skillDir := filepath.Clean(filepath.Join(targetDir, skillName))
 		if _, err := os.Stat(skillDir); err == nil {
 			_ = os.RemoveAll(skillDir)
 			removed = append(removed, "@"+skillName)
@@ -169,7 +176,7 @@ func printUninstallSummary(
 	mcpRemoved bool,
 	removedSkills []string,
 ) {
-	fmt.Fprintf(w, `=============================================================
+	_, _ = fmt.Fprintf(w, `=============================================================
              🗑️  GoDoctor Uninstallation Complete             
 =============================================================
 Scope:       %s (%s)
@@ -178,19 +185,19 @@ Actions Performed:
 `, scope, targetRoot)
 
 	if mcpRemoved {
-		fmt.Fprintf(w, "  ✓ MCP Server:  Removed 'godoctor' from %s\n", mcpPath)
+		_, _ = fmt.Fprintf(w, "  ✓ MCP Server:  Removed 'godoctor' from %s\n", mcpPath)
 	} else {
-		fmt.Fprintf(w, "  ℹ MCP Server:  Not found in %s\n", mcpPath)
+		_, _ = fmt.Fprintf(w, "  ℹ MCP Server:  Not found in %s\n", mcpPath)
 	}
 
 	if len(removedSkills) > 0 {
-		fmt.Fprintf(w, "  ✓ Skills:      Removed from %s\n", skillsDir)
+		_, _ = fmt.Fprintf(w, "  ✓ Skills:      Removed from %s\n", skillsDir)
 		for _, s := range removedSkills {
-			fmt.Fprintf(w, "                 • %s\n", s)
+			_, _ = fmt.Fprintf(w, "                 • %s\n", s)
 		}
 	} else {
-		fmt.Fprintf(w, "  ℹ Skills:      None found in %s\n", skillsDir)
+		_, _ = fmt.Fprintf(w, "  ℹ Skills:      None found in %s\n", skillsDir)
 	}
 
-	fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "")
 }

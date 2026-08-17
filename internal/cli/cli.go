@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/server"
 	readdocs "github.com/danicat/godoctor/internal/tools/read_docs"
 	"github.com/danicat/godoctor/internal/tools/selene"
@@ -23,53 +24,263 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// DefaultConfigFileTemplate is the template for generated .godoctor.yaml.
+// DefaultConfigFileTemplate is the master .godoctor.yaml configuration template matching RFC-0001 (Section 3.1).
 const DefaultConfigFileTemplate = `# ==============================================================================
-# GoDoctor Configuration File (.godoctor.yaml)
-# Centralized configuration for Go Developer Intelligence & MCP Server
+# GoDoctor Master Configuration (.godoctor.yaml)
 # ==============================================================================
 version: "1"
 
-# CLI & Runtime Execution Settings
+# CLI Global Execution Settings
 cli:
-  timeout: "60s"          # Default execution timeout for tool invocations
-  output_format: "text"   # Output format: text | json | yaml
-  color: true             # Enable ANSI color in terminal output
-  log_level: "info"       # Logging level: debug | info | warn | error
+  timeout: "60s"
+  output_format: "text"           # "text" | "json" | "yaml"
+  color: true
+  log_level: "info"               # "debug" | "info" | "warn" | "error"
 
 # MCP Server Settings
-mcp:
-  listen_address: ""      # HTTP address (e.g. ":8080") or empty for stdio
-  instructions_file: ""   # Optional path to custom instruction markdown
+server:
+  name: "godoctor"
+  transport: "stdio"              # "stdio" | "http"
+  http:
+    listen: ":8080"
+    read_timeout: "30s"
+    write_timeout: "5m"           # Extended to accommodate long-running builds/tests
+    idle_timeout: "120s"
+    shutdown_timeout: "10s"
+    allowed_origins:
+      - "http://localhost"
+      - "http://localhost:*"
+      - "http://127.0.0.1"
+      - "http://127.0.0.1:*"
+    allow_credentials: true
+  logging:
+    level: "info"                 # "debug" | "info" | "warn" | "error"
+    format: "text"                # "text" | "json"
+    trace_mcp_payloads: false
+    log_file: ""
 
-# External Tool Version Tracking & Execution Config
+# SafeShell Subprocess Safety & Allowed Executables
+safeshell:
+  mode: "standard"                # "standard" | "strict" | "allowlist" | "disabled"
+  command_timeout: "120s"
+  allowed_binaries:
+    - "go"
+    - "gofmt"
+    - "golangci-lint"
+    - "selene"
+    - "testquery"
+    - "tq"
+    - "deadcode"
+    - "modernize"
+
+# System Instructions Prompt Configuration
+instructions:
+  enabled: true
+  compact: false
+  dynamic_tools: true            # Filter instructions to only active tools
+  rules_file: ""                 # Optional repo-specific markdown rules (e.g. .godoctor/rules.md)
+  custom_rules: ""
+
+# External Utility Definitions & RFC-0001 Version Tracking
 tools:
   golangci_lint:
+    binary_name: "golangci-lint"
     recommended_version: "v2.12.2"
+    min_version: "v1.60.0"
     pkg: "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
     config: ".golangci.yml"
+    timeout: "5m"
+    args: ["run"]
+    disabled: false
+
   modernize:
+    binary_name: "modernize"
     recommended_version: "latest"
     pkg: "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest"
+    timeout: "2m"
+    args: ["-fix"]
+    disabled: false
+
   deadcode:
+    binary_name: "deadcode"
     recommended_version: "latest"
     pkg: "golang.org/x/tools/cmd/deadcode@latest"
+    timeout: "2m"
+    disabled: false
+
   selene:
+    binary_name: "selene"
     recommended_version: "latest"
     pkg: "github.com/danicat/selene/cmd/selene@latest"
-    timeout: "60s"
+    packages: "./..."
+    timeout: "3m"
+    workers: 0                    # 0 defaults to runtime.GOMAXPROCS workers
+    testquery_compat: true        # Enable TestQuery SQLite DB integration
+    db_path: ".godoctor/testquery.db"
+    disabled: false
+
   testquery:
+    binary_name: "testquery"
     recommended_version: "latest"
     pkg: "github.com/danicat/testquery@latest"
-    db_path: "testquery.db"
+    db_path: ".godoctor/testquery.db"
+    format: "table"
+    timeout: "2m"
+    disabled: false
+
+# Build Pipeline Configuration (smart_build)
+build:
+  default_packages: "./..."
+  output: ""
+  tags: []
+  race: false
+  trimpath: false
+  timeout: "5m"
+  flags: []
+
+# Auto-Fix Pipeline Configuration (smart_build)
+autofix:
+  enabled: true
+  dry_run: false
+  order:
+    - tidy
+    - modernize
+    - gofmt
+  mod_tidy: true
+  modernize: true
+  gofmt: true
+  deadcode: true
+
+# Transactional Edit Engine (smart_edit)
+edit:
+  backup_strategy: "memory"       # "memory" | "temp_file" | "git"
+  atomic_write: true              # Write-to-temp + atomic os.Rename
+  preserve_permissions: true      # Retain original os.FileMode
+  default_threshold: 0.95
+  format_on_save: "goimports"     # "goimports" | "gofmt" | "none"
+  exclude_paths:
+    - ".git"
+    - "vendor"
+    - "node_modules"
+    - "skills"
+    - "agents"
+    - "hooks"
+
+# Fuzzy Coordinate Matching Engine (match.go)
+matching:
+  fuzzy_fallback: true
+  similarity_threshold: 0.95
+  normalize_unicode: true         # Strip non-breaking spaces (\u00A0) and Unicode whitespace
+  min_seed_length: 3
+  window_expansion_delta: 4
+
+# Compiler Diagnostics & Verification Gate (diagnostics.go)
+diagnostics:
+  collect_on_edit: true
+  verification_scope: "module"    # "module" | "package" | "edited_files"
+  check_command:
+    - "go"
+    - "vet"
+    - "./..."
+  timeout: "30s"
+  enable_suggestions: true
+  max_levenshtein_distance: 3
+  max_suggestions: 5
+  snippet_context_lines: 5
+
+# Test & Benchmark Runner (smart_test)
+test:
+  default_level: "basic"           # "fast" | "basic" | "benchmark" | "complete"
+  default_packages: "./..."
+  timeout: "60s"
+  verbose: true
+  race_detector: false
+  coverage_threshold: 80.0
+  coverage_profile: "coverage.out"
+  coverage_output_dir: ""          # Empty string uses os.TempDir()
+  benchmark_pattern: "."
+  benchmark_flags:
+    - "-benchmem"
+    - "-run=NONE"
+
+# SQLite Test Analytics (test_query)
+testquery:
+  db_path: ".godoctor/testquery.db"
+  wal_mode: true
+  busy_timeout: "5s"
+  format: "table"                  # "table" | "json" | "csv"
+
+# AST Documentation Engine (read_docs, godoc)
+docs:
+  cache_enabled: true
+  cache_ttl: "15m"
+  cache_max_entries: 500
+  external_fetch: true
+  offline_mode: false
+  pkg_go_dev_url: "https://pkg.go.dev"
+  max_symbols_rendered: 100
+  fuzzy_suggestions: true
+  max_fuzzy_suggestions: 5
+  fuzzy_distance_threshold: 2
+  default_format: "markdown"       # "markdown" | "json"
+  temp_dir: ""
 
 # Global Feature Flags
 features:
-  autofix: true               # Enable automatic code fixes in build pipeline
-  deadcode_check: true        # Run dead code analysis in build pipeline
-  testquery_sync: true        # Automatically index test runs into testquery.db
-  version_check_hints: true   # Display upgrade recommendations when tools are outdated
+  autofix: true
+  mod_tidy: true
+  modernize_check: true
+  deadcode_check: true
+  format_on_build: true
+  format_on_edit: true
+  vet_gate: true
+  auto_rollback: true
+  testquery_sync: true
+  testquery_compat: true
+  version_check_hints: true
+  coverage_gate: false
+  race_detector: false
+  strict_mode: false
+  remote_doc_fetch: true
+  vanity_resolution: true
+  docs_cache: true
 `
+
+// MinimalConfigFileTemplate is a concise configuration template for minimal setups.
+const MinimalConfigFileTemplate = `# ==============================================================================
+# GoDoctor Minimal Configuration (.godoctor.yaml)
+# ==============================================================================
+version: "1"
+
+cli:
+  timeout: "60s"
+  output_format: "text"
+
+server:
+  transport: "stdio"
+
+features:
+  autofix: true
+  deadcode_check: true
+  testquery_sync: true
+  version_check_hints: true
+`
+
+// CLI tool name and command constants
+const (
+	ToolNameEdit      = "edit"
+	ToolNameBuild     = "build"
+	ToolNameTest      = "test"
+	ToolNameDocs      = "docs"
+	ToolNameSelene    = "selene"
+	ToolNameTestQuery = "testquery"
+	ToolNameTQ        = "tq"
+	AppName           = "godoctor"
+	CommandMCP        = "mcp"
+	CommandInit       = "init"
+	CommandCheck      = "check"
+	CommandList       = "list"
+)
 
 // ToolDef represents metadata and invoker for a tool.
 type ToolDef struct {
@@ -84,43 +295,43 @@ type ToolDef struct {
 func GetTools() []ToolDef {
 	return []ToolDef{
 		{
-			Name:        "edit",
+			Name:        ToolNameEdit,
 			Aliases:     []string{"smart_edit"},
 			Description: "Single-file coordinate editing transaction with compiler verification and rollback.",
 			Usage:       `godoctor call edit '{"filename": "/abs/path/file.go", "old_content": "...", "new_content": "..."}'`,
 			Invoke:      invokeSmartEdit,
 		},
 		{
-			Name:        "build",
+			Name:        ToolNameBuild,
 			Aliases:     []string{"smart_build"},
-			Description: "4-phase pipeline: mod tidy -> modernize -> gofmt -> deadcode -> build -> test -> linter.",
+			Description: "Build Go packages and binaries with automated compilation, testing, linting, and quality checks.",
 			Usage:       `godoctor call build '{"dir": "/abs/path"}'`,
 			Invoke:      invokeSmartBuild,
 		},
 		{
-			Name:        "test",
+			Name:        ToolNameTest,
 			Aliases:     []string{"smart_test"},
 			Description: "Multi-tier test and benchmark runner (fast, basic, benchmark, complete) with testquery.db indexing.",
 			Usage:       `godoctor call test '{"dir": "/abs/path", "level": "basic"}'`,
 			Invoke:      invokeSmartTest,
 		},
 		{
-			Name:        "docs",
+			Name:        ToolNameDocs,
 			Aliases:     []string{"read_docs"},
 			Description: "AST documentation reader with ephemeral remote package downloading and symbol extraction.",
 			Usage:       `godoctor call docs '{"import_path": "net/http", "symbol_name": "Get"}'`,
 			Invoke:      invokeReadDocs,
 		},
 		{
-			Name:        "selene",
+			Name:        ToolNameSelene,
 			Aliases:     []string{"mutation_test", "mutation"},
 			Description: "Selene-powered AST mutation testing evaluating unit test quality by introducing code defects.",
 			Usage:       `godoctor call selene '{"dir": "/abs/path"}'`,
 			Invoke:      invokeSelene,
 		},
 		{
-			Name:        "tq",
-			Aliases:     []string{"test_query", "testquery"},
+			Name:        ToolNameTQ,
+			Aliases:     []string{"test_query", ToolNameTestQuery},
 			Description: "SQL analytics engine executing queries against coverage and test execution history in testquery.db.",
 			Usage:       `godoctor call tq '{"dir": "/abs/path", "query": "SELECT ... "}'`,
 			Invoke:      invokeTestQuery,
@@ -158,12 +369,12 @@ func NewRootCmd(version string, stdin io.Reader, stdout, stderr io.Writer) *cobr
 	var globalOpts GlobalOptions
 
 	rootCmd := &cobra.Command{
-		Use:           "godoctor",
+		Use:           AppName,
 		Short:         "Go Developer Intelligence and MCP Server",
 		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
 	}
@@ -174,13 +385,15 @@ func NewRootCmd(version string, stdin io.Reader, stdout, stderr io.Writer) *cobr
 	rootCmd.SetErr(stderr)
 
 	// Global Flags
-	rootCmd.PersistentFlags().StringVarP(&globalOpts.ConfigPath, "config", "c", "", "Path to .godoctor.yaml configuration file")
+	rootCmd.PersistentFlags().StringVarP(
+		&globalOpts.ConfigPath, "config", "c", "", "Path to .godoctor.yaml configuration file",
+	)
 	rootCmd.PersistentFlags().BoolVarP(&globalOpts.Verbose, "verbose", "V", false, "Verbose output")
 	rootCmd.PersistentFlags().BoolVarP(&globalOpts.Quiet, "quiet", "q", false, "Quiet output")
 
 	// Subcommands
 	rootCmd.AddCommand(newCallCmd(stdin, stdout, stderr))
-	rootCmd.AddCommand(newMCPCmd(version, stdout, stderr))
+	rootCmd.AddCommand(newMCPCmd(version, &globalOpts, stdout, stderr))
 	rootCmd.AddCommand(newInitCmd(stdout, stderr))
 	rootCmd.AddCommand(newCheckCmd(stdout, stderr))
 	rootCmd.AddCommand(newInstallCmd(stdout, stderr))
@@ -231,9 +444,9 @@ func newCallCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 			for _, content := range res.Content {
 				if tc, ok := content.(*mcp.TextContent); ok {
 					if res.IsError {
-						fmt.Fprintln(stderr, tc.Text)
+						_, _ = fmt.Fprintln(stderr, tc.Text)
 					} else {
-						fmt.Fprintln(stdout, tc.Text)
+						_, _ = fmt.Fprintln(stdout, tc.Text)
 					}
 				}
 			}
@@ -247,36 +460,57 @@ func newCallCmd(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
 	}
 }
 
-func newMCPCmd(version string, stdout, stderr io.Writer) *cobra.Command {
+func newMCPCmd(version string, opts *GlobalOptions, stdout, stderr io.Writer) *cobra.Command {
 	_ = stdout
 	_ = stderr
 	var listenAddr string
+	var transport string
 
 	cmd := &cobra.Command{
-		Use:   "mcp",
+		Use:   CommandMCP,
 		Short: "Run in Model Context Protocol (MCP) server mode",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			srv := server.New(version)
-			if listenAddr != "" {
+			var configPath string
+			if opts != nil {
+				configPath = opts.ConfigPath
+			}
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				cfg = config.NewDefaultConfig()
+			}
+			srv := server.New(version, server.WithServerConfig(cfg.Server))
+			transport = strings.ToLower(strings.TrimSpace(transport))
+			if transport == "http" || listenAddr != "" {
+				if listenAddr == "" {
+					listenAddr = cfg.Server.ListenAddr
+					if listenAddr == "" {
+						listenAddr = config.DefaultListenAddr
+					}
+				}
 				return srv.ServeHTTP(cmd.Context(), listenAddr)
+			}
+			if transport != "" && transport != "stdio" {
+				return fmt.Errorf("unsupported transport %q (must be 'stdio' or 'http')", transport)
 			}
 			return srv.Run(cmd.Context())
 		},
 	}
 
 	cmd.Flags().StringVarP(&listenAddr, "listen", "l", "", "HTTP listen address (e.g. :8080)")
+	cmd.Flags().StringVarP(&transport, "transport", "t", "stdio", "MCP transport protocol (stdio | http)")
 	return cmd
 }
 
 func newInitCmd(stdout, stderr io.Writer) *cobra.Command {
 	_ = stderr
 	var force bool
+	var minimal bool
 	var targetDir string
 
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Generate a commented .godoctor.yaml configuration file",
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Use:   CommandInit,
+		Short: "Generate a .godoctor.yaml configuration file",
+		RunE: func(_ *cobra.Command, _ []string) error {
 			if targetDir == "" {
 				targetDir = "."
 			}
@@ -286,49 +520,130 @@ func newInitCmd(stdout, stderr io.Writer) *cobra.Command {
 				return fmt.Errorf("%s already exists (use --force to overwrite)", targetPath)
 			}
 
-			if err := os.WriteFile(targetPath, []byte(DefaultConfigFileTemplate), 0644); err != nil {
+			content := DefaultConfigFileTemplate
+			if minimal {
+				content = MinimalConfigFileTemplate
+			}
+
+			if err := os.WriteFile(targetPath, []byte(content), 0600); err != nil {
 				return fmt.Errorf("failed to write %s: %w", targetPath, err)
 			}
 
-			fmt.Fprintf(stdout, "Created %s successfully.\n", targetPath)
+			_, _ = fmt.Fprintf(stdout, "Created %s successfully.\n", targetPath)
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVarP(&force, "force", "f", false, "Force overwrite of existing .godoctor.yaml")
-	cmd.Flags().StringVarP(&targetDir, "dir", "d", "", "Directory to create .godoctor.yaml in (default: current directory)")
+	cmd.Flags().BoolVarP(&minimal, "minimal", "m", false, "Generate minimal .godoctor.yaml configuration")
+	cmd.Flags().StringVarP(
+		&targetDir, "dir", "d", "", "Directory to create .godoctor.yaml in (default: current directory)",
+	)
 	return cmd
+}
+
+func resolveCheckStatuses(
+	ctx context.Context,
+	dir, configFlag string,
+	noCache bool,
+) ([]versioncheck.ToolStatus, error) {
+	var cfg *config.Config
+	var err error
+
+	if configFlag != "" {
+		cfg, err = config.Load(configFlag)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load config from %s: %w", configFlag, err)
+		}
+	} else {
+		targetDir := dir
+		if targetDir == "" {
+			targetDir = "."
+		}
+		cfg, err = config.LoadFromWorkspace(targetDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load workspace config: %w", err)
+		}
+	}
+
+	if noCache {
+		checker := versioncheck.NewChecker(versioncheck.WithNoCache(true))
+		specs := versioncheck.DefaultRegistry()
+		if cfg != nil {
+			for i := range specs {
+				if toolCfg, found := cfg.LookupTool(specs[i].ID); found {
+					if toolCfg.RecommendedVersion != "" {
+						specs[i].DefaultRecommended = toolCfg.RecommendedVersion
+					}
+					if toolCfg.Package != "" {
+						specs[i].PackagePath = toolCfg.Package
+					}
+					if toolCfg.Command != "" {
+						specs[i].Binaries = []string{toolCfg.Command}
+					}
+				}
+			}
+		}
+		return checker.CheckAll(ctx, specs...)
+	}
+	return versioncheck.CheckAll(ctx, cfg)
+}
+
+func outputCheckResults(stdout io.Writer, statuses []versioncheck.ToolStatus, jsonOutput bool) error {
+	if jsonOutput {
+		data, err := json.MarshalIndent(statuses, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to format JSON: %w", err)
+		}
+		_, _ = fmt.Fprintln(stdout, string(data))
+		return nil
+	}
+	table := versioncheck.FormatStatusTable(statuses)
+	_, _ = fmt.Fprint(stdout, table)
+	return nil
 }
 
 func newCheckCmd(stdout, stderr io.Writer) *cobra.Command {
 	_ = stderr
 	var jsonOutput bool
+	var strict bool
+	var noCache bool
+	var dir string
 
 	cmd := &cobra.Command{
-		Use:   "check",
+		Use:   CommandCheck,
 		Short: "Inspect installed external tools, versions, and health status",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			statuses, err := versioncheck.CheckAll(cmd.Context(), nil)
+			configFlag, _ := cmd.Flags().GetString("config")
+			statuses, err := resolveCheckStatuses(cmd.Context(), dir, configFlag, noCache)
 			if err != nil {
 				return fmt.Errorf("tool check failed: %w", err)
 			}
 
-			if jsonOutput {
-				data, err := json.MarshalIndent(statuses, "", "  ")
-				if err != nil {
-					return fmt.Errorf("failed to format JSON: %w", err)
-				}
-				fmt.Fprintln(stdout, string(data))
-				return nil
+			if err := outputCheckResults(stdout, statuses, jsonOutput); err != nil {
+				return err
 			}
 
-			table := versioncheck.FormatStatusTable(statuses)
-			fmt.Fprint(stdout, table)
+			if strict {
+				var unhealthy []string
+				for _, st := range statuses {
+					if st.Status == versioncheck.StatusMissing || st.Status == versioncheck.StatusOutdated {
+						unhealthy = append(unhealthy, fmt.Sprintf("%s (%s)", st.DisplayName, st.Status))
+					}
+				}
+				if len(unhealthy) > 0 {
+					return fmt.Errorf("strict check failed: %d unhealthy tools: %s", len(unhealthy), strings.Join(unhealthy, ", "))
+				}
+			}
+
 			return nil
 		},
 	}
 
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output check results in JSON format")
+	cmd.Flags().BoolVar(&strict, "strict", false, "Fail with non-zero exit code if any tool is missing or outdated")
+	cmd.Flags().BoolVar(&noCache, "no-cache", false, "Bypass version cache and re-probe all binaries")
+	cmd.Flags().StringVarP(&dir, "dir", "d", "", "Workspace directory to check (default: current directory)")
 	return cmd
 }
 
@@ -339,14 +654,15 @@ func newInstallCmd(stdout, stderr io.Writer) *cobra.Command {
 		Use:   "install",
 		Short: "Configure MCP server registration and unpack agent skills",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !opts.InstallMCP && !opts.InstallSkills {
+			if opts.InstallAll || (!opts.InstallMCP && !opts.InstallSkills) {
 				opts.InstallMCP = true
 				opts.InstallSkills = true
 			}
-			return ExecuteInstall(opts, stdout, stderr)
+			return ExecuteInstall(cmd.Context(), opts, stdout, stderr)
 		},
 	}
 
+	cmd.Flags().BoolVarP(&opts.InstallAll, "all", "a", false, "Install both MCP server and agent skills")
 	cmd.Flags().BoolVar(&opts.InstallMCP, "mcp", false, "Register the MCP server in mcp_config.json")
 	cmd.Flags().BoolVar(&opts.InstallSkills, "skills", false, "Unpack embedded skills (@godoctor, @selene, @testquery)")
 	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Install to workspace scope (.agents/)")
@@ -366,18 +682,21 @@ func newUninstallCmd(stdout, stderr io.Writer) *cobra.Command {
 		Use:   "uninstall",
 		Short: "Remove MCP server registration and agent skills",
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if !opts.UninstallMCP && !opts.UninstallSkills {
+			if opts.UninstallAll || (!opts.UninstallMCP && !opts.UninstallSkills) {
 				opts.UninstallMCP = true
 				opts.UninstallSkills = true
 			}
-			return ExecuteUninstall(opts, stdout, stderr)
+			return ExecuteUninstall(cmd.Context(), opts, stdout, stderr)
 		},
 	}
 
-	cmd.Flags().BoolVar(&opts.UninstallMCP, "mcp", false, "Remove GoDoctor from mcp_config.json")
+	cmd.Flags().BoolVarP(&opts.UninstallAll, "all", "a", false, "Remove both MCP server registration and agent skills")
+	cmd.Flags().BoolVar(&opts.UninstallMCP, "mcp", false, "Remove the MCP server from mcp_config.json")
 	cmd.Flags().BoolVar(&opts.UninstallSkills, "skills", false, "Remove GoDoctor skills (@godoctor, @selene, @testquery)")
 	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Uninstall from workspace scope (.agents/)")
-	cmd.Flags().BoolVarP(&opts.Global, "global", "g", false, "Uninstall from global user config (Default: ~/.gemini/config)")
+	cmd.Flags().BoolVarP(
+		&opts.Global, "global", "g", false, "Uninstall from global user config (Default: ~/.gemini/config)",
+	)
 	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Quiet / script-friendly output")
 	cmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Explicit path to mcp_config.json")
 	cmd.Flags().StringVarP(&opts.SkillsDir, "skills-dir", "s", "", "Explicit directory for skills removal")
@@ -387,7 +706,7 @@ func newUninstallCmd(stdout, stderr io.Writer) *cobra.Command {
 
 func newListCmd(stdout io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:   "list",
+		Use:   CommandList,
 		Short: "List all available intelligence tools",
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return runList(stdout)
@@ -400,76 +719,23 @@ func newVersionCmd(version string, stdout io.Writer) *cobra.Command {
 		Use:   "version",
 		Short: "Print the godoctor version",
 		RunE: func(_ *cobra.Command, _ []string) error {
-			fmt.Fprintln(stdout, version)
+			_, _ = fmt.Fprintln(stdout, version)
 			return nil
 		},
 	}
 }
 
-// PrintHelp writes the main help text to w.
-func PrintHelp(w io.Writer, version string) {
-	fmt.Fprintf(w, `godoctor %s - Go Developer Intelligence and MCP Server
-
-Usage:
-  godoctor [command]
-
-Available Commands:
-  install        Configure MCP server registration and unpack agent skills
-  uninstall      Remove MCP server registration and agent skills
-  mcp            Run in Model Context Protocol (MCP) server mode
-  init           Generate a commented .godoctor.yaml configuration file
-  check          Inspect installed external tools, versions, and health status
-  list           List all available intelligence tools
-  call           Invoke a tool directly from the CLI
-  version        Print the godoctor version
-  help           Print this help message
-
-Surface Management:
-  godoctor install              Configure MCP server and install skills (Global)
-  godoctor install -w           Configure MCP server and install skills (Workspace)
-  godoctor install --mcp        Configure MCP server only
-  godoctor install --skills     Install skills only
-  godoctor uninstall            Remove MCP server and skills (Global)
-  godoctor uninstall -w         Remove MCP server and skills (Workspace)
-
-Configuration & Health:
-  godoctor init                 Generate default .godoctor.yaml in current repository
-  godoctor check                Inspect versions and health of all workspace tools
-
-MCP Server Mode:
-  godoctor mcp                  Run MCP server using standard I/O (default for MCP clients)
-  godoctor mcp -listen=:8080    Run MCP server as Streamable HTTP service on specified address
-
-Tool Invocation:
-  godoctor call <tool-name> '<json-arguments>'
-
-Tools:
-  edit, build, test, docs, selene, tq
-
-Examples:
-  godoctor init
-  godoctor check
-  godoctor list
-  godoctor call edit '{"filename": "/path/to/main.go", "old_content": "...", "new_content": "..."}'
-  godoctor call build '{"dir": "/path/to/project"}'
-  godoctor call test '{"dir": "/path/to/project", "level": "fast"}'
-  godoctor call docs '{"import_path": "net/http", "symbol_name": "Get"}'
-  godoctor call selene '{"dir": "/path/to/project"}'
-  godoctor call tq '{"dir": "/path/to/project", "query": "SELECT * FROM all_tests"}'
-`, version)
-}
-
 func runList(w io.Writer) error {
-	fmt.Fprintln(w, "Available godoctor tools:")
-	fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "Available godoctor tools:")
+	_, _ = fmt.Fprintln(w)
 	for _, tool := range GetTools() {
 		aliasStr := ""
 		if len(tool.Aliases) > 0 {
 			aliasStr = fmt.Sprintf(" (aliases: %s)", strings.Join(tool.Aliases, ", "))
 		}
-		fmt.Fprintf(w, "• %s%s\n", tool.Name, aliasStr)
-		fmt.Fprintf(w, "  %s\n", tool.Description)
-		fmt.Fprintf(w, "  Usage: %s\n\n", tool.Usage)
+		_, _ = fmt.Fprintf(w, "• %s%s\n", tool.Name, aliasStr)
+		_, _ = fmt.Fprintf(w, "  %s\n", tool.Description)
+		_, _ = fmt.Fprintf(w, "  Usage: %s\n\n", tool.Usage)
 	}
 	return nil
 }

@@ -207,8 +207,8 @@ func BenchmarkFindBestMatch_Exact(b *testing.B) {
 }
 
 func BenchmarkFindBestMatch_Fuzzy(b *testing.B) {
-	content := "package main\n\nfunc ProcessData(items []Item) error {\n\tfor _, item := range items {\n\t\titem.Process()\n\t}\n\treturn nil\n}\n"
-	search := "for _, item := range itms {\n\titem.Proces()\n}"
+	content := "package main\n\nfunc ProcessData(items []Item) error {\n\tfor _, item := range items {\n\t\titem.ExecuteActions()\n\t}\n\treturn nil\n}\n"
+	search := "for _, item := range items {\n\titem.ExecuteAction()\n}"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		findBestMatch(content, search)

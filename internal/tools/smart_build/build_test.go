@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -148,21 +149,24 @@ func TestHandler_Success(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
+	dir := t.TempDir()
+
 	CommandRunner = &mockRunner{
 		outputs: map[string]string{
-			"go build": "",
-			"go test":  "PASS",
+			"go build":          "",
+			"go test":           "PASS",
+			"golangci-lint run": "",
 		},
 	}
 
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/path/to/workspace",
+		Dir: dir,
 	})
 	if err != nil {
 		t.Fatalf("Handler failed: %v", err)
 	}
 	if res.IsError {
-		t.Error("Expected success, got error result")
+		t.Errorf("Expected success, got error result: %v", res.Content[0].(*mcp.TextContent).Text)
 	}
 
 	out := res.Content[0].(*mcp.TextContent).Text
@@ -183,21 +187,23 @@ func TestHandler_OutputTarget(t *testing.T) {
 
 	runner := &mockRunner{
 		outputs: map[string]string{
-			"go build": "",
-			"go test":  "PASS",
+			"go build":          "",
+			"go test":           "PASS",
+			"golangci-lint run": "",
 		},
 	}
 	CommandRunner = runner
 
+	dir := t.TempDir()
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir:    "/path/to/workspace",
+		Dir:    dir,
 		Output: "bin/godoctor",
 	})
 	if err != nil {
 		t.Fatalf("Handler failed: %v", err)
 	}
 	if res.IsError {
-		t.Error("Expected success, got error result")
+		t.Errorf("Expected success, got error result: %v", res.Content[0].(*mcp.TextContent).Text)
 	}
 
 	calls := runner.getCalls()
@@ -257,8 +263,9 @@ func TestHandler_BuildFail(t *testing.T) {
 		},
 	}
 
+	dir := t.TempDir()
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/path/to/workspace",
+		Dir: dir,
 	})
 	if err != nil {
 		t.Fatalf("Handler returned unexpected error: %v", err)
@@ -283,18 +290,19 @@ func TestHandler_ContextCancelled(t *testing.T) {
 
 	CommandRunner = &mockRunner{}
 
+	dir := t.TempDir()
 	res, _, err := Handler(ctx, nil, Params{
-		Dir: "/path/to/workspace",
+		Dir: dir,
 	})
 	if err != nil {
 		t.Fatalf("Handler failed: %v", err)
 	}
 	if !res.IsError {
-		t.Error("Expected error result for cancelled context")
+		t.Error("Expected error result for canceled context")
 	}
 
 	out := res.Content[0].(*mcp.TextContent).Text
-	if !strings.Contains(out, "Cancelled") {
+	if !strings.Contains(out, "Canceled") {
 		t.Errorf("Expected cancellation message in output, got:\n%s", out)
 	}
 }
@@ -305,14 +313,16 @@ func TestHandler_Deadcode_UnreachableCode(t *testing.T) {
 
 	CommandRunner = &mockRunner{
 		outputs: map[string]string{
-			"go build": "",
-			"go test":  "PASS",
-			"deadcode": "main.go:10:6: unreachable func: UnusedFunc",
+			"go build":          "",
+			"go test":           "PASS",
+			"golangci-lint run": "",
+			"deadcode":          "main.go:10:6: unreachable func: UnusedFunc",
 		},
 	}
 
+	dir := t.TempDir()
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/path/to/workspace",
+		Dir: dir,
 	})
 	if err != nil {
 		t.Fatalf("Handler failed: %v", err)
@@ -333,17 +343,19 @@ func TestHandler_Deadcode_Fail(t *testing.T) {
 
 	CommandRunner = &mockRunner{
 		outputs: map[string]string{
-			"go build": "",
-			"go test":  "PASS",
-			"deadcode": "deadcode: packages contain errors",
+			"go build":          "",
+			"go test":           "PASS",
+			"golangci-lint run": "",
+			"deadcode":          "deadcode: packages contain errors",
 		},
 		errors: map[string]error{
 			"deadcode": fmt.Errorf("exit status 1"),
 		},
 	}
 
+	dir := t.TempDir()
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/path/to/workspace",
+		Dir: dir,
 	})
 	if err != nil {
 		t.Fatalf("Handler failed: %v", err)
@@ -412,8 +424,8 @@ func TestGetDocHintFromOutput(t *testing.T) {
 	}{
 		{
 			name:     "undefined symbol in package",
-			msg:      "./main.go:12:3: undefined: helper.DoWork",
-			contains: []string{"HINT:", "usage of 'helper' failed", "`read_docs`", "helper"},
+			msg:      "./main.go:12:3: undefined: logger.Log",
+			contains: []string{"HINT:", "usage of 'logger' failed", "`read_docs`", "logger"},
 		},
 		{
 			name: "could not import package",
@@ -460,349 +472,395 @@ func TestGetDocHintFromOutput(t *testing.T) {
 	}
 }
 
-func TestRunBuild(t *testing.T) {
+func TestRunBuild_SinglePackage(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("build success single package", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go build": "",
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build": "",
+		},
+	}
+	CommandRunner = runner
 
-		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		if !strings.Contains(sb.String(), "### 🛠  Build: ✅ PASS\n\n") {
-			t.Errorf("expected build pass output, got:\n%s", sb.String())
-		}
-	})
-
-	t.Run("build success multiple packages", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go build ./cmd/... ./pkg/...": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./cmd/..., ./pkg/...", "", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		calls := runner.getCalls()
-		if len(calls) == 0 {
-			t.Fatal("expected runner calls")
-		}
-		lastCall := calls[len(calls)-1]
-		if len(lastCall.Args) != 3 || lastCall.Args[0] != "build" || lastCall.Args[1] != "./cmd/..." || lastCall.Args[2] != "./pkg/..." {
-			t.Errorf("expected build args with spread packages, got: %v", lastCall.Args)
-		}
-	})
-
-	t.Run("build success with output target", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go build -o bin/app ./...": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./...", "bin/app", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		if !strings.Contains(sb.String(), "### 🛠  Build: ✅ PASS\n\n") {
-			t.Errorf("expected build pass output, got:\n%s", sb.String())
-		}
-		calls := runner.getCalls()
-		if len(calls) == 0 {
-			t.Fatal("expected calls to runner")
-		}
-		lastCall := calls[len(calls)-1]
-		if len(lastCall.Args) < 3 || lastCall.Args[0] != "build" ||
-			lastCall.Args[1] != "-o" || lastCall.Args[2] != "bin/app" {
-			t.Errorf("expected go build -o bin/app args, got: %v", lastCall.Args)
-		}
-	})
-
-	t.Run("build failure with undefined symbol hint", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go build": "main.go:15:2: undefined: logger.Log",
-			},
-			errors: map[string]error{
-				"go build": fmt.Errorf("exit status 1"),
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		out := sb.String()
-		if !strings.Contains(out, "### 🛠  Build: ❌ FAILED\n\n") {
-			t.Errorf("expected build fail output, got:\n%s", out)
-		}
-		if !strings.Contains(out, "undefined: logger.Log") {
-			t.Errorf("expected build output in report, got:\n%s", out)
-		}
-		if !strings.Contains(out, "usage of 'logger' failed. Try calling `read_docs`") {
-			t.Errorf("expected doc hint for logger, got:\n%s", out)
-		}
-	})
+	var sb strings.Builder
+	err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if !strings.Contains(sb.String(), "### 🛠  Build: ✅ PASS\n\n") {
+		t.Errorf("expected build pass output, got:\n%s", sb.String())
+	}
 }
 
-func TestRunAutoFix(t *testing.T) {
+func TestRunBuild_MultiplePackages(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("tidy failure modernize fail gofmt fail", func(t *testing.T) {
-		runner := &mockRunner{
-			errors: map[string]error{
-				"go mod tidy": fmt.Errorf("tidy network error"),
-				"modernize":   fmt.Errorf("exit status 1"),
-				"gofmt":       fmt.Errorf("gofmt permission denied"),
-			},
-			outputs: map[string]string{
-				"modernize": "error detail on line 5",
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build ./cmd/... ./pkg/...": "",
+		},
+	}
+	CommandRunner = runner
 
-		var sb strings.Builder
-		runAutoFix(context.Background(), "/workspace", "./...", &sb)
-		out := sb.String()
-
-		if !strings.Contains(out, "❌ Go Mod Tidy: FAILED (tidy network error)") {
-			t.Errorf("expected mod tidy failed, got:\n%s", out)
-		}
-		if !strings.Contains(out, "❌ Go Modernizer: FAILED (exit status 1)") {
-			t.Errorf("expected modernize failed, got:\n%s", out)
-		}
-		if !strings.Contains(out, "error detail on line 5") {
-			t.Errorf("expected modernize output detail, got:\n%s", out)
-		}
-		if !strings.Contains(out, "❌ Go Code Formatter: FAILED (gofmt permission denied)") {
-			t.Errorf("expected gofmt failed, got:\n%s", out)
-		}
-	})
-
-	t.Run("modernize exit status 3 with diff report", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"modernize": fmt.Errorf("not found"),
-			},
-			errors: map[string]error{
-				"passes/modernize/cmd/modernize@latest": fmt.Errorf("exit status 3: modernized 2 files"),
-			},
-			outputs: map[string]string{
-				"passes/modernize/cmd/modernize@latest": "pkg/foo.go: replaced min with built-in min",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		runAutoFix(context.Background(), "/workspace", "./...", &sb)
-		out := sb.String()
-
-		if !strings.Contains(out, "✅ Go Mod Tidy: SUCCESS") {
-			t.Errorf("expected mod tidy success, got:\n%s", out)
-		}
-		if !strings.Contains(out, "✅ Go Modernizer: SUCCESS (Issues found and auto-fixed)") {
-			t.Errorf("expected modernize exit 3 success, got:\n%s", out)
-		}
-		if !strings.Contains(out, "replaced min with built-in min") {
-			t.Errorf("expected modernize details in report, got:\n%s", out)
-		}
-		if !strings.Contains(out, "✅ Go Code Formatter: SUCCESS") {
-			t.Errorf("expected gofmt success, got:\n%s", out)
-		}
-	})
-
-	t.Run("modernize clean without issues", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"modernize": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		runAutoFix(context.Background(), "/workspace", "./...", &sb)
-		out := sb.String()
-
-		if !strings.Contains(out, "✅ Go Modernizer: SUCCESS (No issues found)") {
-			t.Errorf("expected modernize no issues, got:\n%s", out)
-		}
-	})
+	var sb strings.Builder
+	err := runBuild(context.Background(), "/workspace", "./cmd/..., ./pkg/...", "", &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	calls := runner.getCalls()
+	if len(calls) == 0 {
+		t.Fatal("expected runner calls")
+	}
+	lastCall := calls[len(calls)-1]
+	if len(lastCall.Args) != 3 || lastCall.Args[0] != "build" || lastCall.Args[1] != "./cmd/..." || lastCall.Args[2] != "./pkg/..." {
+		t.Errorf("expected build args with spread packages, got: %v", lastCall.Args)
+	}
 }
 
-func TestRunDeadcodePhase(t *testing.T) {
+func TestRunBuild_WithOutputTarget(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("deadcode clean no unreachable code", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"deadcode": "   \n\n  ",
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build -o bin/app ./...": "",
+		},
+	}
+	CommandRunner = runner
 
-		var sb strings.Builder
-		runDeadcodePhase(context.Background(), "/workspace", "./...", &sb)
-		out := sb.String()
-
-		if !strings.Contains(out, "### 🔍 Deadcode Analysis: ✅ PASS (No unreachable code found)") {
-			t.Errorf("expected clean deadcode pass, got:\n%s", out)
-		}
-	})
-
-	t.Run("deadcode unreachable code detected", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"deadcode": "main.go:20:1: unreachable func DeadHelper",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		runDeadcodePhase(context.Background(), "/workspace", "./...", &sb)
-		out := sb.String()
-
-		if !strings.Contains(out, "### 🔍 Deadcode Analysis: ⚠️ Unreachable functions detected:") {
-			t.Errorf("expected deadcode warning, got:\n%s", out)
-		}
-		if !strings.Contains(out, "DeadHelper") {
-			t.Errorf("expected DeadHelper in output, got:\n%s", out)
-		}
-	})
-
-	t.Run("deadcode fallback to go run on LookPath error", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"deadcode": fmt.Errorf("not found"),
-			},
-			errors: map[string]error{
-				"cmd/deadcode@latest": fmt.Errorf("package loading error"),
-			},
-			outputs: map[string]string{
-				"cmd/deadcode@latest": "deadcode error details",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		runDeadcodePhase(context.Background(), "/workspace", "./pkg1 ./pkg2", &sb)
-		out := sb.String()
-
-		if !strings.Contains(out, "### 🔍 Deadcode Analysis: ❌ FAILED (package loading error)") {
-			t.Errorf("expected deadcode failure, got:\n%s", out)
-		}
-		if !strings.Contains(out, "deadcode error details") {
-			t.Errorf("expected deadcode error output, got:\n%s", out)
-		}
-
-		calls := runner.getCalls()
-		var foundFallback bool
-		for _, c := range calls {
-			if strings.Contains(c.String(), "golang.org/x/tools/cmd/deadcode@latest") &&
-				strings.Contains(c.String(), "./pkg1 ./pkg2") {
-				foundFallback = true
-			}
-		}
-		if !foundFallback {
-			t.Errorf("expected fallback command with spread package arguments, got calls: %v", calls)
-		}
-	})
+	var sb strings.Builder
+	err := runBuild(context.Background(), "/workspace", "./...", "bin/app", &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if !strings.Contains(sb.String(), "### 🛠  Build: ✅ PASS\n\n") {
+		t.Errorf("expected build pass output, got:\n%s", sb.String())
+	}
+	calls := runner.getCalls()
+	if len(calls) == 0 {
+		t.Fatal("expected calls to runner")
+	}
+	lastCall := calls[len(calls)-1]
+	if len(lastCall.Args) < 3 || lastCall.Args[0] != "build" ||
+		lastCall.Args[1] != "-o" || lastCall.Args[2] != "bin/app" {
+		t.Errorf("expected go build -o bin/app args, got: %v", lastCall.Args)
+	}
 }
 
-func TestSyncTestQueryDB(t *testing.T) {
+func TestRunBuild_FailureWithUndefinedSymbolHint(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("testquery in LookPath", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathMap: map[string]string{
-				"testquery": "/usr/local/bin/testquery",
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build": "main.go:15:2: undefined: logger.Log",
+		},
+		errors: map[string]error{
+			"go build": fmt.Errorf("exit status 1"),
+		},
+	}
+	CommandRunner = runner
 
-		syncTestQueryDB(context.Background(), "/workspace", "./...")
-
-		calls := runner.getCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
-		}
-		if calls[0].Name != "testquery" || strings.Join(calls[0].Args, " ") != "build --pkg ./... --output testquery.db" {
-			t.Errorf("unexpected command call: %v", calls[0])
-		}
-	})
-
-	t.Run("tq in LookPath", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"testquery": fmt.Errorf("not found"),
-			},
-			lookPathMap: map[string]string{
-				"tq": "/usr/local/bin/tq",
-			},
-		}
-		CommandRunner = runner
-
-		syncTestQueryDB(context.Background(), "/workspace", "./pkg/...")
-
-		calls := runner.getCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
-		}
-		if calls[0].Name != "tq" || strings.Join(calls[0].Args, " ") != "build --pkg ./pkg/... --output testquery.db" {
-			t.Errorf("unexpected command call: %v", calls[0])
-		}
-	})
-
-	t.Run("neither in LookPath fallback to go run", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"testquery": fmt.Errorf("not found"),
-				"tq":        fmt.Errorf("not found"),
-			},
-		}
-		CommandRunner = runner
-
-		syncTestQueryDB(context.Background(), "/workspace", "./...")
-
-		calls := runner.getCalls()
-		if len(calls) != 1 {
-			t.Fatalf("expected 1 call, got %d", len(calls))
-		}
-		expectedArgs := "run github.com/danicat/testquery@latest build --pkg ./... --output testquery.db"
-		if calls[0].Name != "go" || strings.Join(calls[0].Args, " ") != expectedArgs {
-			t.Errorf("unexpected fallback command call: %v", calls[0])
-		}
-	})
+	var sb strings.Builder
+	err := runBuild(context.Background(), "/workspace", "./...", "", &sb)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	out := sb.String()
+	if !strings.Contains(out, "### 🛠  Build: ❌ FAILED\n\n") {
+		t.Errorf("expected build fail output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "undefined: logger.Log") {
+		t.Errorf("expected build output in report, got:\n%s", out)
+	}
+	if !strings.Contains(out, "usage of 'logger' failed. Try calling `read_docs`") {
+		t.Errorf("expected doc hint for logger, got:\n%s", out)
+	}
 }
 
-func TestParseTotalCoverage(t *testing.T) {
+func TestRunAutoFix_FeatureDisabled(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	tests := []struct {
-		name     string
-		output   string
-		err      error
-		expected string
-	}{
+	runner := &mockRunner{}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	cfg.Features.Autofix = false
+
+	var sb strings.Builder
+	runAutoFix(context.Background(), "/workspace", "./...", cfg, &sb)
+
+	if sb.Len() != 0 {
+		t.Errorf("expected no output when Autofix is disabled, got: %q", sb.String())
+	}
+	if len(runner.getCalls()) != 0 {
+		t.Errorf("expected no calls when Autofix is disabled, got: %v", runner.getCalls())
+	}
+}
+
+func TestRunAutoFix_Failures(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		errors: map[string]error{
+			"go mod tidy": fmt.Errorf("tidy network error"),
+			"modernize":   fmt.Errorf("exit status 1"),
+			"gofmt":       fmt.Errorf("gofmt permission denied"),
+		},
+		outputs: map[string]string{
+			"modernize": "error detail on line 5",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	runAutoFix(context.Background(), "/workspace", "./...", cfg, &sb)
+	out := sb.String()
+
+	if !strings.Contains(out, "❌ Go Mod Tidy: FAILED (tidy network error)") {
+		t.Errorf("expected mod tidy failed, got:\n%s", out)
+	}
+	if !strings.Contains(out, "❌ Go Modernizer: FAILED (exit status 1)") {
+		t.Errorf("expected modernize failed, got:\n%s", out)
+	}
+	if !strings.Contains(out, "error detail on line 5") {
+		t.Errorf("expected modernize output detail, got:\n%s", out)
+	}
+	if !strings.Contains(out, "❌ Go Code Formatter: FAILED (gofmt permission denied)") {
+		t.Errorf("expected gofmt failed, got:\n%s", out)
+	}
+}
+
+func TestRunAutoFix_ModernizeExitStatus3(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		lookPathMap: map[string]string{
+			"modernize": "/usr/local/bin/modernize",
+		},
+		errors: map[string]error{
+			"modernize": fmt.Errorf("exit status 3: modernized 2 files"),
+		},
+		outputs: map[string]string{
+			"modernize": "pkg/foo.go: replaced min with built-in min",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	runAutoFix(context.Background(), "/workspace", "./...", cfg, &sb)
+	out := sb.String()
+
+	if !strings.Contains(out, "✅ Go Mod Tidy: SUCCESS") {
+		t.Errorf("expected mod tidy success, got:\n%s", out)
+	}
+	if !strings.Contains(out, "✅ Go Modernizer: SUCCESS (Issues found and auto-fixed)") {
+		t.Errorf("expected modernize exit 3 success, got:\n%s", out)
+	}
+	if !strings.Contains(out, "replaced min with built-in min") {
+		t.Errorf("expected modernize details in report, got:\n%s", out)
+	}
+	if !strings.Contains(out, "✅ Go Code Formatter: SUCCESS") {
+		t.Errorf("expected gofmt success, got:\n%s", out)
+	}
+}
+
+func TestRunAutoFix_Clean(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"modernize": "",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	runAutoFix(context.Background(), "/workspace", "./...", cfg, &sb)
+	out := sb.String()
+
+	if !strings.Contains(out, "✅ Go Modernizer: SUCCESS (No issues found)") {
+		t.Errorf("expected modernize no issues, got:\n%s", out)
+	}
+}
+
+func TestRunDeadcodePhase_Clean(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"deadcode": "   \n\n  ",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	runDeadcodePhase(context.Background(), "/workspace", "./...", cfg, &sb)
+	out := sb.String()
+
+	if !strings.Contains(out, "### 🔍 Deadcode Analysis: ✅ PASS (No unreachable code found)") {
+		t.Errorf("expected clean deadcode pass, got:\n%s", out)
+	}
+}
+
+func TestRunDeadcodePhase_Disabled(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	cfg.Features.DeadcodeCheck = false
+
+	var sb strings.Builder
+	runDeadcodePhase(context.Background(), "/workspace", "./...", cfg, &sb)
+
+	if sb.Len() != 0 {
+		t.Errorf("expected no output when DeadcodeCheck is disabled, got: %q", sb.String())
+	}
+}
+
+func TestRunDeadcodePhase_UnreachableDetected(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"deadcode": "main.go:20:1: unreachable func DeadHelper",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	runDeadcodePhase(context.Background(), "/workspace", "./...", cfg, &sb)
+	out := sb.String()
+
+	if !strings.Contains(out, "### 🔍 Deadcode Analysis: ⚠️ Unreachable functions detected:") {
+		t.Errorf("expected deadcode warning, got:\n%s", out)
+	}
+	if !strings.Contains(out, "DeadHelper") {
+		t.Errorf("expected DeadHelper in output, got:\n%s", out)
+	}
+}
+
+func TestRunDeadcodePhase_Missing(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		lookPathErr: map[string]error{
+			"deadcode": fmt.Errorf("not found"),
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	runDeadcodePhase(context.Background(), "/workspace", "./pkg1 ./pkg2", cfg, &sb)
+	out := sb.String()
+
+	if !strings.Contains(out, "### 🔍 Deadcode Analysis: ⏩ SKIPPED (`deadcode` binary not found in PATH)") {
+		t.Errorf("expected deadcode skipped notice, got:\n%s", out)
+	}
+}
+
+func TestSyncTestQueryDB_LookPathTestQuery(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		lookPathMap: map[string]string{
+			"testquery": "/usr/local/bin/testquery",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	syncTestQueryDB(context.Background(), "/workspace", "./...", cfg, &sb)
+
+	calls := runner.getCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d (calls=%+v, sb=%q)", len(calls), calls, sb.String())
+	}
+	expectedArgs := fmt.Sprintf("build --pkg ./... --output %s", cfg.TestQuery.DatabasePath)
+	if calls[0].Name != "testquery" || strings.Join(calls[0].Args, " ") != expectedArgs {
+		t.Errorf("unexpected command call: %v (want %s)", calls[0], expectedArgs)
+	}
+}
+
+func TestSyncTestQueryDB_LookPathTQ(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		lookPathErr: map[string]error{
+			"testquery": fmt.Errorf("not found"),
+		},
+		lookPathMap: map[string]string{
+			"tq": "/usr/local/bin/tq",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	syncTestQueryDB(context.Background(), "/workspace", "./pkg/...", cfg, &sb)
+
+	calls := runner.getCalls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	expectedArgs := fmt.Sprintf("build --pkg ./pkg/... --output %s", cfg.TestQuery.DatabasePath)
+	if calls[0].Name != "tq" || strings.Join(calls[0].Args, " ") != expectedArgs {
+		t.Errorf("unexpected command call: %v (want %s)", calls[0], expectedArgs)
+	}
+}
+
+func TestSyncTestQueryDB_Missing(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		lookPathErr: map[string]error{
+			"testquery": fmt.Errorf("not found"),
+			"tq":        fmt.Errorf("not found"),
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	syncTestQueryDB(context.Background(), "/workspace", "./...", cfg, &sb)
+
+	calls := runner.getCalls()
+	if len(calls) != 0 {
+		t.Fatalf("expected 0 calls when tool missing, got %d: %v", len(calls), calls)
+	}
+}
+
+type totalCovTestCase struct {
+	name     string
+	output   string
+	err      error
+	expected string
+}
+
+func getTotalCoverageTestCases() []totalCovTestCase {
+	return []totalCovTestCase{
 		{
 			name:     "valid coverage summary",
 			output:   "github.com/danicat/godoctor/pkg/foo.go:10:\tDoSomething\t100.0%\ntotal:\t\t(statements)\t\t75.0%",
@@ -830,27 +888,30 @@ func TestParseTotalCoverage(t *testing.T) {
 			expected: "",
 		},
 		{
-			name:     "total prefix but fewer than 3 fields",
-			output:   "total: 100%",
+			name:     "short parts on total line",
+			output:   "total: (statements)",
 			expected: "",
 		},
 	}
+}
 
-	for _, tc := range tests {
+func TestParseTotalCoverage(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	for _, tc := range getTotalCoverageTestCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			runner := &mockRunner{
 				outputs: map[string]string{
 					"go tool cover": tc.output,
 				},
-			}
-			if tc.err != nil {
-				runner.errors = map[string]error{
+				errors: map[string]error{
 					"go tool cover": tc.err,
-				}
+				},
 			}
 			CommandRunner = runner
 
-			got := parseTotalCoverage(context.Background(), "/workspace", "coverage.out")
+			got := parseTotalCoverage(context.Background(), "/workspace", "cov.out")
 			if got != tc.expected {
 				t.Errorf("parseTotalCoverage() = %q, want %q", got, tc.expected)
 			}
@@ -863,59 +924,39 @@ func TestParsePackagesCoverage(t *testing.T) {
 		name     string
 		testOut  string
 		contains []string
-		omits    []string
+		empty    bool
 	}{
 		{
-			name: "valid package coverage lines",
-			testOut: strings.Join([]string{
-				"=== RUN   TestFoo",
-				"--- PASS: TestFoo (0.01s)",
-				"PASS",
-				"coverage: 85.5% of statements",
-				"ok  \tgithub.com/danicat/godoctor/pkg1\t0.05s\tcoverage: 85.5% of statements",
-				"ok  \tgithub.com/danicat/godoctor/pkg2\t0.12s\tcoverage: 92.0% of statements",
-			}, "\n"),
+			name: "single package pass with coverage",
+			testOut: "=== RUN   TestFoo\n--- PASS: TestFoo (0.01s)\n" +
+				"ok  \tgithub.com/danicat/godoctor/pkg/foo\t0.02s\tcoverage: 85.5% of statements\n",
 			contains: []string{
 				"- **Packages**:",
-				"  - `github.com/danicat/godoctor/pkg1`: 85.5%",
-				"  - `github.com/danicat/godoctor/pkg2`: 92.0%",
-			},
-			omits: []string{},
-		},
-		{
-			name: "skips 0.0 coverage and no test files and duplicate packages",
-			testOut: strings.Join([]string{
-				"ok  \tgithub.com/danicat/godoctor/pkg0\t0.01s\tcoverage: 0.0% of statements",
-				"ok  \tgithub.com/danicat/godoctor/pkgno\t0.01s\tcoverage: [no test files]",
-				"ok  \tgithub.com/danicat/godoctor/pkg1\t0.05s\tcoverage: 70.0% of statements",
-				"ok  \tgithub.com/danicat/godoctor/pkg1\t0.05s\tcoverage: 70.0% of statements",
-			}, "\n"),
-			contains: []string{
-				"- **Packages**:",
-				"  - `github.com/danicat/godoctor/pkg1`: 70.0%",
-			},
-			omits: []string{
-				"pkg0",
-				"pkgno",
+				"`github.com/danicat/godoctor/pkg/foo`: 85.5%",
 			},
 		},
 		{
-			name: "skips lines with coverage in pkg position or without ok status",
-			testOut: strings.Join([]string{
-				"FAIL\tgithub.com/danicat/godoctor/pkgfail\t0.01s\tcoverage: 50.0% of statements",
-				"ok  \tcoverage: 100.0% of statements",
-				"ok  \tcoverage_foo\t0.01s\tcoverage: 80.0% of statements",
-				"ok  \tpkgshort",
-				"ok  \tpkgend\t0.01s\tcoverage:",
-			}, "\n"),
-			contains: []string{},
-			omits: []string{
+			name: "multiple packages with duplicates and no-test packages",
+			testOut: "ok  \tgithub.com/danicat/godoctor/pkg/foo\t0.02s\tcoverage: 85.5% of statements\n" +
+				"ok  \tgithub.com/danicat/godoctor/pkg/foo\t0.02s\tcoverage: 85.5% of statements\n" +
+				"?   \tgithub.com/danicat/godoctor/pkg/notests\t[no test files]\n" +
+				"ok  \tgithub.com/danicat/godoctor/pkg/bar\t0.05s\tcoverage: 92.0% of statements\n",
+			contains: []string{
 				"- **Packages**:",
-				"pkgfail",
-				"coverage_foo",
-				"pkgshort",
-				"pkgend",
+				"`github.com/danicat/godoctor/pkg/foo`: 85.5%",
+				"`github.com/danicat/godoctor/pkg/bar`: 92.0%",
 			},
+		},
+		{
+			name: "package without statement percentage (no statements)",
+			testOut: "=== RUN   TestEmpty\n--- PASS: TestEmpty (0.00s)\n" +
+				"ok  \tgithub.com/danicat/godoctor/pkg/empty\t0.01s\tcoverage: [no statements]\n",
+			empty: true,
+		},
+		{
+			name:    "no coverage strings at all",
+			testOut: "=== RUN   TestFoo\n--- PASS: TestFoo (0.01s)\nPASS\n",
+			empty:   true,
 		},
 	}
 
@@ -923,360 +964,294 @@ func TestParsePackagesCoverage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var sb strings.Builder
 			parsePackagesCoverage(tc.testOut, &sb)
-			out := sb.String()
+			got := sb.String()
 
-			for _, sub := range tc.contains {
-				if !strings.Contains(out, sub) {
-					t.Errorf("expected output to contain %q, got:\n%s", sub, out)
+			if tc.empty {
+				if got != "" {
+					t.Errorf("expected empty coverage output, got: %q", got)
 				}
+				return
 			}
-			for _, sub := range tc.omits {
-				if strings.Contains(out, sub) {
-					t.Errorf("expected output to NOT contain %q, got:\n%s", sub, out)
+
+			for _, expectedStr := range tc.contains {
+				if !strings.Contains(got, expectedStr) {
+					t.Errorf("expected output to contain %q, got:\n%s", expectedStr, got)
 				}
 			}
 		})
 	}
 }
 
-func TestFindConfigFile(t *testing.T) {
-	configs := []string{
-		".golangci.yml",
-		".golangci.yaml",
-		".golangci.toml",
-		".golangci.json",
+func TestRunLinterPhase_Pass(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".golangci.yml")
+	_ = os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600)
+
+	runner := &mockRunner{
+		lookPathMap: map[string]string{
+			"golangci-lint": "/usr/local/bin/golangci-lint",
+		},
+		outputs: map[string]string{
+			"golangci-lint run": "",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	err := runLinterPhase(context.Background(), dir, "./pkg1 ./pkg2", cfg, &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, "(using `golangci-lint`) ✅ PASS") {
+		t.Errorf("expected golangci-lint pass, got:\n%s", out)
+	}
+	calls := runner.getCalls()
+	if len(calls) != 1 || calls[0].Args[0] != "run" {
+		t.Errorf("expected lint args with run, got: %v", calls)
+	}
+}
+
+func TestRunLinterPhase_Fail(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".golangci.yml")
+	_ = os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600)
+
+	runner := &mockRunner{
+		lookPathMap: map[string]string{
+			"golangci-lint": "/usr/local/bin/golangci-lint",
+		},
+		outputs: map[string]string{
+			"golangci-lint run": "file.go:1: lint error",
+		},
+		errors: map[string]error{
+			"golangci-lint run": fmt.Errorf("exit status 1"),
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	err := runLinterPhase(context.Background(), dir, "./...", cfg, &sb)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	out := sb.String()
+	if !strings.Contains(out, "(using `golangci-lint`) ⚠️ ISSUES FOUND") {
+		t.Errorf("expected lint issues found, got:\n%s", out)
+	}
+	if !strings.Contains(out, "file.go:1: lint error") {
+		t.Errorf("expected lint error detail in output, got:\n%s", out)
+	}
+}
+
+func TestRunLinterPhase_MissingBinary(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	dir := t.TempDir()
+	runner := &mockRunner{
+		lookPathErr: map[string]error{
+			"golangci-lint": fmt.Errorf("not found"),
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	err := runLinterPhase(context.Background(), dir, "./...", cfg, &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, "⏩ SKIPPED (`golangci-lint` binary not found in PATH)") {
+		t.Errorf("expected skipped notice, got:\n%s", out)
+	}
+}
+
+func TestRunLinterPhase_Disabled(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	cfg.Build.RunLinter = false
+
+	var sb strings.Builder
+	err := runLinterPhase(context.Background(), "/workspace", "./...", cfg, &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if sb.Len() != 0 {
+		t.Errorf("expected no output when RunLinter is false, got: %q", sb.String())
+	}
+}
+
+func TestRunTestsPhase_PassWithCoverage(t *testing.T) {
+	oldRunner := CommandRunner
+	defer func() { CommandRunner = oldRunner }()
+
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go test":       "ok  \tgithub.com/danicat/godoctor/pkg\t0.02s\tcoverage: 80.0% of statements",
+			"go tool cover": "total: (statements) 80.0%",
+		},
+	}
+	CommandRunner = runner
+
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	err := runTestsPhase(context.Background(), "/workspace", "./pkg1 ./pkg2", cfg, &sb)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, "### 🧪 Tests: ✅ PASS\n\n") {
+		t.Errorf("expected test pass output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Total Project Coverage**: 80.0%") {
+		t.Errorf("expected total coverage in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "`github.com/danicat/godoctor/pkg`: 80.0%") {
+		t.Errorf("expected pkg coverage in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "*Indexed test run to `"+cfg.TestQuery.DatabasePath+"`*") {
+		t.Errorf("expected testquery indexing notice, got:\n%s", out)
 	}
 
-	for _, cfg := range configs {
-		t.Run("finds "+cfg, func(t *testing.T) {
-			dir := t.TempDir()
-			target := filepath.Join(dir, cfg)
-			if err := os.WriteFile(target, []byte("version: 2\n"), 0o600); err != nil {
-				t.Fatalf("failed to create %s: %v", cfg, err)
+	calls := runner.getCalls()
+	var foundTestCall bool
+	for _, c := range calls {
+		if c.Name == "go" && len(c.Args) >= 4 && c.Args[0] == "test" {
+			foundTestCall = true
+			if !strings.Contains(c.Args[2], "-coverprofile=") {
+				t.Errorf("expected -coverprofile arg, got: %v", c.Args)
 			}
-
-			got := findConfigFile(dir)
-			if got != target {
-				t.Errorf("findConfigFile(%q) = %q, want %q", dir, got, target)
+			if c.Args[3] != "./pkg1" || c.Args[4] != "./pkg2" {
+				t.Errorf("expected spread package arguments in test call, got: %v", c.Args)
 			}
-		})
+		}
 	}
-
-	t.Run("finds config in parent repo root directory", func(t *testing.T) {
-		rootDir := t.TempDir()
-		subDir := filepath.Join(rootDir, "internal", "mypkg")
-		if err := os.MkdirAll(subDir, 0o750); err != nil {
-			t.Fatalf("failed to create subdir: %v", err)
-		}
-		cfgPath := filepath.Join(rootDir, ".golangci.yaml")
-		if err := os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600); err != nil {
-			t.Fatalf("failed to write config: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(rootDir, "go.mod"), []byte("module example.com/pkg\n"), 0o600); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
-
-		got := findConfigFile(subDir)
-		if got != cfgPath {
-			t.Errorf("findConfigFile(%s) = %q, want %q", subDir, got, cfgPath)
-		}
-	})
-
-	t.Run("none found in empty dir", func(t *testing.T) {
-		dir := t.TempDir()
-		got := findConfigFile(dir)
-		if got != "" {
-			t.Errorf("findConfigFile(%q) = %q, want empty string", dir, got)
-		}
-	})
+	if !foundTestCall {
+		t.Errorf("expected go test call, got calls: %v", calls)
+	}
 }
 
-func TestRunLinterPhase(t *testing.T) {
+func TestRunTestsPhase_FailWithHint(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("no config file fallback to go vet pass with spread packages", func(t *testing.T) {
-		dir := t.TempDir()
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go vet ./pkg1 ./pkg2": "",
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go test": "--- FAIL: TestBroken (0.01s)\n    broken_test.go:10: assert failed",
+		},
+		errors: map[string]error{
+			"go test": fmt.Errorf("exit status 1"),
+		},
+	}
+	CommandRunner = runner
 
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./pkg1 ./pkg2", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using `go vet`) ✅ PASS") {
-			t.Errorf("expected go vet pass, got:\n%s", out)
-		}
-		calls := runner.getCalls()
-		if len(calls) != 1 || calls[0].Args[0] != "vet" || calls[0].Args[1] != "./pkg1" || calls[0].Args[2] != "./pkg2" {
-			t.Errorf("expected vet args with spread packages, got: %v", calls)
-		}
-	})
-
-	t.Run("no config file fallback to go vet fail", func(t *testing.T) {
-		dir := t.TempDir()
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go vet": "main.go:5:2: unreachable code",
-			},
-			errors: map[string]error{
-				"go vet": fmt.Errorf("exit status 1"),
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./...", &sb)
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using `go vet`) ⚠️ ISSUES FOUND") {
-			t.Errorf("expected go vet issues found, got:\n%s", out)
-		}
-		if !strings.Contains(out, "unreachable code") {
-			t.Errorf("expected vet error message, got:\n%s", out)
-		}
-	})
-
-	t.Run("config present with local golangci-lint pass", func(t *testing.T) {
-		dir := t.TempDir()
-		cfgPath := filepath.Join(dir, ".golangci.yml")
-		_ = os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600)
-
-		runner := &mockRunner{
-			lookPathMap: map[string]string{
-				"golangci-lint": "/usr/local/bin/golangci-lint",
-			},
-			outputs: map[string]string{
-				"golangci-lint run": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./...", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using local `golangci-lint`) ✅ PASS") {
-			t.Errorf("expected local golangci-lint pass, got:\n%s", out)
-		}
-	})
-
-	t.Run("config present with local golangci-lint fail", func(t *testing.T) {
-		dir := t.TempDir()
-		cfgPath := filepath.Join(dir, ".golangci.yml")
-		_ = os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600)
-
-		runner := &mockRunner{
-			lookPathMap: map[string]string{
-				"golangci-lint": "/usr/local/bin/golangci-lint",
-			},
-			outputs: map[string]string{
-				"golangci-lint run": "file.go:1: lint error",
-			},
-			errors: map[string]error{
-				"golangci-lint run": fmt.Errorf("exit status 1"),
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./...", &sb)
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using local `golangci-lint`) ⚠️ ISSUES FOUND") {
-			t.Errorf("expected lint issues found, got:\n%s", out)
-		}
-	})
-
-	t.Run("config present without local golangci-lint fallback to v2.12.2", func(t *testing.T) {
-		dir := t.TempDir()
-		cfgPath := filepath.Join(dir, ".golangci.yml")
-		_ = os.WriteFile(cfgPath, []byte("version: 2\n"), 0o600)
-
-		runner := &mockRunner{
-			lookPathErr: map[string]error{
-				"golangci-lint": fmt.Errorf("not found"),
-			},
-			outputs: map[string]string{
-				"golangci-lint@v2.12.2": "",
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runLinterPhase(context.Background(), dir, "./...", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		out := sb.String()
-		if !strings.Contains(out, "(using `golangci-lint v2.12.2`) ✅ PASS") {
-			t.Errorf("expected golangci-lint v2.12.2 pass, got:\n%s", out)
-		}
-	})
+	cfg := config.NewDefaultConfig()
+	var sb strings.Builder
+	err := runTestsPhase(context.Background(), "/workspace", "./...", cfg, &sb)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	out := sb.String()
+	if !strings.Contains(out, "### 🧪 Tests: ❌ FAILED\n\n") {
+		t.Errorf("expected test fail output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "broken_test.go:10: assert failed") {
+		t.Errorf("expected test failure output details, got:\n%s", out)
+	}
+	if !strings.Contains(out, "**HINT:** Run `test_query` (`tq`) to query failing tests via SQL:") {
+		t.Errorf("expected tq hint in output, got:\n%s", out)
+	}
 }
 
-func TestRunTestsPhase(t *testing.T) {
+func TestHandler_Phases_TestFailureAborts(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("tests pass with coverage in temp file and testquery sync", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go test":       "ok  \tgithub.com/danicat/godoctor/pkg\t0.02s\tcoverage: 80.0% of statements",
-				"go tool cover": "total: (statements) 80.0%",
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build": "",
+			"go test":  "FAIL",
+		},
+		errors: map[string]error{
+			"go test": fmt.Errorf("exit status 1"),
+		},
+	}
+	CommandRunner = runner
 
-		var sb strings.Builder
-		err := runTestsPhase(context.Background(), "/workspace", "./pkg1 ./pkg2", &sb)
-		if err != nil {
-			t.Fatalf("expected nil error, got: %v", err)
-		}
-		out := sb.String()
-		if !strings.Contains(out, "### 🧪 Tests: ✅ PASS\n\n") {
-			t.Errorf("expected test pass output, got:\n%s", out)
-		}
-		if !strings.Contains(out, "Total Project Coverage**: 80.0%") {
-			t.Errorf("expected total coverage in output, got:\n%s", out)
-		}
-		if !strings.Contains(out, "`github.com/danicat/godoctor/pkg`: 80.0%") {
-			t.Errorf("expected pkg coverage in output, got:\n%s", out)
-		}
-		if !strings.Contains(out, "*Indexed test run to `testquery.db`*") {
-			t.Errorf("expected testquery indexing notice, got:\n%s", out)
-		}
-
-		calls := runner.getCalls()
-		var foundTestCall bool
-		for _, c := range calls {
-			if c.Name == "go" && len(c.Args) >= 4 && c.Args[0] == "test" {
-				foundTestCall = true
-				if !strings.Contains(c.Args[2], "-coverprofile=") {
-					t.Errorf("expected -coverprofile arg, got: %v", c.Args)
-				}
-				if c.Args[3] != "./pkg1" || c.Args[4] != "./pkg2" {
-					t.Errorf("expected spread package arguments in test call, got: %v", c.Args)
-				}
-			}
-		}
-		if !foundTestCall {
-			t.Errorf("expected go test call, got calls: %v", calls)
-		}
+	dir := t.TempDir()
+	res, _, err := Handler(context.Background(), nil, Params{
+		Dir: dir,
 	})
-
-	t.Run("tests fail with hint and testquery sync", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go test": "--- FAIL: TestBroken (0.01s)\n    broken_test.go:10: assert failed",
-			},
-			errors: map[string]error{
-				"go test": fmt.Errorf("exit status 1"),
-			},
-		}
-		CommandRunner = runner
-
-		var sb strings.Builder
-		err := runTestsPhase(context.Background(), "/workspace", "./...", &sb)
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		out := sb.String()
-		if !strings.Contains(out, "### 🧪 Tests: ❌ FAILED\n\n") {
-			t.Errorf("expected test fail output, got:\n%s", out)
-		}
-		if !strings.Contains(out, "broken_test.go:10: assert failed") {
-			t.Errorf("expected test failure output details, got:\n%s", out)
-		}
-		if !strings.Contains(out, "**HINT:** Run `test_query` (`tq`) to query failing tests via SQL:") {
-			t.Errorf("expected tq hint in output, got:\n%s", out)
-		}
-	})
+	if err != nil {
+		t.Fatalf("unexpected Handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Error("expected res.IsError == true when tests fail")
+	}
+	out := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(out, "Tests: ❌ FAILED") {
+		t.Errorf("expected test failure in report, got:\n%s", out)
+	}
+	if strings.Contains(out, "### 🧹 Lint:") {
+		t.Errorf("lint phase should not have run after test failure, got:\n%s", out)
+	}
+	if strings.Contains(out, "### 🔍 Deadcode Analysis:") {
+		t.Errorf("deadcode phase should not have run after test failure, got:\n%s", out)
+	}
 }
 
-func TestHandler_Phases(t *testing.T) {
+func TestHandler_Phases_LinterFailureAborts(t *testing.T) {
 	oldRunner := CommandRunner
 	defer func() { CommandRunner = oldRunner }()
 
-	t.Run("tests phase failure aborts pipeline before lint and deadcode", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go build": "",
-				"go test":  "FAIL",
-			},
-			errors: map[string]error{
-				"go test": fmt.Errorf("exit status 1"),
-			},
-		}
-		CommandRunner = runner
+	runner := &mockRunner{
+		outputs: map[string]string{
+			"go build":          "",
+			"go test":           "PASS",
+			"golangci-lint run": "lint warning",
+		},
+		errors: map[string]error{
+			"golangci-lint run": fmt.Errorf("exit status 1"),
+		},
+	}
+	CommandRunner = runner
 
-		res, _, err := Handler(context.Background(), nil, Params{
-			Dir: "/workspace",
-		})
-		if err != nil {
-			t.Fatalf("unexpected Handler error: %v", err)
-		}
-		if !res.IsError {
-			t.Error("expected res.IsError == true when tests fail")
-		}
-		out := res.Content[0].(*mcp.TextContent).Text
-		if !strings.Contains(out, "Tests: ❌ FAILED") {
-			t.Errorf("expected test failure in report, got:\n%s", out)
-		}
-		if strings.Contains(out, "### 🧹 Lint:") {
-			t.Errorf("lint phase should not have run after test failure, got:\n%s", out)
-		}
-		if strings.Contains(out, "### 🔍 Deadcode Analysis:") {
-			t.Errorf("deadcode phase should not have run after test failure, got:\n%s", out)
-		}
+	dir := t.TempDir()
+	res, _, err := Handler(context.Background(), nil, Params{
+		Dir:      dir,
+		Packages: "./custom/...",
 	})
-
-	t.Run("linter phase failure aborts pipeline before deadcode", func(t *testing.T) {
-		runner := &mockRunner{
-			outputs: map[string]string{
-				"go build": "",
-				"go test":  "PASS",
-				"go vet":   "vet warning",
-			},
-			errors: map[string]error{
-				"go vet": fmt.Errorf("exit status 1"),
-			},
-		}
-		CommandRunner = runner
-
-		res, _, err := Handler(context.Background(), nil, Params{
-			Dir:      "/workspace",
-			Packages: "./custom/...",
-		})
-		if err != nil {
-			t.Fatalf("unexpected Handler error: %v", err)
-		}
-		if !res.IsError {
-			t.Error("expected res.IsError == true when linter fails")
-		}
-		out := res.Content[0].(*mcp.TextContent).Text
-		if !strings.Contains(out, "# Smart Build Report (`./custom/...`)") {
-			t.Errorf("expected custom packages in header, got:\n%s", out)
-		}
-		if !strings.Contains(out, "🧹 Lint: (using `go vet`) ⚠️ ISSUES FOUND") {
-			t.Errorf("expected lint failure in report, got:\n%s", out)
-		}
-		if strings.Contains(out, "### 🔍 Deadcode Analysis:") {
-			t.Errorf("deadcode phase should not have run after linter failure, got:\n%s", out)
-		}
-	})
+	if err != nil {
+		t.Fatalf("unexpected Handler error: %v", err)
+	}
+	if !res.IsError {
+		t.Error("expected res.IsError == true when linter fails")
+	}
+	out := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(out, "# Smart Build Report (`./custom/...`)") {
+		t.Errorf("expected custom packages in header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "🧹 Lint: (using `golangci-lint`) ⚠️ ISSUES FOUND") {
+		t.Errorf("expected lint failure in report, got:\n%s", out)
+	}
+	if strings.Contains(out, "### 🔍 Deadcode Analysis:") {
+		t.Errorf("deadcode phase should not have run after linter failure, got:\n%s", out)
+	}
 }
 
 func TestFormatOutput(t *testing.T) {

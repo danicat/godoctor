@@ -69,29 +69,6 @@ var (
 	stdlibMu       sync.RWMutex
 )
 
-// ClearCache clears all cached documentation, directories, and subpackages.
-func ClearCache() {
-	globalCache.mu.Lock()
-	defer globalCache.mu.Unlock()
-	globalCache.docs = make(map[string]cacheEntry[*Doc])
-	globalCache.dirs = make(map[string]cacheEntry[string])
-	globalCache.subpkgs = make(map[string]cacheEntry[[]string])
-}
-
-// SetCacheEnabled enables or disables the in-memory documentation cache.
-func SetCacheEnabled(enabled bool) {
-	globalCache.mu.Lock()
-	defer globalCache.mu.Unlock()
-	globalCache.enabled = enabled
-}
-
-// SetCacheTTL sets the time-to-live duration for in-memory cache entries.
-func SetCacheTTL(ttl time.Duration) {
-	globalCache.mu.Lock()
-	defer globalCache.mu.Unlock()
-	globalCache.defaultTTL = ttl
-}
-
 func (c *memoryCache) getDoc(key string) (*Doc, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -179,13 +156,8 @@ func (c *memoryCache) setSubpkgs(pkgDir string, subs []string) {
 	}
 }
 
-// Load resolves an import path and returns documentation.
-// It performs disk I/O ("go list") and parsing on cache miss. Use this when starting from a string path.
-func Load(ctx context.Context, pkgPath, symbolName string) (*Doc, error) {
-	return loadInternal(ctx, pkgPath, symbolName, false)
-}
-
-// LoadWithFallback is like Load but attempts to find parent packages if the exact match fails.
+// LoadWithFallback attempts to resolve an import path and return documentation.
+// It attempts to find parent packages if the exact match fails.
 func LoadWithFallback(ctx context.Context, pkgPath, symbolName string) (*Doc, error) {
 	return loadInternal(ctx, pkgPath, symbolName, true)
 }
@@ -238,23 +210,21 @@ func loadInternal(ctx context.Context, pkgPath, symbolName string, allowFallback
 	return result, nil
 }
 
-// GetDocumentationWithFallback attempts to retrieve documentation for a package.
-// If the specific package documentation is not found, it attempts to find documentation
-// for parent paths (module roots) and returns it with a hint.
-func GetDocumentationWithFallback(ctx context.Context, pkgPath string) (string, error) {
-	doc, err := LoadWithFallback(ctx, pkgPath, "")
-	if err != nil {
-		return "", err
-	}
-	return Render(doc), nil
-}
-
 // Example represents a code example extracted from documentation.
 type Example struct {
 	Name   string `json:"name"`
 	Code   string `json:"code"`
 	Output string `json:"output,omitempty"`
 }
+
+// Symbol types for Doc
+const (
+	TypeFunction = "function"
+	TypeType     = "type"
+	TypeMethod   = "method"
+	TypeVar      = "var"
+	TypeConst    = "const"
+)
 
 // Doc represents the parsed documentation.
 type Doc struct {
@@ -406,24 +376,6 @@ func isExampleFile(name string) bool {
 		lower == "example_test.go"
 }
 
-// collectFiles is kept for backward-compatibility with tests.
-//
-//nolint:staticcheck // SA1019: ast.Package is deprecated but kept for backwards-compatibility.
-func collectFiles(pkgs map[string]*ast.Package) []*ast.File {
-	var files []*ast.File
-	for _, pkg := range pkgs {
-		if pkg == nil {
-			continue
-		}
-		for _, file := range pkg.Files {
-			if file != nil {
-				files = append(files, file)
-			}
-		}
-	}
-	return files
-}
-
 func initializeDoc(ctx context.Context, importPath, requestedPath, pkgDir string) *Doc {
 	result := &Doc{
 		ImportPath:  importPath,
@@ -548,7 +500,7 @@ func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 			continue
 		}
 		if t.Name == symName {
-			result.Type = "type"
+			result.Type = TypeType
 			if t.Decl != nil {
 				result.Definition = bufferCode(fset, t.Decl)
 			}
@@ -574,7 +526,7 @@ func checkTypes(fset *token.FileSet, pkg *doc.Package, symName string, result *D
 				continue
 			}
 			if m.Name == symName {
-				result.Type = "method"
+				result.Type = TypeMethod
 				if m.Decl != nil {
 					result.Definition = bufferCode(fset, m.Decl)
 				}
@@ -598,7 +550,7 @@ func checkVars(fset *token.FileSet, pkg *doc.Package, symName string, result *Do
 		}
 		for _, name := range v.Names {
 			if name == symName {
-				result.Type = "var"
+				result.Type = TypeVar
 				if v.Decl != nil {
 					result.Definition = bufferCode(fset, v.Decl)
 				}
@@ -621,7 +573,7 @@ func checkConsts(fset *token.FileSet, pkg *doc.Package, symName string, result *
 		}
 		for _, name := range c.Names {
 			if name == symName {
-				result.Type = "const"
+				result.Type = TypeConst
 				if c.Decl != nil {
 					result.Definition = bufferCode(fset, c.Decl)
 				}
@@ -638,7 +590,7 @@ func populateFunc(fset *token.FileSet, pkg *doc.Package, f *doc.Func, result *Do
 	if f == nil {
 		return
 	}
-	result.Type = "function"
+	result.Type = TypeFunction
 	if f.Decl != nil {
 		result.Definition = bufferCode(fset, f.Decl)
 	}
@@ -713,9 +665,11 @@ func extractTypeNames(expr ast.Expr) []string {
 	case *ast.ArrayType:
 		return extractTypeNames(t.Elt)
 	case *ast.MapType:
-		var names []string
-		names = append(names, extractTypeNames(t.Key)...)
-		names = append(names, extractTypeNames(t.Value)...)
+		keyNames := extractTypeNames(t.Key)
+		valNames := extractTypeNames(t.Value)
+		names := make([]string, 0, len(keyNames)+len(valNames))
+		names = append(names, keyNames...)
+		names = append(names, valNames...)
 		return names
 	case *ast.ChanType:
 		return extractTypeNames(t.Value)
@@ -1008,7 +962,7 @@ func stdlibOnceFetch(ctx context.Context) {
 		return
 	}
 
-	fetchCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
 	if cmd, err := safeshell.CommandContext(fetchCtx, "go", "list", "std"); err == nil {

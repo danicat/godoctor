@@ -4,26 +4,60 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
+)
+
+// CLI tool argument and identity constants.
+const (
+	ArgVersion     = "version"
+	ArgDashVersion = "--version"
+	ArgShortV      = "-v"
+	ArgDashHelp    = "-help"
+
+	ToolGo                      = "go"
+	ToolGoDisplayName           = "Go Toolchain"
+	ToolGolangCILint            = "golangci_lint"
+	ToolGolangCILintDisplayName = "golangci-lint"
+	ToolModernize               = "modernize"
+	ToolDeadcode                = "deadcode"
+	ToolSelene                  = "selene"
+	ToolTestQuery               = "testquery"
+
+	DefaultGoVersion       = ">=1.24.0"
+	DefaultGolangCILintVer = "v2.12.2"
+	DefaultLatestVer       = "latest"
 )
 
 var (
 	// golangciLintRe matches "golangci-lint has version 2.12.2" or "golangci-lint version 1.64.0"
-	golangciLintRe = regexp.MustCompile(`(?i)golangci-lint(?:\.exe)?\s+(?:has\s+)?version\s+v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`)
+	golangciLintRe = regexp.MustCompile(
+		`(?i)golangci-lint(?:\.exe)?\s+(?:has\s+)?version\s+v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`,
+	)
 
 	// goVersionRe matches "go version go1.26.3 darwin/arm64" or "go version 1.24.0"
-	goVersionRe = regexp.MustCompile(`(?i)go\s+version\s+(?:go)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[a-zA-Z0-9.-]+)?)`)
+	goVersionRe = regexp.MustCompile(
+		`(?i)go\s+version\s+(?:go)?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:[a-zA-Z0-9.-]+)?)`,
+	)
 
 	// seleneRe matches "selene version 0.3.1" or "selene 0.3.1"
-	seleneRe = regexp.MustCompile(`(?i)selene(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`)
+	seleneRe = regexp.MustCompile(
+		`(?i)selene(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`,
+	)
 
 	// testqueryRe matches "testquery version 0.4.0" or "tq version 0.4.0"
-	testqueryRe = regexp.MustCompile(`(?i)(?:testquery|tq)(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`)
+	testqueryRe = regexp.MustCompile(
+		`(?i)(?:testquery|tq)(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`,
+	)
 
 	// modernizeRe matches "modernize version 0.1.0" or "modernize v0.1.0"
-	modernizeRe = regexp.MustCompile(`(?i)modernize(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`)
+	modernizeRe = regexp.MustCompile(
+		`(?i)modernize(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`,
+	)
 
 	// deadcodeRe matches "deadcode version 0.1.0"
-	deadcodeRe = regexp.MustCompile(`(?i)deadcode(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`)
+	deadcodeRe = regexp.MustCompile(
+		`(?i)deadcode(?:\.exe)?\s+(?:version\s+)?v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.-]+)?)`,
+	)
 
 	// GenericSemverRe fallback semver pattern
 	GenericSemverRe = regexp.MustCompile(`v?([0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9a-zA-Z.+_-]+)?)`)
@@ -49,6 +83,8 @@ type ToolSpec struct {
 	Category           string              `json:"category"` // "compiler", "linter", "refactor", "test"
 	Required           bool                `json:"required"`
 	InstallGuide       InstallInstructions `json:"install_guide"`
+	Timeout            time.Duration       `json:"timeout,omitempty"`
+	Disabled           bool                `json:"disabled,omitempty"`
 }
 
 // ToolStatus represents the evaluation result of an external utility.
@@ -65,120 +101,126 @@ type ToolStatus struct {
 	Required           bool   `json:"required"`
 }
 
-// DefaultRegistry returns the catalog of all external tools tracked by GoDoctor.
-func DefaultRegistry() []ToolSpec {
-	return []ToolSpec{
-		{
-			ID:                 "go",
-			DisplayName:        "Go Toolchain",
-			Binaries:           []string{"go"},
-			VersionArgs:        [][]string{{"version"}},
-			OutputRegex:        goVersionRe,
-			DefaultRecommended: ">=1.24.0",
-			Category:           "compiler",
-			Required:           true,
-			InstallGuide: InstallInstructions{
-				Homebrew: "brew upgrade go",
-				DocsURL:  "https://go.dev/dl/",
-			},
-		},
-		{
-			ID:                 "golangci_lint",
-			DisplayName:        "golangci-lint",
-			Binaries:           []string{"golangci-lint"},
-			VersionArgs:        [][]string{{"--version"}, {"version"}},
-			OutputRegex:        golangciLintRe,
-			DefaultRecommended: "v2.12.2",
-			PackagePath:        "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
-			Category:           "linter",
-			Required:           false,
-			InstallGuide: InstallInstructions{
-				GoInstall: "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2",
-				Homebrew:  "brew install golangci-lint",
-				Script:    "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2",
-				DocsURL:   "https://golangci-lint.run/welcome/install/",
-			},
-		},
-		{
-			ID:                 "modernize",
-			DisplayName:        "modernize",
-			Binaries:           []string{"modernize"},
-			VersionArgs:        [][]string{{"-V"}, {"--version"}, {"-help"}},
-			OutputRegex:        modernizeRe,
-			DefaultRecommended: "latest",
-			PackagePath:        "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize",
-			Category:           "refactor",
-			Required:           false,
-			InstallGuide: InstallInstructions{
-				GoInstall: "go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest",
-				DocsURL:   "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/modernize",
-			},
-		},
-		{
-			ID:                 "deadcode",
-			DisplayName:        "deadcode",
-			Binaries:           []string{"deadcode"},
-			VersionArgs:        [][]string{{"--version"}, {"-v"}, {"-help"}},
-			OutputRegex:        deadcodeRe,
-			DefaultRecommended: "latest",
-			PackagePath:        "golang.org/x/tools/cmd/deadcode",
-			Category:           "linter",
-			Required:           false,
-			InstallGuide: InstallInstructions{
-				GoInstall: "go install golang.org/x/tools/cmd/deadcode@latest",
-				DocsURL:   "https://pkg.go.dev/golang.org/x/tools/cmd/deadcode",
-			},
-		},
-		{
-			ID:                 "selene",
-			DisplayName:        "selene",
-			Binaries:           []string{"selene"},
-			VersionArgs:        [][]string{{"--version"}, {"-v"}, {"version"}},
-			OutputRegex:        seleneRe,
-			DefaultRecommended: "latest",
-			PackagePath:        "github.com/danicat/selene/cmd/selene",
-			Category:           "test",
-			Required:           false,
-			InstallGuide: InstallInstructions{
-				GoInstall: "go install github.com/danicat/selene/cmd/selene@latest",
-				DocsURL:   "https://github.com/danicat/selene",
-			},
-		},
-		{
-			ID:                 "testquery",
-			DisplayName:        "testquery (tq)",
-			Binaries:           []string{"testquery", "tq"},
-			VersionArgs:        [][]string{{"version"}, {"--version"}, {"-v"}},
-			OutputRegex:        testqueryRe,
-			DefaultRecommended: "latest",
-			PackagePath:        "github.com/danicat/testquery",
-			Category:           "test",
-			Required:           false,
-			InstallGuide: InstallInstructions{
-				GoInstall: "go install github.com/danicat/testquery@latest",
-				DocsURL:   "https://github.com/danicat/testquery",
-			},
+func specGo() ToolSpec {
+	return ToolSpec{
+		ID:                 ToolGo,
+		DisplayName:        ToolGoDisplayName,
+		Binaries:           []string{"go"},
+		VersionArgs:        [][]string{{ArgVersion}},
+		OutputRegex:        goVersionRe,
+		DefaultRecommended: DefaultGoVersion,
+		Category:           "compiler",
+		Required:           true,
+		InstallGuide: InstallInstructions{
+			Homebrew: "brew upgrade go",
+			DocsURL:  "https://go.dev/dl/",
 		},
 	}
 }
 
-// FindToolSpec searches DefaultRegistry for a tool matching id or name.
-func FindToolSpec(idOrName string) (ToolSpec, bool) {
-	norm := strings.ToLower(strings.TrimSpace(idOrName))
-	norm = strings.ReplaceAll(norm, "-", "_")
-
-	for _, spec := range DefaultRegistry() {
-		specIDNorm := strings.ReplaceAll(strings.ToLower(spec.ID), "-", "_")
-		if specIDNorm == norm || strings.ToLower(spec.DisplayName) == norm {
-			return spec, true
-		}
-		for _, b := range spec.Binaries {
-			if strings.ToLower(b) == norm {
-				return spec, true
-			}
-		}
+func specGolangCILint() ToolSpec {
+	return ToolSpec{
+		ID:                 ToolGolangCILint,
+		DisplayName:        ToolGolangCILintDisplayName,
+		Binaries:           []string{ToolGolangCILintDisplayName},
+		VersionArgs:        [][]string{{ArgDashVersion}, {ArgVersion}},
+		OutputRegex:        golangciLintRe,
+		DefaultRecommended: DefaultGolangCILintVer,
+		PackagePath:        "github.com/golangci/golangci-lint/v2/cmd/golangci-lint",
+		Category:           "linter",
+		Required:           false,
+		InstallGuide: InstallInstructions{
+			GoInstall: "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@" + DefaultGolangCILintVer,
+			Homebrew:  "brew install golangci-lint",
+			Script: "curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh" +
+				" | sh -s -- -b $(go env GOPATH)/bin " + DefaultGolangCILintVer,
+			DocsURL: "https://golangci-lint.run/welcome/install/",
+		},
 	}
-	return ToolSpec{}, false
+}
+
+func specModernize() ToolSpec {
+	return ToolSpec{
+		ID:                 ToolModernize,
+		DisplayName:        ToolModernize,
+		Binaries:           []string{ToolModernize},
+		VersionArgs:        [][]string{{"-V"}, {ArgDashVersion}, {ArgDashHelp}},
+		OutputRegex:        modernizeRe,
+		DefaultRecommended: DefaultLatestVer,
+		PackagePath:        "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize",
+		Category:           "refactor",
+		Required:           false,
+		InstallGuide: InstallInstructions{
+			GoInstall: "go install golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@" + DefaultLatestVer,
+			DocsURL:   "https://pkg.go.dev/golang.org/x/tools/go/analysis/passes/modernize",
+		},
+	}
+}
+
+func specDeadcode() ToolSpec {
+	return ToolSpec{
+		ID:                 ToolDeadcode,
+		DisplayName:        ToolDeadcode,
+		Binaries:           []string{ToolDeadcode},
+		VersionArgs:        [][]string{{ArgDashVersion}, {ArgShortV}, {ArgDashHelp}},
+		OutputRegex:        deadcodeRe,
+		DefaultRecommended: DefaultLatestVer,
+		PackagePath:        "golang.org/x/tools/cmd/deadcode",
+		Category:           "linter",
+		Required:           false,
+		InstallGuide: InstallInstructions{
+			GoInstall: "go install golang.org/x/tools/cmd/deadcode@" + DefaultLatestVer,
+			DocsURL:   "https://pkg.go.dev/golang.org/x/tools/cmd/deadcode",
+		},
+	}
+}
+
+func specSelene() ToolSpec {
+	return ToolSpec{
+		ID:                 ToolSelene,
+		DisplayName:        ToolSelene,
+		Binaries:           []string{ToolSelene},
+		VersionArgs:        [][]string{{ArgDashVersion}, {ArgShortV}, {ArgVersion}},
+		OutputRegex:        seleneRe,
+		DefaultRecommended: DefaultLatestVer,
+		PackagePath:        "github.com/danicat/selene/cmd/selene",
+		Category:           "test",
+		Required:           false,
+		InstallGuide: InstallInstructions{
+			GoInstall: "go install github.com/danicat/selene/cmd/selene@" + DefaultLatestVer,
+			DocsURL:   "https://github.com/danicat/selene",
+		},
+	}
+}
+
+func specTestQuery() ToolSpec {
+	return ToolSpec{
+		ID:                 ToolTestQuery,
+		DisplayName:        "testquery (tq)",
+		Binaries:           []string{ToolTestQuery, "tq"},
+		VersionArgs:        [][]string{{ArgVersion}, {ArgDashVersion}, {ArgShortV}},
+		OutputRegex:        testqueryRe,
+		DefaultRecommended: DefaultLatestVer,
+		PackagePath:        "github.com/danicat/testquery",
+		Category:           "test",
+		Required:           false,
+		InstallGuide: InstallInstructions{
+			GoInstall: "go install github.com/danicat/testquery@" + DefaultLatestVer,
+			DocsURL:   "https://github.com/danicat/testquery",
+		},
+	}
+}
+
+// DefaultRegistry returns the catalog of all external tools tracked by GoDoctor.
+func DefaultRegistry() []ToolSpec {
+	return []ToolSpec{
+		specGo(),
+		specGolangCILint(),
+		specModernize(),
+		specDeadcode(),
+		specSelene(),
+		specTestQuery(),
+	}
 }
 
 // BuildUpgradeCommand constructs a clean install or upgrade command for a tool.
@@ -190,7 +232,7 @@ func BuildUpgradeCommand(spec ToolSpec, recommended string) string {
 		}
 		targetVer := recommended
 		if targetVer == "" || strings.HasPrefix(targetVer, ">=") || strings.HasPrefix(targetVer, ">") {
-			targetVer = "latest"
+			targetVer = DefaultLatestVer
 		}
 		return fmt.Sprintf("go install %s@%s", pkg, targetVer)
 	}

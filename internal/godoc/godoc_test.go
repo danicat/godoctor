@@ -29,206 +29,181 @@ import (
 	"github.com/danicat/godoctor/internal/text"
 )
 
-func TestDoc_RenderJSON(t *testing.T) {
-	t.Run("nil Doc", func(t *testing.T) {
-		var d *Doc
-		got, err := d.RenderJSON()
-		if err != nil {
-			t.Fatalf("RenderJSON() on nil returned error: %v", err)
-		}
-		if got != "{}" {
-			t.Errorf("RenderJSON() on nil = %q, want %q", got, "{}")
-		}
-	})
-
-	t.Run("populated Doc", func(t *testing.T) {
-		d := &Doc{
-			Package:      "mypkg",
-			ImportPath:   "example.com/mypkg",
-			ResolvedPath: "example.com/mypkg/sub",
-			SymbolName:   "MyFunc",
-			Type:         "function",
-			Definition:   "func MyFunc() error",
-			Description:  "MyFunc performs an action.",
-			Examples: []Example{
-				{Name: "ExampleMyFunc", Code: "mypkg.MyFunc()", Output: "nil"},
-				{Name: "", Code: "mypkg.MyFunc()"},
-			},
-			SubPackages: []string{"example.com/mypkg/sub1", "example.com/mypkg/sub2"},
-			PkgGoDevURL: "https://pkg.go.dev/example.com/mypkg#MyFunc",
-			Funcs:       []string{"func OtherFunc()"},
-			Types:       []string{"type MyType struct{}"},
-			Vars:        []string{"var ErrSome = errors.New(\"some\")"},
-			Consts:      []string{"const Version = \"1.0.0\""},
-			SourcePath:  "/path/to/mypkg.go",
-			Line:        42,
-			References:  []string{"example.com/app/main.go:15"},
-		}
-
-		jsonStr, err := d.RenderJSON()
-		if err != nil {
-			t.Fatalf("RenderJSON() error = %v", err)
-		}
-
-		var unmarshaled Doc
-		if err := json.Unmarshal([]byte(jsonStr), &unmarshaled); err != nil {
-			t.Fatalf("json.Unmarshal failed: %v", err)
-		}
-
-		if unmarshaled.Package != d.Package {
-			t.Errorf("unmarshaled Package = %q, want %q", unmarshaled.Package, d.Package)
-		}
-		if unmarshaled.ImportPath != d.ImportPath {
-			t.Errorf("unmarshaled ImportPath = %q, want %q", unmarshaled.ImportPath, d.ImportPath)
-		}
-		if unmarshaled.ResolvedPath != d.ResolvedPath {
-			t.Errorf("unmarshaled ResolvedPath = %q, want %q", unmarshaled.ResolvedPath, d.ResolvedPath)
-		}
-		if unmarshaled.SymbolName != d.SymbolName {
-			t.Errorf("unmarshaled SymbolName = %q, want %q", unmarshaled.SymbolName, d.SymbolName)
-		}
-		if unmarshaled.Type != d.Type {
-			t.Errorf("unmarshaled Type = %q, want %q", unmarshaled.Type, d.Type)
-		}
-		if unmarshaled.Definition != d.Definition {
-			t.Errorf("unmarshaled Definition = %q, want %q", unmarshaled.Definition, d.Definition)
-		}
-		if unmarshaled.Description != d.Description {
-			t.Errorf("unmarshaled Description = %q, want %q", unmarshaled.Description, d.Description)
-		}
-		if len(unmarshaled.Examples) != len(d.Examples) {
-			t.Fatalf("unmarshaled Examples len = %d, want %d", len(unmarshaled.Examples), len(d.Examples))
-		}
-		if unmarshaled.Examples[0].Output != "nil" {
-			t.Errorf("unmarshaled Example Output = %q, want %q", unmarshaled.Examples[0].Output, "nil")
-		}
-		if len(unmarshaled.SubPackages) != 2 {
-			t.Errorf("unmarshaled SubPackages len = %d, want 2", len(unmarshaled.SubPackages))
-		}
-		if unmarshaled.PkgGoDevURL != d.PkgGoDevURL {
-			t.Errorf("unmarshaled PkgGoDevURL = %q, want %q", unmarshaled.PkgGoDevURL, d.PkgGoDevURL)
-		}
-		if len(unmarshaled.Funcs) != 1 || len(unmarshaled.Types) != 1 ||
-			len(unmarshaled.Vars) != 1 || len(unmarshaled.Consts) != 1 {
-			t.Errorf("unmarshaled symbol lists mismatch: %+v", unmarshaled)
-		}
-		if unmarshaled.SourcePath != d.SourcePath || unmarshaled.Line != d.Line {
-			t.Errorf("unmarshaled SourcePath/Line mismatch: %s:%d", unmarshaled.SourcePath, d.Line)
-		}
-		if len(unmarshaled.References) != 1 || unmarshaled.References[0] != d.References[0] {
-			t.Errorf("unmarshaled References mismatch: %v", unmarshaled.References)
-		}
-	})
+func TestDoc_RenderJSON_Nil(t *testing.T) {
+	var d *Doc
+	got, err := d.RenderJSON()
+	if err != nil {
+		t.Fatalf("RenderJSON() on nil returned error: %v", err)
+	}
+	if got != "{}" {
+		t.Errorf("RenderJSON() on nil = %q, want %q", got, "{}")
+	}
 }
 
-func TestDoc_RenderMarkdown_And_Render(t *testing.T) {
-	t.Run("package documentation with all sections", func(t *testing.T) {
-		d := &Doc{
-			Package:     "samplepkg",
-			ImportPath:  "example.com/samplepkg",
-			Definition:  "package samplepkg // import \"example.com/samplepkg\"",
-			Description: "Sample package documentation.",
-			Examples: []Example{
-				{Name: "ExampleSample", Code: "samplepkg.Do()", Output: "done"},
-				{Name: "", Code: "samplepkg.Simple()"},
-			},
-			Consts:      []string{"const Answer = 42"},
-			Vars:        []string{"var Status = \"ok\""},
-			Funcs:       []string{"func Do() error"},
-			Types:       []string{"type Config struct{}"},
-			SubPackages: []string{"example.com/samplepkg/sub1", "example.com/samplepkg/sub2"},
-			References:  []string{"cmd/app/main.go:10"},
-			PkgGoDevURL: "https://pkg.go.dev/example.com/samplepkg",
-		}
+func TestDoc_RenderJSON_Populated(t *testing.T) {
+	d := &Doc{
+		Package:      "mypkg",
+		ImportPath:   "example.com/mypkg",
+		ResolvedPath: "example.com/mypkg/sub",
+		SymbolName:   "MyFunc",
+		Type:         TypeFunction,
+		Definition:   "func MyFunc() error",
+		Description:  "MyFunc performs an action.",
+		Examples: []Example{
+			{Name: "ExampleMyFunc", Code: "mypkg.MyFunc()", Output: "nil"},
+			{Name: "", Code: "mypkg.MyFunc()"},
+		},
+		SubPackages: []string{"example.com/mypkg/sub1", "example.com/mypkg/sub2"},
+		PkgGoDevURL: "https://pkg.go.dev/example.com/mypkg#MyFunc",
+		Funcs:       []string{"func OtherFunc()"},
+		Types:       []string{"type MyType struct{}"},
+		Vars:        []string{"var ErrSome = errors.New(\"some\")"},
+		Consts:      []string{"const Version = \"1.0.0\""},
+		SourcePath:  "/path/to/mypkg.go",
+		Line:        42,
+		References:  []string{"example.com/app/main.go:15"},
+	}
 
-		got := d.RenderMarkdown()
-		wants := []string{
-			"# example.com/samplepkg\n\n",
-			"```go\npackage samplepkg // import \"example.com/samplepkg\"\n```\n\n",
-			"Sample package documentation.\n\n",
-			"### Examples\n\n",
-			"#### ExampleSample\n\n```go\nsamplepkg.Do()\n```\n\n**Output:**\n```\ndone\n```\n\n",
-			"#### Package Example\n\n```go\nsamplepkg.Simple()\n```\n\n",
-			"### Constants\n\n```go\nconst Answer = 42\n```\n\n",
-			"### Variables\n\n```go\nvar Status = \"ok\"\n```\n\n",
-			"### Functions\n\n```go\nfunc Do() error\n\n```\n\n",
-			"### Types\n\n```go\ntype Config struct{}\n\n```\n\n",
-			"### Usages\n\n- cmd/app/main.go:10\n\n",
-			"### Sub-packages\n\n- example.com/samplepkg/sub1\n- example.com/samplepkg/sub2\n\n",
-			"[View on pkg.go.dev](https://pkg.go.dev/example.com/samplepkg)\n",
-		}
+	jsonStr, err := d.RenderJSON()
+	if err != nil {
+		t.Fatalf("RenderJSON() error = %v", err)
+	}
 
-		for _, want := range wants {
-			if !strings.Contains(got, want) {
-				t.Errorf("RenderMarkdown() missing content %q.\nGot:\n%s", want, got)
-			}
-		}
+	var unmarshaled Doc
+	if err := json.Unmarshal([]byte(jsonStr), &unmarshaled); err != nil {
+		t.Fatalf("json.Unmarshal failed: %v", err)
+	}
 
-		// Verify Render(d) produces identical output to d.RenderMarkdown()
-		if gotDirect := Render(d); gotDirect != got {
-			t.Errorf("Render(d) does not match d.RenderMarkdown()")
-		}
-	})
-
-	t.Run("resolved path parent note", func(t *testing.T) {
-		d := &Doc{
-			ImportPath:   "example.com/parent",
-			ResolvedPath: "example.com/parent/sub/missing",
-			PkgGoDevURL:  "https://pkg.go.dev/example.com/parent",
-		}
-		got := Render(d)
-		wantNote := "> ℹ️ **Note:** Could not find `example.com/parent/sub/missing`.\n" +
-			"> Showing documentation for parent module `example.com/parent` instead.\n\n"
-		if !strings.Contains(got, wantNote) {
-			t.Errorf("Render() missing parent fallback note %q.\nGot:\n%s", wantNote, got)
-		}
-	})
-
-	t.Run("resolved path redirect note", func(t *testing.T) {
-		d := &Doc{
-			ImportPath:   "google.golang.org/adk",
-			ResolvedPath: "github.com/google/adk-go",
-			PkgGoDevURL:  "https://pkg.go.dev/google.golang.org/adk",
-		}
-		got := Render(d)
-		wantNote := "> **Note:** Redirected from github.com/google/adk-go\n\n"
-		if !strings.Contains(got, wantNote) {
-			t.Errorf("Render() missing redirect note %q.\nGot:\n%s", wantNote, got)
-		}
-	})
-
-	t.Run("symbol documentation format with source and usages", func(t *testing.T) {
-		d := &Doc{
-			Package:     "samplepkg",
-			ImportPath:  "example.com/samplepkg",
-			SymbolName:  "Worker",
-			Type:        "type",
-			SourcePath:  "worker.go",
-			Line:        28,
-			Definition:  "type Worker struct{}",
-			Description: "Worker processes jobs.",
-			References:  []string{"cmd/app/worker.go:12", "cmd/app/pool.go:45"},
-			PkgGoDevURL: "https://pkg.go.dev/example.com/samplepkg#Worker",
-		}
-		got := Render(d)
-		wants := []string{
-			"# example.com/samplepkg\n\n",
-			"## type Worker\n\n",
-			"Defined in: `worker.go:28`\n\n",
-			"```go\ntype Worker struct{}\n```\n\n",
-			"Worker processes jobs.\n\n",
-			"### Usages\n\n- cmd/app/worker.go:12\n- cmd/app/pool.go:45\n\n",
-			"[View on pkg.go.dev](https://pkg.go.dev/example.com/samplepkg#Worker)\n",
-		}
-		for _, want := range wants {
-			if !strings.Contains(got, want) {
-				t.Errorf("Render() missing symbol documentation content %q.\nGot:\n%s", want, got)
-			}
-		}
-	})
+	assertRenderedDocFields(t, d, &unmarshaled)
 }
 
-func TestLoadWithFallback_And_GetDocumentationWithFallback(t *testing.T) {
+func assertRenderedDocFields(t *testing.T, d, u *Doc) {
+	t.Helper()
+	if u.Package != d.Package || u.ImportPath != d.ImportPath || u.ResolvedPath != d.ResolvedPath {
+		t.Errorf("unmarshaled Package/Path mismatch: %+v", u)
+	}
+	if u.SymbolName != d.SymbolName || u.Type != d.Type || u.Definition != d.Definition {
+		t.Errorf("unmarshaled Symbol/Type mismatch: %+v", u)
+	}
+	if u.Description != d.Description || len(u.Examples) != len(d.Examples) {
+		t.Errorf("unmarshaled Description/Examples mismatch: %+v", u)
+	}
+	if len(u.SubPackages) != 2 || u.PkgGoDevURL != d.PkgGoDevURL {
+		t.Errorf("unmarshaled SubPackages/URL mismatch: %+v", u)
+	}
+	if len(u.Funcs) != 1 || len(u.Types) != 1 || len(u.Vars) != 1 || len(u.Consts) != 1 {
+		t.Errorf("unmarshaled symbol lists mismatch: %+v", u)
+	}
+	if u.SourcePath != d.SourcePath || u.Line != d.Line || len(u.References) != 1 {
+		t.Errorf("unmarshaled SourcePath/Line/References mismatch: %+v", u)
+	}
+}
+
+func TestDoc_RenderMarkdown_Package(t *testing.T) {
+	d := &Doc{
+		Package:     "samplepkg",
+		ImportPath:  "example.com/samplepkg",
+		Definition:  "package samplepkg // import \"example.com/samplepkg\"",
+		Description: "Sample package documentation.",
+		Examples: []Example{
+			{Name: "ExampleSample", Code: "samplepkg.Do()", Output: "done"},
+			{Name: "", Code: "samplepkg.Simple()"},
+		},
+		Consts:      []string{"const Answer = 42"},
+		Vars:        []string{"var Status = \"ok\""},
+		Funcs:       []string{"func Do() error"},
+		Types:       []string{"type Config struct{}"},
+		SubPackages: []string{"example.com/samplepkg/sub1", "example.com/samplepkg/sub2"},
+		References:  []string{"cmd/app/main.go:10"},
+		PkgGoDevURL: "https://pkg.go.dev/example.com/samplepkg",
+	}
+
+	got := d.RenderMarkdown()
+	wants := []string{
+		"# example.com/samplepkg\n\n",
+		"```go\npackage samplepkg // import \"example.com/samplepkg\"\n```\n\n",
+		"Sample package documentation.\n\n",
+		"### Examples\n\n",
+		"#### ExampleSample\n\n```go\nsamplepkg.Do()\n```\n\n**Output:**\n```\ndone\n```\n\n",
+		"#### Package Example\n\n```go\nsamplepkg.Simple()\n```\n\n",
+		"### Constants\n\n```go\nconst Answer = 42\n```\n\n",
+		"### Variables\n\n```go\nvar Status = \"ok\"\n```\n\n",
+		"### Functions\n\n```go\nfunc Do() error\n\n```\n\n",
+		"### Types\n\n```go\ntype Config struct{}\n\n```\n\n",
+		"### Usages\n\n- cmd/app/main.go:10\n\n",
+		"### Sub-packages\n\n- example.com/samplepkg/sub1\n- example.com/samplepkg/sub2\n\n",
+		"[View on pkg.go.dev](https://pkg.go.dev/example.com/samplepkg)\n",
+	}
+
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("RenderMarkdown() missing content %q.\nGot:\n%s", want, got)
+		}
+	}
+
+	if gotDirect := Render(d); gotDirect != got {
+		t.Errorf("Render(d) does not match d.RenderMarkdown()")
+	}
+}
+
+func TestDoc_RenderMarkdown_ResolvedPathParent(t *testing.T) {
+	d := &Doc{
+		ImportPath:   "example.com/parent",
+		ResolvedPath: "example.com/parent/sub/missing",
+		PkgGoDevURL:  "https://pkg.go.dev/example.com/parent",
+	}
+	got := Render(d)
+	wantNote := "> ℹ️ **Note:** Could not find `example.com/parent/sub/missing`.\n" +
+		"> Showing documentation for parent module `example.com/parent` instead.\n\n"
+	if !strings.Contains(got, wantNote) {
+		t.Errorf("Render() missing parent fallback note %q.\nGot:\n%s", wantNote, got)
+	}
+}
+
+func TestDoc_RenderMarkdown_ResolvedPathRedirect(t *testing.T) {
+	d := &Doc{
+		ImportPath:   "google.golang.org/adk",
+		ResolvedPath: "github.com/google/adk-go",
+		PkgGoDevURL:  "https://pkg.go.dev/google.golang.org/adk",
+	}
+	got := Render(d)
+	wantNote := "> **Note:** Redirected from github.com/google/adk-go\n\n"
+	if !strings.Contains(got, wantNote) {
+		t.Errorf("Render() missing redirect note %q.\nGot:\n%s", wantNote, got)
+	}
+}
+
+func TestDoc_RenderMarkdown_Symbol(t *testing.T) {
+	d := &Doc{
+		Package:     "samplepkg",
+		ImportPath:  "example.com/samplepkg",
+		SymbolName:  "Worker",
+		Type:        TypeType,
+		SourcePath:  "worker.go",
+		Line:        28,
+		Definition:  "type Worker struct{}",
+		Description: "Worker processes jobs.",
+		References:  []string{"cmd/app/worker.go:12", "cmd/app/pool.go:45"},
+		PkgGoDevURL: "https://pkg.go.dev/example.com/samplepkg#Worker",
+	}
+	got := Render(d)
+	wants := []string{
+		"# example.com/samplepkg\n\n",
+		"## type Worker\n\n",
+		"Defined in: `worker.go:28`\n\n",
+		"```go\ntype Worker struct{}\n```\n\n",
+		"Worker processes jobs.\n\n",
+		"### Usages\n\n- cmd/app/worker.go:12\n- cmd/app/pool.go:45\n\n",
+		"[View on pkg.go.dev](https://pkg.go.dev/example.com/samplepkg#Worker)\n",
+	}
+	for _, want := range wants {
+		if !strings.Contains(got, want) {
+			t.Errorf("Render() missing symbol documentation content %q.\nGot:\n%s", want, got)
+		}
+	}
+}
+
+func TestLoadWithFallback(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("LoadWithFallback stdlib fmt", func(t *testing.T) {
@@ -238,6 +213,10 @@ func TestLoadWithFallback_And_GetDocumentationWithFallback(t *testing.T) {
 		}
 		if d.Package != "fmt" {
 			t.Errorf("LoadWithFallback() Package = %q, want %q", d.Package, "fmt")
+		}
+		md := Render(d)
+		if !strings.Contains(md, "# fmt") {
+			t.Errorf("Render(d) missing '# fmt'. Got:\n%s", md)
 		}
 	})
 
@@ -251,20 +230,10 @@ func TestLoadWithFallback_And_GetDocumentationWithFallback(t *testing.T) {
 		}
 	})
 
-	t.Run("GetDocumentationWithFallback stdlib fmt", func(t *testing.T) {
-		md, err := GetDocumentationWithFallback(ctx, "fmt")
-		if err != nil {
-			t.Fatalf("GetDocumentationWithFallback(\"fmt\") error = %v", err)
-		}
-		if !strings.Contains(md, "# fmt") {
-			t.Errorf("GetDocumentationWithFallback(\"fmt\") missing '# fmt'. Got:\n%s", md)
-		}
-	})
-
-	t.Run("GetDocumentationWithFallback non-existent package", func(t *testing.T) {
-		_, err := GetDocumentationWithFallback(ctx, "nonexistent/invalid/package/path/xyz987")
+	t.Run("LoadWithFallback non-existent package", func(t *testing.T) {
+		_, err := LoadWithFallback(ctx, "nonexistent/invalid/package/path/xyz987", "")
 		if err == nil {
-			t.Fatal("GetDocumentationWithFallback() expected error for non-existent package, got nil")
+			t.Fatal("LoadWithFallback() expected error for non-existent package, got nil")
 		}
 		if !strings.Contains(err.Error(), "could not find documentation for") {
 			t.Errorf("unexpected error message: %v", err)
@@ -272,96 +241,96 @@ func TestLoadWithFallback_And_GetDocumentationWithFallback(t *testing.T) {
 	})
 }
 
-func TestSymbolDocumentation_Lookups(t *testing.T) {
+func TestSymbolDocumentation_Lookups_Func(t *testing.T) {
 	ctx := context.Background()
+	d, err := LoadWithFallback(ctx, "fmt", "Println")
+	if err != nil {
+		t.Fatalf("LoadWithFallback(\"fmt\", \"Println\") error = %v", err)
+	}
+	if d.Type != TypeFunction || d.SymbolName != "Println" {
+		t.Errorf("Symbol mismatch: type=%q, name=%q", d.Type, d.SymbolName)
+	}
+	if !strings.Contains(d.Definition, "func Println") {
+		t.Errorf("Definition missing 'func Println': %q", d.Definition)
+	}
+}
 
-	t.Run("function fmt.Println", func(t *testing.T) {
-		d, err := Load(ctx, "fmt", "Println")
+func TestSymbolDocumentation_Lookups_FuncReturnType(t *testing.T) {
+	ctx := context.Background()
+	d, err := LoadWithFallback(ctx, "fmt", "Sprintf")
+	if err != nil {
+		t.Fatalf("LoadWithFallback(\"fmt\", \"Sprintf\") error = %v", err)
+	}
+	if d.Type != TypeFunction || d.SymbolName != "Sprintf" {
+		t.Errorf("Symbol mismatch: type=%q, name=%q", d.Type, d.SymbolName)
+	}
+	if !strings.Contains(d.Definition, "func Sprintf") {
+		t.Errorf("Definition missing 'func Sprintf': %q", d.Definition)
+	}
+}
+
+func TestSymbolDocumentation_Lookups_Types(t *testing.T) {
+	ctx := context.Background()
+	for _, sym := range []string{"Stringer", "Formatter", "State"} {
+		d, err := LoadWithFallback(ctx, "fmt", sym)
 		if err != nil {
-			t.Fatalf("Load(\"fmt\", \"Println\") error = %v", err)
+			t.Fatalf("LoadWithFallback(\"fmt\", %q) error = %v", sym, err)
 		}
-		if d.Type != "function" || d.SymbolName != "Println" {
-			t.Errorf("Symbol mismatch: type=%q, name=%q", d.Type, d.SymbolName)
+		if d.Type != TypeType || d.SymbolName != sym {
+			t.Errorf("Symbol %q mismatch: type=%q, name=%q", sym, d.Type, d.SymbolName)
 		}
-		if !strings.Contains(d.Definition, "func Println") {
-			t.Errorf("Definition missing 'func Println': %q", d.Definition)
+		if !strings.Contains(d.Definition, sym) {
+			t.Errorf("Definition missing %q: %q", sym, d.Definition)
 		}
-	})
+	}
+}
 
-	t.Run("function fmt.Sprintf with return type", func(t *testing.T) {
-		d, err := Load(ctx, "fmt", "Sprintf")
-		if err != nil {
-			t.Fatalf("Load(\"fmt\", \"Sprintf\") error = %v", err)
-		}
-		if d.Type != "function" || d.SymbolName != "Sprintf" {
-			t.Errorf("Symbol mismatch: type=%q, name=%q", d.Type, d.SymbolName)
-		}
-		if !strings.Contains(d.Definition, "func Sprintf") {
-			t.Errorf("Definition missing 'func Sprintf': %q", d.Definition)
-		}
-	})
+func TestSymbolDocumentation_Lookups_Method(t *testing.T) {
+	ctx := context.Background()
+	d, err := LoadWithFallback(ctx, "os/exec", "Run")
+	if err != nil {
+		t.Fatalf("LoadWithFallback(\"os/exec\", \"Run\") error = %v", err)
+	}
+	if d.Type != TypeMethod || d.SymbolName != "Run" {
+		t.Errorf("Method symbol mismatch: type=%q, name=%q", d.Type, d.SymbolName)
+	}
+	if !strings.Contains(d.Definition, "func (c *Cmd) Run()") {
+		t.Errorf("Definition missing 'func (c *Cmd) Run()': %q", d.Definition)
+	}
+}
 
-	t.Run("types fmt.Stringer fmt.Formatter fmt.State", func(t *testing.T) {
-		for _, sym := range []string{"Stringer", "Formatter", "State"} {
-			d, err := Load(ctx, "fmt", sym)
-			if err != nil {
-				t.Fatalf("Load(\"fmt\", %q) error = %v", sym, err)
-			}
-			if d.Type != "type" || d.SymbolName != sym {
-				t.Errorf("Symbol %q mismatch: type=%q, name=%q", sym, d.Type, d.SymbolName)
-			}
-			if !strings.Contains(d.Definition, sym) {
-				t.Errorf("Definition missing %q: %q", sym, d.Definition)
-			}
-		}
-	})
+func TestSymbolDocumentation_Lookups_VarAndConst(t *testing.T) {
+	ctx := context.Background()
+	dVar, err := LoadWithFallback(ctx, "io", "EOF")
+	if err != nil {
+		t.Fatalf("LoadWithFallback(\"io\", \"EOF\") error = %v", err)
+	}
+	if dVar.Type != TypeVar || dVar.SymbolName != "EOF" {
+		t.Errorf("Variable mismatch: type=%q, name=%q", dVar.Type, dVar.SymbolName)
+	}
 
-	t.Run("method on type in stdlib os/exec Run", func(t *testing.T) {
-		d, err := Load(ctx, "os/exec", "Run")
-		if err != nil {
-			t.Fatalf("Load(\"os/exec\", \"Run\") error = %v", err)
-		}
-		if d.Type != "method" || d.SymbolName != "Run" {
-			t.Errorf("Method symbol mismatch: type=%q, name=%q", d.Type, d.SymbolName)
-		}
-		if !strings.Contains(d.Definition, "func (c *Cmd) Run()") {
-			t.Errorf("Definition missing 'func (c *Cmd) Run()': %q", d.Definition)
-		}
-	})
+	dConst, err := LoadWithFallback(ctx, "io", "SeekStart")
+	if err != nil {
+		t.Fatalf("LoadWithFallback(\"io\", \"SeekStart\") error = %v", err)
+	}
+	if dConst.Type != TypeConst || dConst.SymbolName != "SeekStart" {
+		t.Errorf("Constant mismatch: type=%q, name=%q", dConst.Type, dConst.SymbolName)
+	}
+}
 
-	t.Run("variable io.EOF", func(t *testing.T) {
-		d, err := Load(ctx, "io", "EOF")
-		if err != nil {
-			t.Fatalf("Load(\"io\", \"EOF\") error = %v", err)
-		}
-		if d.Type != "var" || d.SymbolName != "EOF" {
-			t.Errorf("Variable mismatch: type=%q, name=%q", d.Type, d.SymbolName)
-		}
-	})
-
-	t.Run("constant io.SeekStart", func(t *testing.T) {
-		d, err := Load(ctx, "io", "SeekStart")
-		if err != nil {
-			t.Fatalf("Load(\"io\", \"SeekStart\") error = %v", err)
-		}
-		if d.Type != "const" || d.SymbolName != "SeekStart" {
-			t.Errorf("Constant mismatch: type=%q, name=%q", d.Type, d.SymbolName)
-		}
-	})
-
-	t.Run("non-existent symbol with fuzzy suggestions in fmt", func(t *testing.T) {
-		_, err := Load(ctx, "fmt", "Printfln")
-		if err == nil {
-			t.Fatal("expected error for non-existent symbol 'Printfln', got nil")
-		}
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "symbol \"Printfln\" not found in package fmt") {
-			t.Errorf("error missing expected prefix: %v", errMsg)
-		}
-		if !strings.Contains(errMsg, "Did you mean:") {
-			t.Errorf("error missing fuzzy suggestion 'Did you mean:': %v", errMsg)
-		}
-	})
+func TestSymbolDocumentation_Lookups_NonExistent(t *testing.T) {
+	ctx := context.Background()
+	_, err := LoadWithFallback(ctx, "fmt", "Printfln")
+	if err == nil {
+		t.Fatal("expected error for non-existent symbol 'Printfln', got nil")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "symbol \"Printfln\" not found in package fmt") {
+		t.Errorf("error missing expected prefix: %v", errMsg)
+	}
+	if !strings.Contains(errMsg, "Did you mean:") {
+		t.Errorf("error missing fuzzy suggestion 'Did you mean:': %v", errMsg)
+	}
 }
 
 func TestHandleEmptyFiles(t *testing.T) {
@@ -435,7 +404,8 @@ func TestBufferCode(t *testing.T) {
 	})
 }
 
-func TestFindReturnTypeDefinition(t *testing.T) {
+func setupTestPkgForReturnTypeDef(t *testing.T) (*token.FileSet, *godocpkg.Package, map[string]*godocpkg.Func) {
+	t.Helper()
 	src := `package testpkg
 
 type MyResult struct {
@@ -478,6 +448,11 @@ func ReturnUnknown() *UnknownType { return nil }
 			funcMap[f.Name] = f
 		}
 	}
+	return fset, docPkg, funcMap
+}
+
+func TestFindReturnTypeDefinition_Table(t *testing.T) {
+	fset, docPkg, funcMap := setupTestPkgForReturnTypeDef(t)
 
 	tests := []struct {
 		funcName string
@@ -508,100 +483,74 @@ func ReturnUnknown() *UnknownType { return nil }
 						t.Errorf("findReturnTypeDefinition(%s) = %q, want definition containing %q", tt.funcName, got, want)
 					}
 				}
-			} else {
-				if got != "" {
-					t.Errorf("findReturnTypeDefinition(%s) = %q, want empty string", tt.funcName, got)
-				}
+			} else if got != "" {
+				t.Errorf("findReturnTypeDefinition(%s) = %q, want empty string", tt.funcName, got)
 			}
 		})
 	}
+}
 
-	t.Run("ReturnUnknown not in package types", func(t *testing.T) {
-		unknownFunc := &godocpkg.Func{
-			Name: "ReturnUnknown",
-			Decl: &ast.FuncDecl{
-				Type: &ast.FuncType{
-					Results: &ast.FieldList{
-						List: []*ast.Field{
-							{Type: &ast.Ident{Name: "UnknownType"}},
-						},
+func TestFindReturnTypeDefinition_Unknown(t *testing.T) {
+	fset, docPkg, _ := setupTestPkgForReturnTypeDef(t)
+
+	unknownFunc := &godocpkg.Func{
+		Name: "ReturnUnknown",
+		Decl: &ast.FuncDecl{
+			Type: &ast.FuncType{
+				Results: &ast.FieldList{
+					List: []*ast.Field{
+						{Type: &ast.Ident{Name: "UnknownType"}},
 					},
 				},
 			},
-		}
-		if got := findReturnTypeDefinition(fset, docPkg, unknownFunc); got != "" {
-			t.Errorf("findReturnTypeDefinition(ReturnUnknown) = %q, want empty string", got)
-		}
-	})
-
-	t.Run("nil guards and edge cases", func(t *testing.T) {
-		if got := findReturnTypeDefinition(fset, nil, nil); got != "" {
-			t.Errorf("expected empty string for nil func, got %q", got)
-		}
-		if got := findReturnTypeDefinition(fset, docPkg, nil); got != "" {
-			t.Errorf("expected empty string for nil func, got %q", got)
-		}
-		if got := findReturnTypeDefinition(fset, docPkg, &godocpkg.Func{Decl: nil}); got != "" {
-			t.Errorf("expected empty string for nil Decl, got %q", got)
-		}
-		nilTypeFunc := &godocpkg.Func{Decl: &ast.FuncDecl{Type: nil}}
-		if got := findReturnTypeDefinition(fset, docPkg, nilTypeFunc); got != "" {
-			t.Errorf("expected empty string for nil Type, got %q", got)
-		}
-		nilResultsFunc := &godocpkg.Func{
-			Decl: &ast.FuncDecl{Type: &ast.FuncType{Results: nil}},
-		}
-		if got := findReturnTypeDefinition(fset, docPkg, nilResultsFunc); got != "" {
-			t.Errorf("expected empty string for nil Results, got %q", got)
-		}
-		nilFieldFunc := &godocpkg.Func{
-			Decl: &ast.FuncDecl{
-				Type: &ast.FuncType{
-					Results: &ast.FieldList{List: []*ast.Field{nil}},
-				},
-			},
-		}
-		if got := findReturnTypeDefinition(fset, docPkg, nilFieldFunc); got != "" {
-			t.Errorf("expected empty string for nil Result item, got %q", got)
-		}
-		nilFieldTypeFunc := &godocpkg.Func{
-			Decl: &ast.FuncDecl{
-				Type: &ast.FuncType{
-					Results: &ast.FieldList{List: []*ast.Field{{Type: nil}}},
-				},
-			},
-		}
-		if got := findReturnTypeDefinition(fset, docPkg, nilFieldTypeFunc); got != "" {
-			t.Errorf("expected empty string for nil Type in Result, got %q", got)
-		}
-	})
+		},
+	}
+	if got := findReturnTypeDefinition(fset, docPkg, unknownFunc); got != "" {
+		t.Errorf("findReturnTypeDefinition(ReturnUnknown) = %q, want empty string", got)
+	}
 }
 
-func TestCollectFiles(t *testing.T) {
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "dummy.go", "package dummy", 0)
-	if err != nil {
-		t.Fatalf("ParseFile failed: %v", err)
-	}
+func TestFindReturnTypeDefinition_NilGuards(t *testing.T) {
+	fset, docPkg, _ := setupTestPkgForReturnTypeDef(t)
 
-	if files := collectFiles(nil); len(files) != 0 {
-		t.Errorf("collectFiles(nil) = %d files, want 0", len(files))
+	if got := findReturnTypeDefinition(fset, nil, nil); got != "" {
+		t.Errorf("expected empty string for nil func, got %q", got)
 	}
-	//nolint:staticcheck // SA1019: ast.Package is deprecated but needed for collectFiles test
-	if files := collectFiles(map[string]*ast.Package{"nilPkg": nil}); len(files) != 0 {
-		t.Errorf("collectFiles with nil pkg = %d files, want 0", len(files))
+	if got := findReturnTypeDefinition(fset, docPkg, nil); got != "" {
+		t.Errorf("expected empty string for nil func, got %q", got)
 	}
-	//nolint:staticcheck // SA1019: ast.Package is deprecated but needed for collectFiles test
-	pkgs := map[string]*ast.Package{
-		"dummy": {
-			Files: map[string]*ast.File{
-				"nilFile.go": nil,
-				"dummy.go":   file,
+	if got := findReturnTypeDefinition(fset, docPkg, &godocpkg.Func{Decl: nil}); got != "" {
+		t.Errorf("expected empty string for nil Decl, got %q", got)
+	}
+	nilTypeFunc := &godocpkg.Func{Decl: &ast.FuncDecl{Type: nil}}
+	if got := findReturnTypeDefinition(fset, docPkg, nilTypeFunc); got != "" {
+		t.Errorf("expected empty string for nil Type, got %q", got)
+	}
+	nilResultsFunc := &godocpkg.Func{
+		Decl: &ast.FuncDecl{Type: &ast.FuncType{Results: nil}},
+	}
+	if got := findReturnTypeDefinition(fset, docPkg, nilResultsFunc); got != "" {
+		t.Errorf("expected empty string for nil Results, got %q", got)
+	}
+	nilFieldFunc := &godocpkg.Func{
+		Decl: &ast.FuncDecl{
+			Type: &ast.FuncType{
+				Results: &ast.FieldList{List: []*ast.Field{nil}},
 			},
 		},
 	}
-	if files := collectFiles(pkgs); len(files) != 1 {
-		t.Errorf("collectFiles expected 1 file, got %d", len(files))
+	if got := findReturnTypeDefinition(fset, docPkg, nilFieldFunc); got != "" {
+		t.Errorf("expected empty string for nil Result item, got %q", got)
+	}
+	nilFieldTypeFunc := &godocpkg.Func{
+		Decl: &ast.FuncDecl{
+			Type: &ast.FuncType{
+				Results: &ast.FieldList{List: []*ast.Field{{Type: nil}}},
+			},
+		},
+	}
+	if got := findReturnTypeDefinition(fset, docPkg, nilFieldTypeFunc); got != "" {
+		t.Errorf("expected empty string for nil Type in Result, got %q", got)
 	}
 }
 
@@ -695,7 +644,7 @@ type Config struct {
 	Port int
 }
 `
-	if err := os.WriteFile(filepath.Join(tempDir, "mypkg.go"), []byte(code), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, "mypkg.go"), []byte(code), 0o600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -722,7 +671,7 @@ type Config struct {
 		if err != nil {
 			t.Fatalf("parsePackageDocs(Add) failed: %v", err)
 		}
-		if docSym.SymbolName != "Add" || docSym.Type != "function" {
+		if docSym.SymbolName != "Add" || docSym.Type != TypeFunction {
 			t.Errorf("docSym unexpected: %+v", docSym)
 		}
 	})
@@ -752,7 +701,9 @@ func TestSetupTempModule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("setupTempModule() error = %v", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
 
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
 		t.Errorf("expected go.mod to exist in temp dir: %v", err)
@@ -876,20 +827,20 @@ func TestLoadWithFallback_SubpackageParentWalking(t *testing.T) {
 
 func TestMemoryCache(t *testing.T) {
 	ctx := context.Background()
-	ClearCache()
-	SetCacheEnabled(true)
-	defer ClearCache()
+	clearCacheForTest()
+	setCacheEnabledForTest(true)
+	defer clearCacheForTest()
 
 	// Initial load should populate cache
-	d1, err := Load(ctx, "fmt", "Println")
+	d1, err := LoadWithFallback(ctx, "fmt", "Println")
 	if err != nil {
-		t.Fatalf("Load(\"fmt\", \"Println\") failed: %v", err)
+		t.Fatalf("LoadWithFallback(\"fmt\", \"Println\") failed: %v", err)
 	}
 
 	// Second load should hit cache and return clone
-	d2, err := Load(ctx, "fmt", "Println")
+	d2, err := LoadWithFallback(ctx, "fmt", "Println")
 	if err != nil {
-		t.Fatalf("Load(\"fmt\", \"Println\") from cache failed: %v", err)
+		t.Fatalf("LoadWithFallback(\"fmt\", \"Println\") from cache failed: %v", err)
 	}
 
 	if d1.SymbolName != d2.SymbolName || d1.Type != d2.Type {
@@ -898,21 +849,21 @@ func TestMemoryCache(t *testing.T) {
 
 	// Mutating d2 should not mutate cache or d1
 	d2.SymbolName = "Mutated"
-	d3, err := Load(ctx, "fmt", "Println")
+	d3, err := LoadWithFallback(ctx, "fmt", "Println")
 	if err != nil {
-		t.Fatalf("Load(\"fmt\", \"Println\") after mutation failed: %v", err)
+		t.Fatalf("LoadWithFallback(\"fmt\", \"Println\") after mutation failed: %v", err)
 	}
 	if d3.SymbolName != "Println" {
 		t.Errorf("Cache was mutated! Expected 'Println', got %q", d3.SymbolName)
 	}
 
 	// Test cache clear
-	ClearCache()
+	clearCacheForTest()
 	// Disable cache
-	SetCacheEnabled(false)
-	defer SetCacheEnabled(true)
+	setCacheEnabledForTest(false)
+	defer setCacheEnabledForTest(true)
 
-	dUncached, err := Load(ctx, "fmt", "Println")
+	dUncached, err := LoadWithFallback(ctx, "fmt", "Println")
 	if err != nil {
 		t.Fatalf("Load with cache disabled failed: %v", err)
 	}
@@ -928,7 +879,7 @@ func TestLoadPackageFiles(t *testing.T) {
 	mainCode := `package mypkg
 func Hello() string { return "hello" }
 `
-	if err := os.WriteFile(filepath.Join(tempDir, "main.go"), []byte(mainCode), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, "main.go"), []byte(mainCode), 0o600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -939,7 +890,7 @@ func ExampleHello() {
 	fmt.Println("hello")
 }
 `
-	if err := os.WriteFile(filepath.Join(tempDir, "example_test.go"), []byte(exampleCode), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, "example_test.go"), []byte(exampleCode), 0o600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -948,7 +899,7 @@ func ExampleHello() {
 import "testing"
 func TestHello(t *testing.T) {}
 `
-	if err := os.WriteFile(filepath.Join(tempDir, "main_test.go"), []byte(unitTestCode), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(tempDir, "main_test.go"), []byte(unitTestCode), 0o600); err != nil {
 		t.Fatalf("WriteFile failed: %v", err)
 	}
 
@@ -1003,5 +954,33 @@ func TestDoc_Clone(t *testing.T) {
 		orig.Consts[0] != "const1" ||
 		orig.References[0] != "ref1" {
 		t.Errorf("Original doc was mutated by clone modifications: %+v", orig)
+	}
+}
+
+func TestIsExampleFile(t *testing.T) {
+	tests := []struct {
+		filename string
+		want     bool
+	}{
+		{"example_test.go", true},
+		{"example_foo_test.go", true},
+		{"foo_example_test.go", true},
+		{"foo_example_bar_test.go", true},
+		{"EXAMPLE_TEST.GO", true},
+		{"EXAMPLE_FOO_TEST.GO", true},
+		{"main_test.go", false},
+		{"foo_test.go", false},
+		{"test.go", false},
+		{"doc.go", false},
+		{"main.go", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.filename, func(t *testing.T) {
+			got := isExampleFile(tt.filename)
+			if got != tt.want {
+				t.Errorf("isExampleFile(%q) = %v, want %v", tt.filename, got, tt.want)
+			}
+		})
 	}
 }

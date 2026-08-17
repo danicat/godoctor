@@ -6,29 +6,37 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const toolName = "selene"
+const (
+	toolName          = "selene"
+	defaultPackages   = "./..."
+	flagWorkers       = "-workers"
+	flagDoubleWorkers = "--workers"
+	flagDB            = "-db"
+	flagDoubleDB      = "--db"
+)
 
 // Register registers the tool with the server.
 func Register(server *mcp.Server) {
-	//nolint:lll
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        toolName,
-		Title:       "Mutation Test",
-		Description: "Runs mutation testing using Selene. Introduces small code mutations (flipped conditions, swapped operators) and checks if existing tests catch them, objectively measuring test suite quality.",
+		Name:  toolName,
+		Title: "Mutation Test",
+		Description: "Runs mutation testing using Selene. Introduces small code mutations " +
+			"(flipped conditions, swapped operators) and checks if existing tests catch them, " +
+			"objectively measuring test suite quality.",
 	}, Handler)
 }
 
 // Params defines the input parameters.
 type Params struct {
-	//nolint:lll
-	Dir string `json:"dir" jsonschema:"The absolute directory path to run mutation testing in. Required. Relative paths are rejected."`
-	//nolint:lll
+	Dir      string `json:"dir" jsonschema:"The absolute directory path to run mutation testing in. Required."`
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to run mutation testing on (default: ./...)"`
 }
 
@@ -67,6 +75,55 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 // CommandRunner is used to execute CLI commands.
 var CommandRunner Runner = &stdRunner{}
 
+// BuildArgs constructs the full argument list for invoking Selene, applying configured
+// worker concurrency (GOMAXPROCS) and TestQuery SQLite DB integration.
+func BuildArgs(workspaceDir string, pkgList []string, cfg *config.Config) []string {
+	if cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
+
+	args := append([]string(nil), cfg.Tools.Selene.Args...)
+
+	// 1. Worker concurrency: default to configured workers or runtime.GOMAXPROCS(0)
+	hasWorkers := false
+	for _, a := range args {
+		if a == flagWorkers || a == flagDoubleWorkers ||
+			strings.HasPrefix(a, flagWorkers+"=") ||
+			strings.HasPrefix(a, flagDoubleWorkers+"=") {
+			hasWorkers = true
+			break
+		}
+	}
+	if !hasWorkers {
+		workers := cfg.GetSeleneWorkers()
+		args = append(args, flagWorkers, strconv.Itoa(workers))
+	}
+
+	// 2. TestQuery compatibility: pass --db <path> if enabled
+	hasDB := false
+	for _, a := range args {
+		if a == flagDB || a == flagDoubleDB ||
+			strings.HasPrefix(a, flagDB+"=") ||
+			strings.HasPrefix(a, flagDoubleDB+"=") {
+			hasDB = true
+			break
+		}
+	}
+	if !hasDB && cfg.IsSeleneTestQueryCompat() {
+		dbPath := cfg.GetSeleneDBPath(workspaceDir)
+		relDB, err := filepath.Rel(workspaceDir, dbPath)
+		if err == nil && !strings.HasPrefix(relDB, "..") {
+			args = append(args, flagDoubleDB, relDB)
+		} else {
+			args = append(args, flagDoubleDB, dbPath)
+		}
+	}
+
+	// 3. Target packages
+	args = append(args, pkgList...)
+	return args
+}
+
 // Handler handles the selene tool execution.
 func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.CallToolResult, any, error) {
 	if strings.TrimSpace(args.Dir) == "" || !filepath.IsAbs(args.Dir) {
@@ -74,25 +131,32 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}
 
 	absDir := filepath.Clean(args.Dir)
+	cfg, err := config.LoadFromWorkspace(absDir)
+	if err != nil || cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
 
 	pkgs := args.Packages
 	if strings.TrimSpace(pkgs) == "" {
-		pkgs = "./..."
+		pkgs = defaultPackages
 	}
 	pkgList := parsePackages(pkgs)
 
-	var seleneCmd string
-	var seleneArgs []string
-	if _, err := CommandRunner.LookPath(toolName); err == nil {
+	seleneCmd := cfg.Tools.Selene.Command
+	if seleneCmd == "" {
 		seleneCmd = toolName
-		seleneArgs = pkgList
-	} else {
-		seleneCmd = "go"
-		seleneArgs = append([]string{"run", "github.com/danicat/selene/cmd/selene@latest"}, pkgList...)
+	}
+	if _, lookErr := CommandRunner.LookPath(seleneCmd); lookErr != nil && !filepath.IsAbs(seleneCmd) {
+		msg := fmt.Sprintf(
+			"selene binary (%q) not found in PATH; configure tools.selene.command or install selene",
+			seleneCmd,
+		)
+		return errorResult(msg), nil, nil
 	}
 
-	out, runErr := CommandRunner.RunWithOutput(ctx, absDir, seleneCmd, seleneArgs...)
+	seleneArgs := BuildArgs(absDir, pkgList, cfg)
 
+	out, runErr := CommandRunner.RunWithOutput(ctx, absDir, seleneCmd, seleneArgs...)
 	output := filterNoise(out)
 
 	if runErr != nil && output == "" {
@@ -126,12 +190,12 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 
 func parsePackages(pkgs string) []string {
 	if strings.TrimSpace(pkgs) == "" {
-		return []string{"./..."}
+		return []string{defaultPackages}
 	}
 	normalized := strings.ReplaceAll(pkgs, ",", " ")
 	fields := strings.Fields(normalized)
 	if len(fields) == 0 {
-		return []string{"./..."}
+		return []string{defaultPackages}
 	}
 	return fields
 }

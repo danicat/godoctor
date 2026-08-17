@@ -5,7 +5,7 @@ import (
 	"embed"
 )
 
-// FS contains all embedded GoDoctor skills (godoctor, selene, testquery).
+// FS contains all embedded GoDoctor skills and reference documents.
 //
-//go:embed godoctor/SKILL.md selene/SKILL.md testquery/SKILL.md
+//go:embed godoctor/*
 var FS embed.FS

@@ -10,13 +10,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Register registers the tool with the server.
+// Register registers the read_docs tool with the given MCP server.
 func Register(server *mcp.Server) {
-	//nolint:lll
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "read_docs",
-		Title:       "Get Documentation",
-		Description: "Retrieves authoritative Go documentation for any package or symbol. Streamlines development by providing API signatures and usage examples directly within the workflow.",
+		Name:  "read_docs",
+		Title: "Get Documentation",
+		Description: "Retrieves authoritative Go documentation for any package or symbol. " +
+			"Streamlines development by providing API signatures and usage examples directly within the workflow.",
 	}, Handler)
 }
 

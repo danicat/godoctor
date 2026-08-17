@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danicat/godoctor/internal/config"
 	smartbuild "github.com/danicat/godoctor/internal/tools/smart_build"
 	"github.com/danicat/godoctor/internal/versioncheck"
 )
@@ -75,21 +76,27 @@ func TestRun_List(t *testing.T) {
 func TestRun_Init_GeneratesConfigFile(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// 1. First run creates .godoctor.yaml
+	// 1. First run creates .godoctor.yaml with full master template
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), "dev", []string{"init", "--dir", tmpDir}, nil, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error on init: %v", err)
 	}
 
-	configPath := filepath.Join(tmpDir, ".godoctor.yaml")
+	configPath := filepath.Clean(filepath.Join(tmpDir, ".godoctor.yaml"))
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("failed to read created config file: %v", err)
 	}
 
-	if !strings.Contains(string(data), "GoDoctor Configuration File") || !strings.Contains(string(data), `version: "1"`) {
+	if !strings.Contains(string(data), "GoDoctor") || !strings.Contains(string(data), `version: "1"`) {
 		t.Errorf("expected standard template content in %s, got:\n%s", configPath, string(data))
+	}
+	hasSafeShell := strings.Contains(string(data), "safeshell:")
+	hasInstructions := strings.Contains(string(data), "instructions:")
+	hasMatching := strings.Contains(string(data), "matching:")
+	if !hasSafeShell || !hasInstructions || !hasMatching {
+		t.Errorf("expected all RFC-0001 sections in %s, got:\n%s", configPath, string(data))
 	}
 
 	// 2. Second run without --force should fail
@@ -112,6 +119,22 @@ func TestRun_Init_GeneratesConfigFile(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "Created") {
 		t.Errorf("expected success message in stdout, got: %s", stdout.String())
+	}
+
+	// 4. Test minimal config template
+	minimalDir := t.TempDir()
+	stdout.Reset()
+	stderr.Reset()
+	err = Run(context.Background(), "dev", []string{"init", "-d", minimalDir, "-m"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on init --minimal: %v", err)
+	}
+	minData, err := os.ReadFile(filepath.Clean(filepath.Join(minimalDir, ".godoctor.yaml")))
+	if err != nil {
+		t.Fatalf("failed to read minimal config file: %v", err)
+	}
+	if !strings.Contains(string(minData), "Minimal Configuration") {
+		t.Errorf("expected minimal template, got:\n%s", string(minData))
 	}
 }
 
@@ -143,6 +166,53 @@ func TestRun_Check(t *testing.T) {
 	}
 	if len(statuses) == 0 {
 		t.Errorf("expected non-empty statuses list in JSON output")
+	}
+
+	// 3. No-cache flag
+	stdout.Reset()
+	stderr.Reset()
+	err = Run(context.Background(), "dev", []string{"check", "--no-cache"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on check --no-cache: %v", err)
+	}
+
+	// 4. With explicit workspace directory
+	stdout.Reset()
+	stderr.Reset()
+	tmpDir := t.TempDir()
+	err = Run(context.Background(), "dev", []string{"check", "-d", tmpDir}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on check with dir: %v", err)
+	}
+}
+
+func TestRun_Check_Strict(t *testing.T) {
+	// If any tool is missing or outdated in the local environment, --strict should return an error
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), "dev", []string{"check", "--strict"}, nil, &stdout, &stderr)
+	// We check if output contains table or json and error is handled cleanly
+	if err != nil && !strings.Contains(err.Error(), "strict check failed") {
+		t.Errorf("unexpected strict check error format: %v", err)
+	}
+}
+
+func TestRun_Check_WithConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgFile := filepath.Join(tmpDir, ".godoctor.yaml")
+	cfgContent := `version: "1"
+tools:
+  golangci_lint:
+    command: "golangci-lint"
+    recommended_version: "v2.12.2"
+`
+	if err := os.WriteFile(filepath.Clean(cfgFile), []byte(cfgContent), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), "dev", []string{"--config", cfgFile, "check"}, nil, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error on check with --config: %v", err)
 	}
 }
 
@@ -221,11 +291,11 @@ func TestRun_Call_RelativePathRejected(t *testing.T) {
 
 func TestRun_Call_SmartEdit_JSON(t *testing.T) {
 	tmpDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module clitest\n\ngo 1.26.0\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Clean(filepath.Join(tmpDir, "go.mod")), []byte("module clitest\n\ngo 1.26.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	filePath := filepath.Join(tmpDir, "main.go")
+	filePath := filepath.Clean(filepath.Join(tmpDir, "main.go"))
 	initialCode := "package main\n\nfunc main() {\n\tprintln(\"before\")\n}\n"
 	if err := os.WriteFile(filePath, []byte(initialCode), 0600); err != nil {
 		t.Fatal(err)
@@ -278,6 +348,17 @@ func TestRun_MCP_Cancellation(_ *testing.T) {
 	_ = Run(ctx, "dev", []string{"mcp"}, nil, &stdout, &stderr)
 }
 
+func TestRun_MCP_InvalidTransport(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), "dev", []string{"mcp", "--transport", "unknown"}, nil, &stdout, &stderr)
+	if err == nil {
+		t.Fatal("expected error for invalid transport")
+	}
+	if !strings.Contains(err.Error(), "unsupported transport") {
+		t.Errorf("expected unsupported transport error, got: %v", err)
+	}
+}
+
 type mockCLIRunner struct {
 	calls [][]string
 }
@@ -306,11 +387,14 @@ func TestRun_Call_Build_OutputTarget(t *testing.T) {
 	runner := &mockCLIRunner{}
 	smartbuild.CommandRunner = runner
 
+	tmpDir := t.TempDir()
+	_ = os.WriteFile(filepath.Clean(filepath.Join(tmpDir, ".golangci.yml")), []byte("linters:\n  enable:\n    - errcheck\n"), 0600)
+
 	var stdout, stderr bytes.Buffer
-	args := []string{"call", "build", `{"dir": "/abs/path", "output": "bin/jsonbin"}`}
+	args := []string{"call", "build", fmt.Sprintf(`{"dir": %q, "output": "bin/jsonbin"}`, tmpDir)}
 	err := Run(context.Background(), "dev", args, nil, &stdout, &stderr)
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("unexpected error: %v (stderr: %s)", err, stderr.String())
 	}
 
 	var foundBuildWithO bool
@@ -327,9 +411,42 @@ func TestRun_Call_Build_OutputTarget(t *testing.T) {
 
 func TestPrintHelp(t *testing.T) {
 	var buf bytes.Buffer
-	PrintHelp(&buf, "1.0.0")
+	err := Run(context.Background(), "1.0.0", []string{"--help"}, nil, &buf, &buf)
+	if err != nil {
+		t.Fatalf("unexpected error running help: %v", err)
+	}
 	out := buf.String()
-	if !strings.Contains(out, "godoctor 1.0.0") || !strings.Contains(out, "Usage:") {
-		t.Errorf("PrintHelp output missing expected content: %s", out)
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "godoctor") {
+		t.Errorf("help output missing expected content: %s", out)
+	}
+}
+
+func TestDefaultAndMinimalConfigTemplatesValid(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Test DefaultConfigFileTemplate loads and validates
+	defaultPath := filepath.Clean(filepath.Join(tmpDir, "default.yaml"))
+	if err := os.WriteFile(defaultPath, []byte(DefaultConfigFileTemplate), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfgDefault, err := config.Load(defaultPath)
+	if err != nil {
+		t.Fatalf("DefaultConfigFileTemplate failed to load/validate: %v", err)
+	}
+	if cfgDefault.CLI.Timeout != 60*time.Second {
+		t.Errorf("expected cli timeout 60s, got %v", cfgDefault.CLI.Timeout)
+	}
+
+	// 2. Test MinimalConfigFileTemplate loads and validates
+	minimalPath := filepath.Clean(filepath.Join(tmpDir, "minimal.yaml"))
+	if err := os.WriteFile(minimalPath, []byte(MinimalConfigFileTemplate), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfgMinimal, err := config.Load(minimalPath)
+	if err != nil {
+		t.Fatalf("MinimalConfigFileTemplate failed to load/validate: %v", err)
+	}
+	if !cfgMinimal.Features.Autofix {
+		t.Errorf("expected minimal autofix feature to be true")
 	}
 }

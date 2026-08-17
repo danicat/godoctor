@@ -10,49 +10,64 @@ type toolDoc struct {
 	entry     string
 }
 
+const (
+	categoryCodeEditing         = "Code editing"
+	categoryBuildAndPkg         = "Build and package management"
+	categoryTestingAndAnalytics = "Testing and analytics"
+)
+
 var allTools = []toolDoc{
 	{
 		canonical: "smart_edit",
 		aliases:   []string{"edit"},
-		category:  "Code editing",
-		entry:     "- `smart_edit`: Edits a single Go file (`filename=\"/path/file.go\", old_content=\"...\", new_content=\"...\"`). Runs `gofmt` and `goimports` and verifies with compiler diagnostics (`go vet`), rolling back on error.\n",
+		category:  categoryCodeEditing,
+		entry: "- `smart_edit`: Edits a single Go file (`filename=\"/path/file.go\", old_content=\"...\", " +
+			"new_content=\"...\"`). Runs `gofmt` and `goimports` and verifies with compiler diagnostics (`go vet`), " +
+			"rolling back on error.\n",
 	},
 	{
 		canonical: "smart_build",
 		aliases:   []string{"build"},
-		category:  "Build and package management",
-		entry:     "- `smart_build`: Runs module tidying (`go mod tidy`), modernization passes, formatting, `go build`, `go test`, linter checks, and dead code analysis (`dir=\"/absolute/path/workspace\"`).\n",
+		category:  categoryBuildAndPkg,
+		entry: "- `smart_build`: Runs module tidying (`go mod tidy`), modernization passes, formatting, `go build`, " +
+			"`go test`, linter checks, and dead code analysis (`dir=\"/absolute/path/workspace\"`).\n",
 	},
 	{
 		canonical: "read_docs",
 		aliases:   []string{"docs"},
-		category:  "Build and package management",
-		entry:     "- `read_docs`: Fetches Go documentation and exported function signatures (`import_path=\"net/http\"`).\n",
+		category:  categoryBuildAndPkg,
+		entry: "- `read_docs`: Fetches Go documentation and exported function signatures " +
+			"(`import_path=\"net/http\"`).\n",
 	},
 	{
 		canonical: "smart_test",
 		aliases:   []string{"test"},
-		category:  "Testing and analytics",
-		entry:     "- `smart_test`: Runs tests with selectable levels: `fast` (tests only), `basic` (tests, coverage, and testquery.db sync), `benchmark` (benchmarks), or `complete` (tests and mutation testing).\n",
+		category:  categoryTestingAndAnalytics,
+		entry: "- `smart_test`: Runs tests with selectable levels: `fast` (tests only), " +
+			"`basic` (tests, coverage, and testquery.db sync), `benchmark` (benchmarks), " +
+			"or `complete` (tests and mutation testing).\n",
 	},
 	{
 		canonical: "selene",
 		aliases:   []string{"mutation_test", "mutation"},
-		category:  "Testing and analytics",
-		entry:     "- `selene`: Runs Selene mutation testing on target packages to evaluate unit test assertions (`dir=\"/absolute/path/workspace\"`).\n",
+		category:  categoryTestingAndAnalytics,
+		entry: "- `selene`: Runs Selene mutation testing on target packages to evaluate unit test assertions " +
+			"(`dir=\"/absolute/path/workspace\"`).\n",
 	},
 	{
 		canonical: "test_query",
 		aliases:   []string{"tq", "testquery"},
-		category:  "Testing and analytics",
-		entry:     "- `test_query`: Executes SQL queries against `testquery.db` to inspect test results and coverage metrics (`dir=\"/absolute/path/workspace\", query=\"SELECT * FROM all_coverage WHERE count = 0\"`).\n",
+		category:  categoryTestingAndAnalytics,
+		entry: "- `test_query`: Executes SQL queries against `testquery.db` to inspect test results " +
+			"and coverage metrics (`dir=\"/absolute/path/workspace\", query=\"SELECT * FROM all_coverage " +
+			"WHERE count = 0\"`).\n",
 	},
 }
 
 var categories = []string{
-	"Code editing",
-	"Build and package management",
-	"Testing and analytics",
+	categoryCodeEditing,
+	categoryBuildAndPkg,
+	categoryTestingAndAnalytics,
 }
 
 // Get returns the default agent instructions for the server with all tools.
@@ -73,7 +88,9 @@ func GetForTools(toolNames []string) string {
 
 	var sb strings.Builder
 	sb.WriteString("# GoDoctor tooling guide\n\n")
-	sb.WriteString("MULTI-ROOT WORKSPACE ENVIRONMENT: Always use absolute paths for all file, directory, or path parameters. Relative paths (such as '.', './...', or 'main.go') will be rejected with an error. Always pass the absolute path of the target workspace root or target files.\n\n")
+	sb.WriteString("MULTI-ROOT WORKSPACE ENVIRONMENT: Always use absolute paths for all file, directory, " +
+		"or path parameters. Relative paths (such as '.', './...', or 'main.go') will be rejected with an error. " +
+		"Always pass the absolute path of the target workspace root or target files.\n\n")
 
 	for _, cat := range categories {
 		var catTools []toolDoc

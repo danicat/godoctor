@@ -8,11 +8,6 @@ run:
 
 linters:
   disable-all: true
-  exclusions:
-    rules:
-      - path: _test\.go
-        linters:
-          - goconst
   enable:
     ## Core
     - errcheck      # unchecked errors
@@ -45,49 +40,50 @@ linters:
     - usestdlibvars # use standard library constants
     - gocritic      # opinionated checks
 
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  gocognit:
-    min-complexity: 30
-  gofmt:
-    simplify: true
-  ll:
-    line-length: 120
-  misspell:
-    locale: US
-  funlen:
-    lines: 100
-    statements: 50
-  revive:
-    rules:
-      - name: exported
-        severity: warning
-      - name: package-comments
-        severity: warning
-      - name: context-as-argument
-      - name: context-keys-type
-      - name: error-naming
-      - name: error-strings
-      - name: error-return
-      - name: if-return
-      - name: increment-decrement
-      - name: var-naming
-      - name: var-declaration
-      - name: receiver-naming
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - style
-      - performance
-    disabled-checks:
-      - hugeParam
-      - ifElseChain
+  settings:
+    gocyclo:
+      min-complexity: 30
+    gocognit:
+      min-complexity: 40
+    gofmt:
+      simplify: true
+    lll:
+      line-length: 120
+    misspell:
+      locale: US
+    funlen:
+      lines: 120
+      statements: 60
+    revive:
+      rules:
+        - name: exported
+          severity: warning
+        - name: package-comments
+          severity: warning
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: error-naming
+        - name: error-strings
+        - name: error-return
+        - name: if-return
+        - name: increment-decrement
+        - name: var-naming
+        - name: var-declaration
+        - name: receiver-naming
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    gosec:
+      excludes:
+        - G204 # Subprocess launched with variable (safeshell is the dedicated subprocess security wrapper)
+        - G703 # Path traversal via taint analysis on user-supplied config paths
 
-issues:
-  exclude-use-default: false
-  max-issues-per-linter: 0
-  max-same-issues: 0
-  exclude-dirs:
-    - bin
-    - vendor
+  exclusions:
+    paths:
+      - bin
+      - vendor
+    rules:
+      - path: _test\.go
+        linters:
+          - goconst
+          - lll

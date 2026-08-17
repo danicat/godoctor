@@ -3,10 +3,18 @@ package selene
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+const (
+	testAbsPath = "/absolute/path"
+	pkg1Pattern = "./pkg1/..."
+	pkg2Pattern = "./pkg2/..."
 )
 
 type mockRunner struct {
@@ -97,21 +105,24 @@ func TestHandler_ToolPathResolution(t *testing.T) {
 	tests := []struct {
 		name        string
 		lookPaths   map[string]string
+		wantErr     bool
+		expectedErr string
 		expectedCmd string
 	}{
 		{
 			name: "selene in PATH",
 			lookPaths: map[string]string{
-				"selene": "/usr/bin/selene",
+				toolName: "/usr/bin/selene",
 			},
-			expectedCmd: "selene ./...",
+			expectedCmd: fmt.Sprintf("selene -workers %d --db .godoctor/testquery.db ./...", runtime.GOMAXPROCS(0)),
 		},
 		{
-			name: "selene not in PATH fallback to go run",
+			name: "selene not in PATH returns clear error",
 			lookPaths: map[string]string{
-				"selene": "",
+				toolName: "",
 			},
-			expectedCmd: "go run github.com/danicat/selene/cmd/selene@latest ./...",
+			wantErr:     true,
+			expectedErr: `selene binary ("selene") not found in PATH`,
 		},
 	}
 
@@ -122,17 +133,27 @@ func TestHandler_ToolPathResolution(t *testing.T) {
 
 			mock := &mockRunner{
 				outputs: map[string]string{
-					"selene": "mutations checked",
+					toolName: "mutations checked",
 				},
 				lookPaths: tc.lookPaths,
 			}
 			CommandRunner = mock
 
 			res, _, err := Handler(context.Background(), nil, Params{
-				Dir: "/absolute/path",
+				Dir: testAbsPath,
 			})
 			if err != nil {
 				t.Fatalf("unexpected handler error: %v", err)
+			}
+			if tc.wantErr {
+				if !res.IsError {
+					t.Fatalf("expected error result, got success")
+				}
+				text := res.Content[0].(*mcp.TextContent).Text
+				if !strings.Contains(text, tc.expectedErr) {
+					t.Errorf("expected error message to contain %q, got %q", tc.expectedErr, text)
+				}
+				return
 			}
 			if res.IsError {
 				t.Fatalf("expected success result")
@@ -150,13 +171,13 @@ func TestHandler_Success_EmptyOutput(t *testing.T) {
 
 	mock := &mockRunner{
 		outputs: map[string]string{
-			"selene": "",
+			toolName: "",
 		},
 	}
 	CommandRunner = mock
 
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/absolute/path",
+		Dir: testAbsPath,
 	})
 	if err != nil {
 		t.Fatalf("unexpected handler error: %v", err)
@@ -176,13 +197,13 @@ func TestHandler_Success_WithOutput(t *testing.T) {
 
 	mock := &mockRunner{
 		outputs: map[string]string{
-			"selene": "100% mutation score: 15/15 killed",
+			toolName: "100% mutation score: 15/15 killed",
 		},
 	}
 	CommandRunner = mock
 
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/absolute/path",
+		Dir: testAbsPath,
 	})
 	if err != nil {
 		t.Fatalf("unexpected handler error: %v", err)
@@ -205,16 +226,16 @@ func TestHandler_Failure_EmptyOutput(t *testing.T) {
 
 	mock := &mockRunner{
 		outputs: map[string]string{
-			"selene": "",
+			toolName: "",
 		},
 		errors: map[string]error{
-			"selene": fmt.Errorf("command not found"),
+			toolName: fmt.Errorf("command not found"),
 		},
 	}
 	CommandRunner = mock
 
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/absolute/path",
+		Dir: testAbsPath,
 	})
 	if err != nil {
 		t.Fatalf("unexpected handler error: %v", err)
@@ -234,16 +255,16 @@ func TestHandler_Failure_SurvivingMutants(t *testing.T) {
 
 	mock := &mockRunner{
 		outputs: map[string]string{
-			"selene": "Mutant survived: pkg/calc.go:25: replaced + with -",
+			toolName: "Mutant survived: pkg/calc.go:25: replaced + with -",
 		},
 		errors: map[string]error{
-			"selene": fmt.Errorf("exit status 1"),
+			toolName: fmt.Errorf("exit status 1"),
 		},
 	}
 	CommandRunner = mock
 
 	res, _, err := Handler(context.Background(), nil, Params{
-		Dir: "/absolute/path",
+		Dir: testAbsPath,
 	})
 	if err != nil {
 		t.Fatalf("unexpected handler error: %v", err)
@@ -271,17 +292,17 @@ func TestHandler_PackagesParameter(t *testing.T) {
 			name:     "custom packages with local binary",
 			packages: "./pkg1/..., ./pkg2/...",
 			lookPaths: map[string]string{
-				"selene": "/usr/bin/selene",
+				toolName: "/usr/bin/selene",
 			},
-			expectedCmd: "selene ./pkg1/... ./pkg2/...",
+			expectedCmd: fmt.Sprintf("selene -workers %d --db .godoctor/testquery.db ./pkg1/... ./pkg2/...", runtime.GOMAXPROCS(0)),
 		},
 		{
-			name:     "custom packages with fallback",
+			name:     "single custom package with local binary",
 			packages: "./pkg/calc",
 			lookPaths: map[string]string{
-				"selene": "",
+				toolName: "/usr/bin/selene",
 			},
-			expectedCmd: "go run github.com/danicat/selene/cmd/selene@latest ./pkg/calc",
+			expectedCmd: fmt.Sprintf("selene -workers %d --db .godoctor/testquery.db ./pkg/calc", runtime.GOMAXPROCS(0)),
 		},
 	}
 
@@ -292,14 +313,14 @@ func TestHandler_PackagesParameter(t *testing.T) {
 
 			mock := &mockRunner{
 				outputs: map[string]string{
-					"selene": "mutations checked",
+					toolName: "mutations checked",
 				},
 				lookPaths: tc.lookPaths,
 			}
 			CommandRunner = mock
 
 			res, _, err := Handler(context.Background(), nil, Params{
-				Dir:      "/absolute/path",
+				Dir:      testAbsPath,
 				Packages: tc.packages,
 			})
 			if err != nil {
@@ -315,16 +336,74 @@ func TestHandler_PackagesParameter(t *testing.T) {
 	}
 }
 
+func TestBuildArgs(t *testing.T) {
+	t.Run("default configuration uses GOMAXPROCS and testquery.db", func(t *testing.T) {
+		cfg := config.NewDefaultConfig()
+		args := BuildArgs("/workspace", []string{"./..."}, cfg)
+		expected := []string{
+			"-workers", fmt.Sprintf("%d", runtime.GOMAXPROCS(0)),
+			"--db", ".godoctor/testquery.db",
+			"./...",
+		}
+		if len(args) != len(expected) {
+			t.Fatalf("expected %v, got %v", expected, args)
+		}
+		for i := range expected {
+			if args[i] != expected[i] {
+				t.Errorf("arg[%d]: expected %q, got %q", i, expected[i], args[i])
+			}
+		}
+	})
+
+	t.Run("custom workers and db path configured", func(t *testing.T) {
+		cfg := config.NewDefaultConfig()
+		cfg.Tools.Selene.Workers = 4
+		cfg.Tools.Selene.DbPath = "custom/test.db"
+		args := BuildArgs("/workspace", []string{"./pkg"}, cfg)
+		expected := []string{
+			"-workers", "4",
+			"--db", "custom/test.db",
+			"./pkg",
+		}
+		if strings.Join(args, " ") != strings.Join(expected, " ") {
+			t.Errorf("expected %v, got %v", expected, args)
+		}
+	})
+
+	t.Run("workers already present in custom args", func(t *testing.T) {
+		cfg := config.NewDefaultConfig()
+		cfg.Tools.Selene.Args = []string{"-workers", "2"}
+		args := BuildArgs("/workspace", []string{"./..."}, cfg)
+		// Should not duplicate -workers
+		if strings.Count(strings.Join(args, " "), "-workers") != 1 {
+			t.Errorf("expected single -workers flag, got %v", args)
+		}
+		if !strings.Contains(strings.Join(args, " "), "-workers 2") {
+			t.Errorf("expected -workers 2, got %v", args)
+		}
+	})
+
+	t.Run("disabled testquery compatibility", func(t *testing.T) {
+		cfg := config.NewDefaultConfig()
+		cfg.Tools.Selene.TestQueryCompat = false
+		cfg.Features.TestQueryCompat = false
+		args := BuildArgs("/workspace", []string{"./..."}, cfg)
+		if strings.Contains(strings.Join(args, " "), "--db") {
+			t.Errorf("expected no --db flag when testquery compat disabled, got %v", args)
+		}
+	})
+}
+
 func TestParsePackages(t *testing.T) {
 	cases := []struct {
 		input    string
 		expected []string
 	}{
-		{"", []string{"./..."}},
-		{"   ", []string{"./..."}},
-		{"./pkg1/...", []string{"./pkg1/..."}},
-		{"./pkg1/...,./pkg2/...", []string{"./pkg1/...", "./pkg2/..."}},
-		{"./pkg1/... ./pkg2/...", []string{"./pkg1/...", "./pkg2/..."}},
+		{"", []string{defaultPackages}},
+		{"   ", []string{defaultPackages}},
+		{pkg1Pattern, []string{pkg1Pattern}},
+		{"./pkg1/...,./pkg2/...", []string{pkg1Pattern, pkg2Pattern}},
+		{"./pkg1/... ./pkg2/...", []string{pkg1Pattern, pkg2Pattern}},
 	}
 
 	for _, tc := range cases {
@@ -348,7 +427,8 @@ exit status 1
 summary: all tests passed
 assertion failure: expected exit status 0, got 1`
 
-	expected := "mutations generated: 12\nmutations killed: 12\nsummary: all tests passed\nassertion failure: expected exit status 0, got 1"
+	expected := "mutations generated: 12\nmutations killed: 12\nsummary: all tests passed\n" +
+		"assertion failure: expected exit status 0, got 1"
 	got := filterNoise(input)
 	if got != expected {
 		t.Errorf("expected filtered noise:\n%s\ngot:\n%s", expected, got)

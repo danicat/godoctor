@@ -21,43 +21,26 @@ import (
 	"time"
 )
 
-func TestRun(t *testing.T) {
-	testCases := []struct {
-		name        string
-		args        []string
-		expectError bool
-		errContains string
-	}{
-		{
-			name:        "no args prints help",
-			args:        []string{},
-			expectError: false,
-		},
-		{
-			name:        "help flag",
-			args:        []string{"--help"},
-			expectError: false,
-		},
-		{
-			name:        "version flag",
-			args:        []string{"--version"},
-			expectError: false,
-		},
-		{
-			name:        "version subcommand",
-			args:        []string{"version"},
-			expectError: false,
-		},
-		{
-			name:        "list subcommand",
-			args:        []string{"list"},
-			expectError: false,
-		},
-		{
-			name:        "check subcommand",
-			args:        []string{"check"},
-			expectError: false,
-		},
+type runTestCase struct {
+	name        string
+	args        []string
+	expectError bool
+	errContains string
+}
+
+func getSuccessRunCases() []runTestCase {
+	return []runTestCase{
+		{name: "no args prints help", args: []string{}},
+		{name: "help flag", args: []string{"--help"}},
+		{name: "version flag", args: []string{"--version"}},
+		{name: "version subcommand", args: []string{"version"}},
+		{name: "list subcommand", args: []string{"list"}},
+		{name: "check subcommand", args: []string{"check"}},
+	}
+}
+
+func getErrorRunCases() []runTestCase {
+	return []runTestCase{
 		{
 			name:        "bad flag",
 			args:        []string{"--bad-flag"},
@@ -71,30 +54,48 @@ func TestRun(t *testing.T) {
 			errContains: "unknown command",
 		},
 	}
+}
 
-	for _, tc := range testCases {
+func executeRunTest(t *testing.T, tc runTestCase) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := run(ctx, tc.args)
+	if (err != nil) != tc.expectError {
+		t.Errorf("run() error = %v, expectError %v", err, tc.expectError)
+	}
+
+	if err != nil && tc.errContains != "" {
+		if !strings.Contains(err.Error(), tc.errContains) {
+			t.Errorf("run() error = %q, want to contain %q", err.Error(), tc.errContains)
+		}
+	}
+}
+
+func TestRun_SuccessCases(t *testing.T) {
+	for _, tc := range getSuccessRunCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
+			executeRunTest(t, tc)
+		})
+	}
+}
 
-			err := run(ctx, tc.args)
-
-			if (err != nil) != tc.expectError {
-				t.Errorf("run() error = %v, expectError %v", err, tc.expectError)
-			}
-
-			if err != nil && tc.errContains != "" {
-				if !strings.Contains(err.Error(), tc.errContains) {
-					t.Errorf("run() error = %q, want to contain %q", err.Error(), tc.errContains)
-				}
-			}
+func TestRun_ErrorCases(t *testing.T) {
+	for _, tc := range getErrorRunCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			executeRunTest(t, tc)
 		})
 	}
 }
 
 func TestBuildInfoFallback(t *testing.T) {
-	// Verify version is initialized
 	if version == "" {
 		t.Errorf("expected version to be non-empty")
+	}
+
+	v := resolveVersionFromBuildInfo("fallback-v1")
+	if v == "" {
+		t.Errorf("expected non-empty version from resolveVersionFromBuildInfo")
 	}
 }

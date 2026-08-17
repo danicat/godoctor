@@ -59,10 +59,11 @@ func TestGetDocumentation_VanityAndModules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			doc, err := GetDocumentationWithFallback(ctx, tt.pkgPath)
+			d, err := LoadWithFallback(ctx, tt.pkgPath, "")
 			if err != nil {
-				t.Fatalf("GetDocumentationWithFallback failed: %v", err)
+				t.Fatalf("LoadWithFallback failed: %v", err)
 			}
+			doc := Render(d)
 			runVanityTestAssertions(t, tt.expectNote, tt.expectContent, doc)
 		})
 	}

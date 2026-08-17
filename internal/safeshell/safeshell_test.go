@@ -89,6 +89,8 @@ func TestValidateCommandName(t *testing.T) {
 		{"Command name with null byte", "go\x00", true},
 		{"Command name with tab", "go\t", true},
 		{"Command name with escape", "go\x1b", true},
+		{"Command name with SOH", "go\x01", true},
+		{"Command name with DEL", "go\x7f", true},
 	}
 
 	for _, tt := range tests {
@@ -123,7 +125,8 @@ func testValidCommandContext(ctx context.Context, t *testing.T) {
 	})
 
 	t.Run("Valid command with regex and operators", func(t *testing.T) {
-		cmd, err := safeshell.CommandContext(ctx, "go", "test", "-run=^TestAuth$", "SELECT * FROM all_coverage WHERE count < 5")
+		query := "SELECT * FROM all_coverage WHERE count < 5"
+		cmd, err := safeshell.CommandContext(ctx, "go", "test", "-run=^TestAuth$", query)
 		if err != nil {
 			t.Fatalf("CommandContext() unexpected error: %v", err)
 		}

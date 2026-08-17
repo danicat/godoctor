@@ -18,15 +18,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+func executeUninstall(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	cmd := newUninstallCmd(stdout, stderr)
+	cmd.SetArgs(args)
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	return cmd.ExecuteContext(ctx)
+}
+
 func TestRunUninstall_Help(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	err := runUninstall(context.Background(), []string{"--help"}, &stdout, &stderr)
+	err := executeUninstall(context.Background(), []string{"--help"}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error for --help: %v", err)
 	}
@@ -43,7 +52,7 @@ func TestRunUninstall_DefaultAll(t *testing.T) {
 	// First initialize
 	initArgs := []string{"--config", configFile, "--skills-dir", skillsDir}
 	var stdout, stderr bytes.Buffer
-	if err := runInstall(context.Background(), initArgs, &stdout, &stderr); err != nil {
+	if err := executeInstall(context.Background(), initArgs, &stdout, &stderr); err != nil {
 		t.Fatalf("runInstall failed: %v", err)
 	}
 
@@ -58,12 +67,12 @@ func TestRunUninstall_DefaultAll(t *testing.T) {
 	// Now uninstall
 	stdout.Reset()
 	uninstallArgs := []string{"--config", configFile, "--skills-dir", skillsDir}
-	if err := runUninstall(context.Background(), uninstallArgs, &stdout, &stderr); err != nil {
+	if err := executeUninstall(context.Background(), uninstallArgs, &stdout, &stderr); err != nil {
 		t.Fatalf("runUninstall failed: %v", err)
 	}
 
 	// Verify MCP config removed godoctor
-	data, err := os.ReadFile(configFile)
+	data, err := os.ReadFile(filepath.Clean(configFile))
 	if err != nil {
 		t.Fatalf("failed to read config: %v", err)
 	}
@@ -85,6 +94,31 @@ func TestRunUninstall_DefaultAll(t *testing.T) {
 	}
 }
 
+func TestRunUninstall_AllFlag(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "mcp_config.json")
+	skillsDir := filepath.Join(tmpDir, "skills")
+
+	// Initialize
+	var stdout, stderr bytes.Buffer
+	installArgs := []string{"--config", configFile, "--skills-dir", skillsDir}
+	if err := executeInstall(context.Background(), installArgs, &stdout, &stderr); err != nil {
+		t.Fatalf("executeInstall failed: %v", err)
+	}
+
+	// Uninstall with --all
+	stdout.Reset()
+	uninstallArgs := []string{"--all", "--config", configFile, "--skills-dir", skillsDir}
+	if err := executeUninstall(context.Background(), uninstallArgs, &stdout, &stderr); err != nil {
+		t.Fatalf("runUninstall --all failed: %v", err)
+	}
+
+	// Verify skills deleted
+	if _, err := os.Stat(filepath.Join(skillsDir, "godoctor")); !os.IsNotExist(err) {
+		t.Errorf("skill dir should be deleted")
+	}
+}
+
 func TestRunUninstall_MCPOnly(t *testing.T) {
 	tmpDir := t.TempDir()
 	configFile := filepath.Join(tmpDir, "mcp_config.json")
@@ -92,12 +126,12 @@ func TestRunUninstall_MCPOnly(t *testing.T) {
 
 	// Initialize all
 	var stdout, stderr bytes.Buffer
-	_ = runInstall(context.Background(), []string{"--config", configFile, "--skills-dir", skillsDir}, &stdout, &stderr)
+	_ = executeInstall(context.Background(), []string{"--config", configFile, "--skills-dir", skillsDir}, &stdout, &stderr)
 
 	// Uninstall MCP only
 	stdout.Reset()
 	mcpArgs := []string{"--mcp", "--config", configFile, "--skills-dir", skillsDir}
-	err := runUninstall(context.Background(), mcpArgs, &stdout, &stderr)
+	err := executeUninstall(context.Background(), mcpArgs, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("runUninstall --mcp failed: %v", err)
 	}
@@ -115,12 +149,12 @@ func TestRunUninstall_SkillsOnly(t *testing.T) {
 
 	// Initialize all
 	var stdout, stderr bytes.Buffer
-	_ = runInstall(context.Background(), []string{"--config", configFile, "--skills-dir", skillsDir}, &stdout, &stderr)
+	_ = executeInstall(context.Background(), []string{"--config", configFile, "--skills-dir", skillsDir}, &stdout, &stderr)
 
 	// Uninstall Skills only
 	stdout.Reset()
 	skillsArgs := []string{"--skills", "--config", configFile, "--skills-dir", skillsDir}
-	err := runUninstall(context.Background(), skillsArgs, &stdout, &stderr)
+	err := executeUninstall(context.Background(), skillsArgs, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("runUninstall --skills failed: %v", err)
 	}
@@ -131,7 +165,7 @@ func TestRunUninstall_SkillsOnly(t *testing.T) {
 	}
 
 	// MCP config must still contain godoctor
-	data, _ := os.ReadFile(configFile)
+	data, _ := os.ReadFile(filepath.Clean(configFile))
 	var root map[string]any
 	_ = json.Unmarshal(data, &root)
 	servers := root["mcpServers"].(map[string]any)

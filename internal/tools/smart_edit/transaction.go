@@ -71,7 +71,6 @@ func backupFiles(
 					return fmt.Errorf("failed to read file %s: %v", edit.Filename, err)
 				}
 			} else {
-				//nolint:gosec
 				content, err := os.ReadFile(absPath)
 				if err != nil {
 					return fmt.Errorf("failed to read file %s: %v", edit.Filename, err)
@@ -188,14 +187,13 @@ func autoFormatContents(currentContents map[string][]byte) *mcp.CallToolResult {
 func commitWrite(path string, content []byte, mode os.FileMode) (err error) {
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
-	tmpFile := filepath.Join(dir, fmt.Sprintf(".%s.tmp.%d", base, time.Now().UnixNano()))
+	tmpFile := filepath.Clean(filepath.Join(dir, fmt.Sprintf(".%s.tmp.%d", base, time.Now().UnixNano())))
 
 	perm := mode.Perm()
 	if perm == 0 {
 		perm = 0666
 	}
 
-	//nolint:gosec
 	f, err := os.OpenFile(tmpFile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
 		return err
@@ -237,10 +235,7 @@ func commitWrite(path string, content []byte, mode os.FileMode) (err error) {
 func ensureDir(dir string, createdDirs *[]string) error {
 	var toCreate []string
 	curr := filepath.Clean(dir)
-	for {
-		if curr == "" || curr == "." || curr == string(filepath.Separator) || filepath.Dir(curr) == curr {
-			break
-		}
+	for curr != "" && curr != "." && curr != string(filepath.Separator) && filepath.Dir(curr) != curr {
 		if _, err := os.Stat(curr); err == nil {
 			break
 		}
@@ -317,10 +312,7 @@ func rollback(backups map[string]FileBackup, createdDirs []string) error {
 		}
 	}
 	for i := len(createdDirs) - 1; i >= 0; i-- {
-		d := createdDirs[i]
-		if err := os.Remove(d); err != nil && !os.IsNotExist(err) {
-			// Non-fatal if directory is not empty or cannot be removed
-		}
+		_ = os.Remove(createdDirs[i])
 	}
 	return errors.Join(errs...)
 }

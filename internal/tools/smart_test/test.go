@@ -10,30 +10,29 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/safeshell"
+	"github.com/danicat/godoctor/internal/tools/selene"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Register registers the tool with the MCP server.
 func Register(server *mcp.Server) {
-	//nolint:lll
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "smart_test",
-		Title:       "Smart Test",
-		Description: "GoDoctor's specialized test runner. Executes Go tests across packages or specific functions, delivering structured failure diagnostics, coverage gap analysis, benchmark metrics, and automated test history tracking.",
+		Name:  "smart_test",
+		Title: "Smart Test",
+		Description: "GoDoctor's specialized test runner. Executes Go tests across packages or " +
+			"specific functions, delivering structured failure diagnostics, coverage gap analysis, " +
+			"benchmark metrics, and automated test history tracking.",
 	}, Handler)
 }
 
 // Params defines the input parameters for smart_test.
 type Params struct {
-	//nolint:lll
-	Dir string `json:"dir" jsonschema:"The absolute directory path to test in. Required. Relative paths are rejected."`
-	//nolint:lll
+	Dir      string `json:"dir" jsonschema:"The absolute directory path to test in. Required."`
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to test (default: ./...)"`
-	//nolint:lll
-	Level string `json:"level,omitempty" jsonschema:"Testing depth/mode: 'fast' (unit tests only), 'basic' (tests + coverage + testquery.db sync, default), 'benchmark' (benchmarks with sensible defaults), 'complete' (tests + coverage + Selene mutation testing)."`
-	//nolint:lll
-	Run string `json:"run,omitempty" jsonschema:"Regex pattern to filter specific tests or benchmark functions (maps to -run or -bench)."`
+	Level    string `json:"level,omitempty" jsonschema:"Testing depth: 'fast', 'basic', 'benchmark', 'complete'"`
+	Run      string `json:"run,omitempty" jsonschema:"Regex pattern to filter tests/benchmarks (maps to -run or -bench)"`
 }
 
 // Runner defines the interface for running CLI commands.
@@ -93,6 +92,10 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	}
 
 	workspaceDir := filepath.Clean(args.Dir)
+	cfg, err := config.LoadFromWorkspace(workspaceDir)
+	if err != nil || cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
 
 	pkgs := args.Packages
 	if pkgs == "" {
@@ -107,24 +110,24 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Smart Test Report (`%s`)\n\n", pkgs)
 
-	var err error
+	var execErr error
 	switch level {
 	case levelFast:
-		err = runFastLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
+		execErr = runFastLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
 	case levelBenchmark:
-		err = runBenchmarkLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
+		execErr = runBenchmarkLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
 	case levelComplete:
-		err = runBasicLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
-		if err == nil {
-			runMutationLevel(ctx, workspaceDir, pkgs, &sb)
+		execErr = runBasicLevel(ctx, workspaceDir, pkgs, args.Run, cfg, &sb)
+		if execErr == nil {
+			runMutationLevel(ctx, workspaceDir, pkgs, cfg, &sb)
 		}
 	case levelBasic:
 		fallthrough
 	default:
-		err = runBasicLevel(ctx, workspaceDir, pkgs, args.Run, &sb)
+		execErr = runBasicLevel(ctx, workspaceDir, pkgs, args.Run, cfg, &sb)
 	}
 
-	isError := err != nil
+	isError := execErr != nil
 	return result(sb.String(), isError), nil, nil
 }
 
@@ -163,7 +166,12 @@ func runFastLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb 
 	return nil
 }
 
-func runBasicLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb *strings.Builder) error {
+func runBasicLevel(
+	ctx context.Context,
+	workspaceDir, pkgs, runFilter string,
+	cfg *config.Config,
+	sb *strings.Builder,
+) error {
 	sb.WriteString("### 🧪 Test & Coverage Analysis\n\n")
 
 	tmpFile, err := os.CreateTemp("", "godoctor-coverage-*.out")
@@ -194,7 +202,7 @@ func runBasicLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb
 	if testErr != nil {
 		sb.WriteString("❌ **Tests Failed**\n\n")
 		sb.WriteString(formatFailures(testOut))
-		syncTestQueryDB(ctx, workspaceDir, pkgs)
+		syncTestQueryDB(ctx, workspaceDir, pkgs, cfg)
 		return testErr
 	}
 
@@ -209,7 +217,7 @@ func runBasicLevel(ctx context.Context, workspaceDir, pkgs, runFilter string, sb
 	parsePackageCoverage(testOut, sb)
 
 	// Sync testquery.db in background/sub-step
-	syncTestQueryDB(ctx, workspaceDir, pkgs)
+	syncTestQueryDB(ctx, workspaceDir, pkgs, cfg)
 	sb.WriteString("\n*Indexed test run to `testquery.db`*\n\n")
 
 	return nil
@@ -245,18 +253,21 @@ func runBenchmarkLevel(ctx context.Context, workspaceDir, pkgs, runFilter string
 	return nil
 }
 
-func runMutationLevel(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) {
+func runMutationLevel(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) {
 	sb.WriteString("### 🧬 Selene AST Mutation Testing\n\n")
 
-	var seleneCmd string
-	var seleneArgs []string
-	if _, err := CommandRunner.LookPath(seleneTool); err == nil {
+	seleneCmd := cfg.Tools.Selene.Command
+	if seleneCmd == "" {
 		seleneCmd = seleneTool
-		seleneArgs = parsePackages(pkgs)
-	} else {
-		seleneCmd = "go"
-		seleneArgs = append([]string{"run", "github.com/danicat/selene/cmd/selene@latest"}, parsePackages(pkgs)...)
 	}
+
+	if _, err := CommandRunner.LookPath(seleneCmd); err != nil && !filepath.IsAbs(seleneCmd) {
+		sb.WriteString("⏩ SKIPPED (`selene` binary not found in PATH)\n\n")
+		return
+	}
+
+	pkgList := parsePackages(pkgs)
+	seleneArgs := selene.BuildArgs(workspaceDir, pkgList, cfg)
 
 	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, seleneCmd, seleneArgs...)
 	filtered := filterNoise(out)
@@ -335,21 +346,37 @@ func findCoverageIndex(parts []string) int {
 	return -1
 }
 
-func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string) {
-	var tqCmd string
-	var tqArgs []string
-
-	if _, err := CommandRunner.LookPath(testqueryTool); err == nil {
+func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config) {
+	if cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
+	if !cfg.Features.TestQuerySync {
+		return
+	}
+	tqCmd := cfg.Tools.TestQuery.Command
+	if tqCmd == "" {
 		tqCmd = testqueryTool
-		tqArgs = []string{cmdBuild, flagPkg, pkgs, flagOutput, dbFile}
-	} else if _, err := CommandRunner.LookPath(tqTool); err == nil {
-		tqCmd = tqTool
-		tqArgs = []string{cmdBuild, flagPkg, pkgs, flagOutput, dbFile}
-	} else {
-		tqCmd = "go"
-		tqArgs = []string{"run", "github.com/danicat/testquery@latest", cmdBuild, flagPkg, pkgs, flagOutput, dbFile}
+	}
+	if _, err := CommandRunner.LookPath(tqCmd); err != nil && !filepath.IsAbs(tqCmd) {
+		if _, errTQ := CommandRunner.LookPath(tqTool); errTQ == nil {
+			tqCmd = tqTool
+		} else {
+			return
+		}
+	}
+	absDBPath := cfg.GetTestQueryDBPath(workspaceDir)
+	relDBPath, err := filepath.Rel(workspaceDir, absDBPath)
+	dbTarget := absDBPath
+	if err == nil && !strings.HasPrefix(relDBPath, "..") {
+		dbTarget = relDBPath
 	}
 
+	_ = os.MkdirAll(filepath.Dir(absDBPath), 0750)
+	_ = os.Remove(absDBPath)
+	_ = os.Remove(absDBPath + "-wal")
+	_ = os.Remove(absDBPath + "-shm")
+
+	tqArgs := []string{cmdBuild, flagPkg, pkgs, flagOutput, dbTarget}
 	_, _ = CommandRunner.RunWithOutput(ctx, workspaceDir, tqCmd, tqArgs...)
 }
 
@@ -362,6 +389,7 @@ func formatFailures(out string) string {
 		if strings.Contains(line, "--- FAIL:") ||
 			strings.HasPrefix(line, "FAIL\t") ||
 			strings.HasPrefix(line, "FAIL ") ||
+			strings.HasPrefix(line, "# ") ||
 			line == "FAIL" {
 			inFailBlock = true
 		} else if inFailBlock && isTestBoundary(line) {

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -553,6 +554,7 @@ FAIL	github.com/danicat/godoctor/pkg5	0.010s	coverage: 50.0% of statements`
 func TestSyncTestQueryDB_ToolSelection(t *testing.T) {
 	tests := []struct {
 		name        string
+		cfg         *config.Config
 		lookPaths   map[string]string
 		expectedCmd string
 	}{
@@ -561,7 +563,7 @@ func TestSyncTestQueryDB_ToolSelection(t *testing.T) {
 			lookPaths: map[string]string{
 				"testquery": "/usr/bin/testquery",
 			},
-			expectedCmd: "testquery build --pkg ./... --output testquery.db",
+			expectedCmd: "testquery build --pkg ./... --output .godoctor/testquery.db",
 		},
 		{
 			name: "tq in PATH",
@@ -569,15 +571,35 @@ func TestSyncTestQueryDB_ToolSelection(t *testing.T) {
 				"testquery": "",
 				"tq":        "/usr/bin/tq",
 			},
-			expectedCmd: "tq build --pkg ./... --output testquery.db",
+			expectedCmd: "tq build --pkg ./... --output .godoctor/testquery.db",
 		},
 		{
-			name: "fallback to go run",
+			name: "missing binary skips gracefully without calling anything",
 			lookPaths: map[string]string{
 				"testquery": "",
 				"tq":        "",
 			},
-			expectedCmd: "go run github.com/danicat/testquery@latest build --pkg ./... --output testquery.db",
+			expectedCmd: "",
+		},
+		{
+			name: "custom config command in PATH",
+			cfg: &config.Config{
+				Features: config.FeaturesConfig{TestQuerySync: true},
+				Tools: config.ToolsConfig{
+					TestQuery: config.ToolSpec{Command: "custom-tq"},
+				},
+				TestQuery: config.TestQueryConfig{DatabasePath: "custom.db"},
+			},
+			lookPaths:   map[string]string{"custom-tq": "/usr/bin/custom-tq"},
+			expectedCmd: "custom-tq build --pkg ./... --output custom.db",
+		},
+		{
+			name: "sync disabled in features skips",
+			cfg: &config.Config{
+				Features: config.FeaturesConfig{TestQuerySync: false},
+			},
+			lookPaths:   map[string]string{"testquery": "/usr/bin/testquery"},
+			expectedCmd: "",
 		},
 	}
 
@@ -592,9 +614,13 @@ func TestSyncTestQueryDB_ToolSelection(t *testing.T) {
 			}
 			CommandRunner = mock
 
-			syncTestQueryDB(context.Background(), "/workspace", "./...")
+			syncTestQueryDB(context.Background(), "/workspace", "./...", tc.cfg)
 
-			if len(mock.calls) == 0 || mock.calls[0] != tc.expectedCmd {
+			if tc.expectedCmd == "" {
+				if len(mock.calls) != 0 {
+					t.Errorf("expected no cmd, got %v", mock.calls)
+				}
+			} else if len(mock.calls) == 0 || mock.calls[0] != tc.expectedCmd {
 				t.Errorf("expected cmd %q, got %q", tc.expectedCmd, mock.calls[0])
 			}
 		})

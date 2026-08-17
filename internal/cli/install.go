@@ -30,6 +30,7 @@ import (
 
 // InstallOptions holds parsed options for the install command.
 type InstallOptions struct {
+	InstallAll    bool
 	InstallMCP    bool
 	InstallSkills bool
 	Workspace     bool
@@ -40,22 +41,11 @@ type InstallOptions struct {
 	SkillsDir     string
 }
 
-// runInstall parses arguments and executes the godoctor install command using Cobra.
-func runInstall(ctx context.Context, args []string, stdout, stderr io.Writer) error {
-	cmd := newInstallCmd(stdout, stderr)
-	cmd.SetArgs(args)
-	cmd.SetOut(stdout)
-	cmd.SetErr(stderr)
-	return cmd.ExecuteContext(ctx)
-}
-
-// ExecuteInstall performs the installation according to the given options.
-func ExecuteInstall(opts InstallOptions, stdout, stderr io.Writer) error {
-	_ = stderr
-	// 1. Resolve Target Scope & Directories
+// resolveInstallPaths resolves target paths for installation.
+func resolveInstallPaths(opts InstallOptions) (string, string, string, string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return fmt.Errorf("failed to determine user home directory: %w", err)
+		return "", "", "", "", fmt.Errorf("failed to determine user home directory: %w", err)
 	}
 
 	var targetRoot string
@@ -83,22 +73,39 @@ func ExecuteInstall(opts InstallOptions, stdout, stderr io.Writer) error {
 		skillsTargetDir = filepath.Join(targetRoot, "skills")
 	}
 
-	// 2. Resolve Binary Path for MCP command
-	binCommand := resolveBinaryCommand()
+	return scopeName, targetRoot, mcpConfigFile, skillsTargetDir, nil
+}
 
+// ExecuteInstall performs the installation according to the given options.
+func ExecuteInstall(ctx context.Context, opts InstallOptions, stdout, stderr io.Writer) error {
+	_ = stderr
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	scopeName, targetRoot, mcpConfigFile, skillsTargetDir, err := resolveInstallPaths(opts)
+	if err != nil {
+		return err
+	}
+
+	binCommand := resolveBinaryCommand()
 	var mcpConfigUpdated bool
 	var installedSkills []string
 
-	// 3. Initialize MCP Server
 	if opts.InstallMCP {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err := configureMCPServer(mcpConfigFile, binCommand); err != nil {
 			return fmt.Errorf("failed to configure MCP server in %s: %w", mcpConfigFile, err)
 		}
 		mcpConfigUpdated = true
 	}
 
-	// 4. Unpack Embedded Skills
 	if opts.InstallSkills {
+		if ctx != nil && ctx.Err() != nil {
+			return ctx.Err()
+		}
 		installed, err := unpackSkills(skillsTargetDir, opts.Force)
 		if err != nil {
 			return fmt.Errorf("failed to unpack skills to %s: %w", skillsTargetDir, err)
@@ -106,12 +113,10 @@ func ExecuteInstall(opts InstallOptions, stdout, stderr io.Writer) error {
 		installedSkills = installed
 	}
 
-	// 5. Cleanup Legacy Artifacts (Global scope only)
 	if !opts.Workspace && opts.ConfigPath == "" {
 		cleanupLegacyArtifacts(targetRoot)
 	}
 
-	// 6. Summary Output
 	if !opts.Quiet {
 		printInstallSummary(
 			stdout, scopeName, targetRoot, mcpConfigFile,
@@ -126,7 +131,7 @@ func ExecuteInstall(opts InstallOptions, stdout, stderr io.Writer) error {
 func resolveBinaryCommand() string {
 	execPath, err := os.Executable()
 	if err != nil {
-		return "godoctor"
+		return AppName
 	}
 	realPath, err := filepath.EvalSymlinks(execPath)
 	if err == nil {
@@ -134,10 +139,10 @@ func resolveBinaryCommand() string {
 	}
 
 	// Check if godoctor is available in PATH and resolves to this binary
-	if lookPath, err := exec.LookPath("godoctor"); err == nil {
+	if lookPath, err := exec.LookPath(AppName); err == nil {
 		if realLookPath, err := filepath.EvalSymlinks(lookPath); err == nil {
 			if realLookPath == execPath {
-				return "godoctor"
+				return AppName
 			}
 		}
 	}
@@ -147,18 +152,19 @@ func resolveBinaryCommand() string {
 
 // configureMCPServer updates or creates mcp_config.json safely.
 func configureMCPServer(configPath, binCommand string) error {
-	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	cleanConfigPath := filepath.Clean(configPath)
+	configDir := filepath.Clean(filepath.Dir(cleanConfigPath))
+	if err := os.MkdirAll(configDir, 0750); err != nil {
 		return fmt.Errorf("failed to create directory %s: %w", configDir, err)
 	}
 
 	var root map[string]any
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(cleanConfigPath)
 	if err == nil && len(bytes.TrimSpace(data)) > 0 {
 		if err := json.Unmarshal(data, &root); err != nil {
 			// Backup corrupted config
-			backupPath := configPath + ".bak"
-			_ = os.WriteFile(backupPath, data, 0644)
+			backupConfigPath := filepath.Clean(configPath + ".bak")
+			_ = os.WriteFile(backupConfigPath, data, 0600)
 			root = make(map[string]any)
 		}
 	} else {
@@ -173,9 +179,9 @@ func configureMCPServer(configPath, binCommand string) error {
 		root["mcpServers"] = servers
 	}
 
-	servers["godoctor"] = map[string]any{
+	servers[AppName] = map[string]any{
 		"command": binCommand,
-		"args":    []string{"mcp"},
+		"args":    []string{CommandMCP},
 	}
 
 	formatted, err := json.MarshalIndent(root, "", "  ")
@@ -184,42 +190,59 @@ func configureMCPServer(configPath, binCommand string) error {
 	}
 	formatted = append(formatted, '\n')
 
-	return os.WriteFile(configPath, formatted, 0644)
+	return os.WriteFile(cleanConfigPath, formatted, 0600)
 }
 
 // unpackSkills writes embedded skills from skills.FS into targetDir.
 func unpackSkills(targetDir string, force bool) ([]string, error) {
-	skillsList := []string{"godoctor", "selene", "testquery"}
-	var installed []string
+	skillName := AppName
+	destDir := filepath.Clean(filepath.Join(targetDir, skillName))
 
-	for _, skillName := range skillsList {
-		skillFile := skillName + "/SKILL.md"
-		content, err := fs.ReadFile(skills.FS, skillFile)
+	var allUpToDate = true
+	var hadModified = false
+	var wroteFiles = false
+
+	err := fs.WalkDir(skills.FS, skillName, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return nil, fmt.Errorf("embedded skill %s not found: %w", skillFile, err)
+			return err
 		}
-
-		destDir := filepath.Join(targetDir, skillName)
-		if err := os.MkdirAll(destDir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory %s: %w", destDir, err)
+		relPath, err := filepath.Rel(skillName, path)
+		if err != nil {
+			return err
 		}
-
-		destPath := filepath.Join(destDir, "SKILL.md")
+		destPath := filepath.Clean(filepath.Join(destDir, relPath))
+		if d.IsDir() {
+			return os.MkdirAll(destPath, 0750)
+		}
+		content, err := fs.ReadFile(skills.FS, path)
+		if err != nil {
+			return err
+		}
 		if existing, err := os.ReadFile(destPath); err == nil {
 			if bytes.Equal(existing, content) {
-				installed = append(installed, skillName+" (up-to-date)")
-				continue
+				return nil
 			}
 			if !force {
-				installed = append(installed, skillName+" (kept existing)")
-				continue
+				allUpToDate = false
+				hadModified = true
+				return nil
 			}
 		}
+		allUpToDate = false
+		wroteFiles = true
+		return os.WriteFile(destPath, content, 0600)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to unpack skill %s: %w", skillName, err)
+	}
 
-		if err := os.WriteFile(destPath, content, 0644); err != nil {
-			return nil, fmt.Errorf("failed to write skill %s: %w", destPath, err)
-		}
-		installed = append(installed, skillName+" (installed)")
+	var installed []string
+	if allUpToDate {
+		installed = append(installed, skillName+" (up-to-date)")
+	} else if hadModified && !wroteFiles {
+		installed = append(installed, skillName+" (modified, skipped)")
+	} else {
+		installed = append(installed, skillName)
 	}
 
 	return installed, nil
@@ -241,7 +264,7 @@ func printInstallSummary(
 	mcpUpdated bool,
 	installedSkills []string,
 ) {
-	fmt.Fprintf(w, `=============================================================
+	_, _ = fmt.Fprintf(w, `=============================================================
              🩺 GoDoctor Installation Complete               
 =============================================================
 Scope:       %s (%s)
@@ -251,20 +274,20 @@ Surfaces Initialized:
 `, scope, targetRoot, binCommand)
 
 	if mcpUpdated {
-		fmt.Fprintf(w, `  ✓ MCP Server:  Registered in %s
+		_, _ = fmt.Fprintf(w, `  ✓ MCP Server:  Registered in %s
                  Tools: smart_build, smart_test, smart_edit,
                         read_docs, selene, test_query
 `, mcpPath)
 	}
 
 	if len(installedSkills) > 0 {
-		fmt.Fprintf(w, "  ✓ Skills:      Installed in %s\n", skillsDir)
+		_, _ = fmt.Fprintf(w, "  ✓ Skills:      Installed in %s\n", skillsDir)
 		for _, s := range installedSkills {
-			fmt.Fprintf(w, "                 • @%s\n", s)
+			_, _ = fmt.Fprintf(w, "                 • @%s\n", s)
 		}
 	}
 
-	fmt.Fprintf(w, `  ✓ CLI Mode:    Ready for direct execution
+	_, _ = fmt.Fprintf(w, `  ✓ CLI Mode:    Ready for direct execution
                  Usage: godoctor call {edit|build|test|docs|selene|tq}
 
 Quick Verification:

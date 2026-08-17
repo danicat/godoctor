@@ -11,38 +11,41 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
 	allPackagesPattern = "./..."
+	cmdBuild           = "build"
 	cmdRun             = "run"
 	cmdDeadcode        = "deadcode"
 	cmdModernize       = "modernize"
 	cmdTestQuery       = "testquery"
 	cmdGolangCILint    = "golangci-lint"
+	flagPkg            = "--pkg"
 	flagOutput         = "--output"
 	tokenCoverageColon = "coverage:"
+	defaultTestQueryDB = "testquery.db"
 )
 
 // Register registers the tool with the server.
 func Register(server *mcp.Server) {
-	//nolint:lll
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "smart_build",
-		Title:       "Smart Build",
-		Description: "GoDoctor's specialized build pipeline: Tidy -> Modernize -> Format -> Build -> Test -> Lint -> Deadcode. Runs `go mod tidy` -> modernization -> `gofmt` -> `go build` -> `go test` -> linter -> deadcode to verify workspace health.",
+		Name:  "smart_build",
+		Title: "Smart Build",
+		Description: "GoDoctor's specialized build pipeline: Tidy -> Modernize -> Format -> " +
+			"Build -> Test -> Lint -> Deadcode. Runs `go mod tidy` -> modernization -> " +
+			"`gofmt` -> `go build` -> `go test` -> linter -> deadcode to verify workspace health.",
 	}, Handler)
 }
 
 // Params defines the input parameters.
 type Params struct {
-	//nolint:lll
-	Dir      string `json:"dir" jsonschema:"The absolute directory path to build in. Required. Relative paths are rejected."`
+	Dir      string `json:"dir" jsonschema:"The absolute directory path to build in. Required."`
 	Packages string `json:"packages,omitempty" jsonschema:"Packages to build (default: ./...)"`
-	//nolint:lll
-	Output string `json:"output,omitempty" jsonschema:"The build output binary target path or filename (passed as -o to go build). Optional."`
+	Output   string `json:"output,omitempty" jsonschema:"The build output binary target path (-o)."`
 }
 
 // Runner defines the interface for running commands.
@@ -52,7 +55,6 @@ type Runner interface {
 	LookPath(file string) (string, error)
 }
 
-// stdRunner implements standard command running.
 type stdRunner struct{}
 
 func (r *stdRunner) Run(ctx context.Context, dir, name string, args ...string) error {
@@ -100,72 +102,116 @@ func Handler(ctx context.Context, _ *mcp.CallToolRequest, args Params) (*mcp.Cal
 		return result("dir is required and must be an absolute path", true), nil, nil
 	}
 	workspaceDir := filepath.Clean(args.Dir)
+	cfg, err := config.LoadFromWorkspace(workspaceDir)
+	if err != nil || cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
+
 	pkgs := args.Packages
 	if strings.TrimSpace(pkgs) == "" {
-		pkgs = allPackagesPattern
+		if cfg.Build.DefaultPackages != "" {
+			pkgs = cfg.Build.DefaultPackages
+		} else {
+			pkgs = allPackagesPattern
+		}
 	}
 	output := strings.TrimSpace(args.Output)
+	if output == "" && cfg.Build.Output != "" {
+		output = cfg.Build.Output
+	}
 
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "# Smart Build Report (`%s`)\n\n", pkgs)
 
-	runAutoFix(ctx, workspaceDir, pkgs, &sb)
+	runAutoFix(ctx, workspaceDir, pkgs, cfg, &sb)
+
+	var pipelineErr error
 	if ctx.Err() != nil {
-		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
+		pipelineErr = ctx.Err()
+		sb.WriteString("\n⚠️ Canceled: context deadline exceeded or canceled\n")
+	} else if errBuild := runBuild(ctx, workspaceDir, pkgs, output, &sb); errBuild != nil {
+		pipelineErr = errBuild
+	} else if ctx.Err() != nil {
+		pipelineErr = ctx.Err()
+		sb.WriteString("\n⚠️ Canceled: context deadline exceeded or canceled\n")
+	} else if cfg.Build.RunTests {
+		if errTests := runTestsPhase(ctx, workspaceDir, pkgs, cfg, &sb); errTests != nil {
+			pipelineErr = errTests
+		} else if ctx.Err() != nil {
+			pipelineErr = ctx.Err()
+			sb.WriteString("\n⚠️ Canceled: context deadline exceeded or canceled\n")
+		}
 	}
 
-	if err := runBuild(ctx, workspaceDir, pkgs, output, &sb); err != nil {
-		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
-		return result(sb.String(), true), nil, nil
-	}
-	if ctx.Err() != nil {
-		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
-	}
-
-	if err := runTestsPhase(ctx, workspaceDir, pkgs, &sb); err != nil {
-		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
-		return result(sb.String(), true), nil, nil
-	}
-	if ctx.Err() != nil {
-		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
+	if pipelineErr == nil {
+		if errLint := runLinterPhase(ctx, workspaceDir, pkgs, cfg, &sb); errLint != nil {
+			pipelineErr = errLint
+		} else if ctx.Err() != nil {
+			pipelineErr = ctx.Err()
+			sb.WriteString("\n⚠️ Canceled: context deadline exceeded or canceled\n")
+		}
 	}
 
-	if err := runLinterPhase(ctx, workspaceDir, pkgs, &sb); err != nil {
-		//nolint:nilerr // Returning a JSON formatted tool error rather than an actual Go error
-		return result(sb.String(), true), nil, nil
-	}
-	if ctx.Err() != nil {
-		return result(sb.String()+"\n⚠️ Cancelled: context deadline exceeded or cancelled", true), nil, nil
+	if pipelineErr == nil {
+		runDeadcodePhase(ctx, workspaceDir, pkgs, cfg, &sb)
 	}
 
-	runDeadcodePhase(ctx, workspaceDir, pkgs, &sb)
-
-	return result(sb.String(), false), nil, nil
+	return result(sb.String(), pipelineErr != nil), nil, nil
 }
 
-func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) {
+func runAutoFix(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) {
+	if !cfg.Features.Autofix {
+		return
+	}
 	sb.WriteString("### 🔧 Auto-Fix & Modernize:\n")
 
+	if cfg.Build.AutoTidy && cfg.Autofix.ModTidy {
+		runTidyStep(ctx, workspaceDir, sb)
+	}
+	if ctx.Err() != nil {
+		return
+	}
+
+	if cfg.Build.AutoModernize && cfg.Autofix.Modernize {
+		runModernizeStep(ctx, workspaceDir, pkgs, cfg, sb)
+	}
+	if ctx.Err() != nil {
+		return
+	}
+
+	if cfg.Build.AutoFormat && cfg.Autofix.Gofmt {
+		runFormatStep(ctx, workspaceDir, sb)
+	}
+	sb.WriteString("\n")
+}
+
+func runTidyStep(ctx context.Context, workspaceDir string, sb *strings.Builder) {
 	if err := CommandRunner.Run(ctx, workspaceDir, "go", "mod", "tidy"); err != nil {
 		fmt.Fprintf(sb, "  - ❌ Go Mod Tidy: FAILED (%v)\n", err)
 	} else {
 		sb.WriteString("  - ✅ Go Mod Tidy: SUCCESS\n")
 	}
+}
 
-	if ctx.Err() != nil {
+func runModernizeStep(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) {
+	modCmd := cfg.Tools.Modernize.Command
+	if modCmd == "" {
+		modCmd = cmdModernize
+	}
+
+	if _, err := CommandRunner.LookPath(modCmd); err != nil && !filepath.IsAbs(modCmd) {
+		fmt.Fprintf(sb, "  - ⏩ Go Modernizer: SKIPPED (%s binary not found in PATH)\n", modCmd)
 		return
 	}
 
 	pkgList := parsePackages(pkgs)
-	var modCmd string
-	var modArgs []string
-	if _, err := CommandRunner.LookPath(cmdModernize); err == nil {
-		modCmd = cmdModernize
-		modArgs = append([]string{"-fix"}, pkgList...)
+	modArgs := make([]string, 0, len(cfg.Tools.Modernize.Args)+len(pkgList)+1)
+	if len(cfg.Tools.Modernize.Args) > 0 {
+		modArgs = append(modArgs, cfg.Tools.Modernize.Args...)
 	} else {
-		modCmd = "go"
-		modArgs = append([]string{cmdRun, "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize@latest", "-fix"}, pkgList...)
+		modArgs = append(modArgs, "-fix")
 	}
+	modArgs = append(modArgs, pkgList...)
 
 	out, err := CommandRunner.RunWithOutput(ctx, workspaceDir, modCmd, modArgs...)
 	if err != nil {
@@ -184,23 +230,20 @@ func runAutoFix(ctx context.Context, workspaceDir, pkgs string, sb *strings.Buil
 	} else {
 		sb.WriteString("  - ✅ Go Modernizer: SUCCESS (No issues found)\n")
 	}
+}
 
-	if ctx.Err() != nil {
-		return
-	}
-
+func runFormatStep(ctx context.Context, workspaceDir string, sb *strings.Builder) {
 	if err := CommandRunner.Run(ctx, workspaceDir, "gofmt", "-w", "."); err != nil {
 		fmt.Fprintf(sb, "  - ❌ Go Code Formatter: FAILED (%v)\n", err)
 	} else {
 		sb.WriteString("  - ✅ Go Code Formatter: SUCCESS\n")
 	}
-	sb.WriteString("\n")
 }
 
 func runBuild(ctx context.Context, workspaceDir, pkgs, output string, sb *strings.Builder) error {
 	sb.WriteString("### 🛠  Build: ")
 	pkgList := parsePackages(pkgs)
-	buildArgs := []string{"build"}
+	buildArgs := []string{cmdBuild}
 	if output != "" {
 		buildArgs = append(buildArgs, "-o", output)
 	}
@@ -216,13 +259,13 @@ func runBuild(ctx context.Context, workspaceDir, pkgs, output string, sb *string
 	return nil
 }
 
-func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) error {
+func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) error {
 	sb.WriteString("### 🧪 Tests: ")
 
 	// Create a temporary file for coverage in OS temp dir to avoid polluting workspace
 	covTmp, err := os.CreateTemp("", "godoctor-coverage-*.out")
 	if err != nil {
-		sb.WriteString(fmt.Sprintf("❌ FAILED (cannot create temp coverage file: %v)\n\n", err))
+		fmt.Fprintf(sb, "❌ FAILED (cannot create temp coverage file: %v)\n\n", err)
 		return err
 	}
 	covFile := covTmp.Name()
@@ -240,9 +283,9 @@ func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.B
 	if testErr != nil {
 		sb.WriteString("❌ FAILED\n\n")
 		sb.WriteString(formatOutput(testOut))
-		//nolint:lll
-		sb.WriteString("\n**HINT:** Run `test_query` (`tq`) to query failing tests via SQL: `SELECT test, output FROM all_tests WHERE action='fail'`.\n\n")
-		syncTestQueryDB(ctx, workspaceDir, pkgs)
+		sb.WriteString("\n**HINT:** Run `test_query` (`tq`) to query failing tests via SQL: " +
+			"`SELECT test, output FROM all_tests WHERE action='fail'`.\n\n")
+		syncTestQueryDB(ctx, workspaceDir, pkgs, cfg, sb)
 		return testErr
 	}
 	sb.WriteString("✅ PASS\n\n")
@@ -260,24 +303,26 @@ func runTestsPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.B
 	sb.WriteString("\n")
 
 	// 3. Sync to testquery.db
-	syncTestQueryDB(ctx, workspaceDir, pkgs)
-	sb.WriteString("*Indexed test run to `testquery.db`*\n\n")
+	syncTestQueryDB(ctx, workspaceDir, pkgs, cfg, sb)
 	return nil
 }
 
-func runDeadcodePhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) {
-	sb.WriteString("### 🔍 Deadcode Analysis: ")
-	pkgList := parsePackages(pkgs)
-	var deadCmd string
-	var deadcodeArgs []string
-	if _, err := CommandRunner.LookPath(cmdDeadcode); err == nil {
-		deadCmd = cmdDeadcode
-		deadcodeArgs = pkgList
-	} else {
-		deadCmd = "go"
-		deadcodeArgs = append([]string{cmdRun, "golang.org/x/tools/cmd/deadcode@latest"}, pkgList...)
+func runDeadcodePhase(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) {
+	if !cfg.Features.DeadcodeCheck || !cfg.Build.RunDeadcode {
+		return
 	}
-	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, deadCmd, deadcodeArgs...)
+	sb.WriteString("### 🔍 Deadcode Analysis: ")
+	deadCmd := cfg.Tools.Deadcode.Command
+	if deadCmd == "" {
+		deadCmd = cmdDeadcode
+	}
+	if _, err := CommandRunner.LookPath(deadCmd); err != nil && !filepath.IsAbs(deadCmd) {
+		fmt.Fprintf(sb, "⏩ SKIPPED (`%s` binary not found in PATH)\n\n", deadCmd)
+		return
+	}
+
+	pkgList := parsePackages(pkgs)
+	deadOut, deadErr := CommandRunner.RunWithOutput(ctx, workspaceDir, deadCmd, pkgList...)
 	if deadErr != nil {
 		fmt.Fprintf(sb, "❌ FAILED (%v)\n\n", deadErr)
 		if trimmed := strings.TrimSpace(deadOut); trimmed != "" {
@@ -294,22 +339,41 @@ func runDeadcodePhase(ctx context.Context, workspaceDir, pkgs string, sb *string
 	}
 }
 
-func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string) {
-	var tqCmd string
-	var tqArgs []string
-
-	if _, err := CommandRunner.LookPath(cmdTestQuery); err == nil {
+func syncTestQueryDB(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) {
+	if !cfg.Features.TestQuerySync {
+		return
+	}
+	tqCmd := cfg.Tools.TestQuery.Command
+	if tqCmd == "" {
 		tqCmd = cmdTestQuery
-		tqArgs = []string{"build", "--pkg", pkgs, flagOutput, "testquery.db"}
-	} else if _, err := CommandRunner.LookPath("tq"); err == nil {
-		tqCmd = "tq"
-		tqArgs = []string{"build", "--pkg", pkgs, flagOutput, "testquery.db"}
-	} else {
-		tqCmd = "go"
-		tqArgs = []string{cmdRun, "github.com/danicat/testquery@latest", "build", "--pkg", pkgs, flagOutput, "testquery.db"}
+	}
+	if _, err := CommandRunner.LookPath(tqCmd); err != nil && !filepath.IsAbs(tqCmd) {
+		if _, errTQ := CommandRunner.LookPath("tq"); errTQ == nil {
+			tqCmd = "tq"
+		} else {
+			sb.WriteString("*TestQuery sync skipped (`testquery` binary not found in PATH)*\n\n")
+			return
+		}
+	}
+	absDBPath := cfg.GetTestQueryDBPath(workspaceDir)
+	relDBPath, err := filepath.Rel(workspaceDir, absDBPath)
+	dbTarget := absDBPath
+	if err == nil && !strings.HasPrefix(relDBPath, "..") {
+		dbTarget = relDBPath
 	}
 
-	_, _ = CommandRunner.RunWithOutput(ctx, workspaceDir, tqCmd, tqArgs...)
+	_ = os.MkdirAll(filepath.Dir(absDBPath), 0750)
+	_ = os.Remove(absDBPath)
+	_ = os.Remove(absDBPath + "-wal")
+	_ = os.Remove(absDBPath + "-shm")
+
+	tqArgs := []string{cmdBuild, flagPkg, pkgs, flagOutput, dbTarget}
+	_, err = CommandRunner.RunWithOutput(ctx, workspaceDir, tqCmd, tqArgs...)
+	if err != nil {
+		fmt.Fprintf(sb, "*TestQuery sync warning: %v*\n\n", err)
+	} else {
+		sb.WriteString("*Indexed test run to `" + dbTarget + "`*\n\n")
+	}
 }
 
 func parseTotalCoverage(ctx context.Context, workspaceDir, covFile string) string {
@@ -389,7 +453,7 @@ func findConfigFile(workspaceDir string) string {
 				return path
 			}
 		}
-		if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
+		if _, err := os.Stat(filepath.Join(curr, ".git")); err == nil {
 			break
 		}
 		parent := filepath.Dir(curr)
@@ -401,43 +465,44 @@ func findConfigFile(workspaceDir string) string {
 	return ""
 }
 
-const defaultGolangCILintPkg = "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"
-
-func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, sb *strings.Builder) error {
+func runLinterPhase(ctx context.Context, workspaceDir, pkgs string, cfg *config.Config, sb *strings.Builder) error {
+	if !cfg.Build.RunLinter {
+		return nil
+	}
 	sb.WriteString("### 🧹 Lint: ")
 
-	configPath := findConfigFile(workspaceDir)
-	pkgList := parsePackages(pkgs)
+	lintCmd := cfg.Tools.GolangCILint.Command
+	if lintCmd == "" {
+		lintCmd = cmdGolangCILint
+	}
 
-	// If no .golangci file is found, fallback to go vet
-	if configPath == "" {
-		lintCmd := "go"
-		lintArgs := append([]string{"vet"}, pkgList...)
-		sb.WriteString("(using `go vet`) ")
-
-		lintOut, lintErr := CommandRunner.RunWithOutput(ctx, workspaceDir, lintCmd, lintArgs...)
-		if lintErr != nil {
-			sb.WriteString("⚠️ ISSUES FOUND\n\n")
-			sb.WriteString(formatOutput(lintOut))
-			return lintErr
-		}
-		sb.WriteString("✅ PASS\n\n")
+	if _, err := CommandRunner.LookPath(lintCmd); err != nil && !filepath.IsAbs(lintCmd) {
+		fmt.Fprintf(sb, "⏩ SKIPPED (`%s` binary not found in PATH)\n\n", lintCmd)
 		return nil
 	}
 
-	var lintCmd string
-	var lintArgs []string
-
-	if _, err := CommandRunner.LookPath(cmdGolangCILint); err == nil {
-		lintCmd = cmdGolangCILint
-		lintArgs = append([]string{"run", "-c", configPath}, pkgList...)
-		sb.WriteString("(using local `golangci-lint`) ")
-	} else {
-		lintCmd = "go"
-		lintArgs = append([]string{cmdRun, defaultGolangCILintPkg, cmdRun, "-c", configPath}, pkgList...)
-		sb.WriteString("(using `golangci-lint v2.12.2`) ")
+	configPath := cfg.Tools.GolangCILint.Config
+	if configPath == "" {
+		configPath = findConfigFile(workspaceDir)
+	} else if !filepath.IsAbs(configPath) {
+		configPath = filepath.Join(workspaceDir, configPath)
 	}
 
+	if configPath != "" {
+		if _, err := os.Stat(configPath); err != nil {
+			configPath = findConfigFile(workspaceDir)
+		}
+	}
+
+	pkgList := parsePackages(pkgs)
+	lintArgs := make([]string, 0, 3+len(pkgList))
+	lintArgs = append(lintArgs, cmdRun)
+	if configPath != "" {
+		lintArgs = append(lintArgs, "-c", configPath)
+	}
+	lintArgs = append(lintArgs, pkgList...)
+
+	fmt.Fprintf(sb, "(using `%s`) ", lintCmd)
 	lintOut, lintErr := CommandRunner.RunWithOutput(ctx, workspaceDir, lintCmd, lintArgs...)
 	if lintErr != nil {
 		sb.WriteString("⚠️ ISSUES FOUND\n\n")
@@ -472,13 +537,13 @@ var (
 func getDocHintFromOutput(msg string) string {
 	if matches := undefinedPkgRe.FindStringSubmatch(msg); len(matches) > 1 {
 		pkgName := matches[1]
-		//nolint:lll
-		return fmt.Sprintf("\n\n**HINT:** usage of '%s' failed. Try calling `read_docs` on that package to see the correct API.", pkgName)
+		return fmt.Sprintf("\n\n**HINT:** usage of '%s' failed. "+
+			"Try calling `read_docs` on that package to see the correct API.", pkgName)
 	}
 	if matches := importErrorRe.FindStringSubmatch(msg); len(matches) > 1 {
 		pkgPath := matches[1]
-		//nolint:lll
-		return fmt.Sprintf("\n\n**HINT:** import '%s' failed. Try calling `read_docs` on \"%s\" to verify the package path and exports.", pkgPath, pkgPath)
+		return fmt.Sprintf("\n\n**HINT:** import '%s' failed. "+
+			"Try calling `read_docs` on \"%s\" to verify the package path and exports.", pkgPath, pkgPath)
 	}
 	return ""
 }

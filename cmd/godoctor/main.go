@@ -26,16 +26,58 @@ import (
 	"github.com/danicat/godoctor/internal/cli"
 )
 
+const defaultVersion = "dev"
+
 var (
-	version = "dev"
+	version = defaultVersion
 )
 
 func init() {
-	if version == "dev" {
-		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
-			version = info.Main.Version
+	if version == defaultVersion || version == "" {
+		version = resolveVersionFromBuildInfo(version)
+	}
+}
+
+func resolveVersionFromBuildInfo(fallback string) string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok || info == nil {
+		if fallback != "" {
+			return fallback
+		}
+		return defaultVersion
+	}
+
+	if info.Main.Version != "" && info.Main.Version != "(devel)" && info.Main.Version != defaultVersion {
+		return info.Main.Version
+	}
+
+	var revision string
+	var modified bool
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value
+		case "vcs.modified":
+			if setting.Value == "true" {
+				modified = true
+			}
 		}
 	}
+
+	if revision != "" {
+		if len(revision) > 7 {
+			revision = revision[:7]
+		}
+		if modified {
+			return fmt.Sprintf("devel (%s-dirty)", revision)
+		}
+		return fmt.Sprintf("devel (%s)", revision)
+	}
+
+	if fallback != "" {
+		return fallback
+	}
+	return defaultVersion
 }
 
 func main() {

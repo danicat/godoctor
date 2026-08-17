@@ -1,9 +1,10 @@
 # RFC-0001: Centralized Configuration (.godoctor.yaml) & Tool Version Management
 
-- **Status**: Accepted / Implementing
+- **Status**: Accepted / Implemented
 - **Date**: 2026-08-16
 - **Author(s)**: Lead Configuration Architect, Daniela Petruzalek
 - **Deciders/Reviewers**: Daniela Petruzalek
+- **Finalized Specification**: [RFC-0001: Centralized Configuration System](file:///Users/petruzalek/projects/godoctor/design/RFC-0001-configuration-system.md)
 - **ADR Reference**: [ADR-0001: Centralized YAML Configuration & Tool Version Management](file:///Users/petruzalek/projects/godoctor/design/adr/0001-centralized-yaml-configuration-and-version-management.md)
 
 ---
@@ -28,8 +29,8 @@ A comprehensive audit across all technical domains ([`design/AUDIT_FINDINGS.md`]
 3. **Usability & Security Hazards**:
    - `safeshell.Validate` rejected valid SQL operators (`<`, `>`, `\n`, `;`) and regex patterns (`$`), breaking [`skills/testquery/SKILL.md`](file:///Users/petruzalek/projects/godoctor/skills/testquery/SKILL.md) recipes and targeted test filtering.
    - CORS origin reflection allowed untrusted localhost origins (`http://localhost.attacker.com`).
-4. **CLI Dispatcher Limitations**:
-   - The hand-rolled CLI dispatcher in `internal/cli` lacked structured flag binding, shell auto-completion, and environment variable overrides (`GODOCTOR_*`).
+3. **CLI Dispatcher Limitations**:
+   - The hand-rolled CLI dispatcher in `internal/cli` lacked structured flag binding and shell auto-completion.
 
 ---
 
@@ -37,13 +38,13 @@ A comprehensive audit across all technical domains ([`design/AUDIT_FINDINGS.md`]
 
 ```text
                                ┌─────────────────────────────┐
-                               │     CLI / MCP Call / Env    │
+                               │       CLI / MCP Call        │
                                └──────────────┬──────────────┘
                                               │
                                               ▼
 ┌───────────────────────────────────────────────────────────────────────────────────────────┐
 │                                 internal/config (Viper)                                   │
-│  Precedence: Explicit Payload > CLI Flags > GODOCTOR_* Env > .godoctor.yaml > Go Defaults │
+│            Precedence: Explicit Payload > CLI Flags > .godoctor.yaml > Go Defaults        │
 └──────────────────────┬─────────────────────────────────────────────┬──────────────────────┘
                        │                                             │
                        ▼                                             ▼

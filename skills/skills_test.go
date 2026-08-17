@@ -8,19 +8,19 @@ import (
 )
 
 func TestEmbeddedSkills(t *testing.T) {
-	requiredSkills := []string{
+	requiredFiles := []string{
 		"godoctor/SKILL.md",
-		"selene/SKILL.md",
-		"testquery/SKILL.md",
+		"godoctor/references/selene.md",
+		"godoctor/references/testquery.md",
 	}
 
-	for _, relPath := range requiredSkills {
+	for _, relPath := range requiredFiles {
 		data, err := fs.ReadFile(skills.FS, relPath)
 		if err != nil {
-			t.Fatalf("failed to read embedded skill %s: %v", relPath, err)
+			t.Fatalf("failed to read embedded skill file %s: %v", relPath, err)
 		}
 		if len(data) == 0 {
-			t.Errorf("embedded skill %s is empty", relPath)
+			t.Errorf("embedded skill file %s is empty", relPath)
 		}
 	}
 }

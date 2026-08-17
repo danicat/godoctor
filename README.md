@@ -78,7 +78,7 @@ godoctor call tq '{"dir": "/path/to/project", "query": "SELECT test, elapsed FRO
 | Tool | Summary |
 | :--- | :--- |
 | [`smart_edit`](#smart_edit) | Single-file compiler-verified coordinate editor with formatting, `go vet` verification, rollback protection, and Levenshtein typo suggestions. |
-| [`smart_build`](#smart_build) | 4-phase hygiene and build pipeline: `go mod tidy` -> `modernize` -> `gofmt` -> `deadcode` -> `go build` -> `go test` + coverage -> linter. |
+| [`smart_build`](#smart_build) | Go build and compilation pipeline with integrated testing, statement coverage, linting, and quality verification. |
 | [`smart_test`](#smart_test) | Multi-tier test and benchmark engine (`fast`, `basic`, `benchmark`, `complete`) with SQLite (`testquery.db`) sync. |
 | [`test_query`](#test_query) | SQL analytics engine executing queries against statement coverage and test run history in `testquery.db`. |
 | [`selene`](#selene) | Selene-powered AST mutation testing evaluating unit test quality by introducing code mutations. |
@@ -98,10 +98,10 @@ godoctor call tq '{"dir": "/path/to/project", "query": "SELECT test, elapsed FRO
 #### `smart_build`
 - **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `packages` (string, optional, default `./...`), `output` (string, optional binary target path passed as `-o`).
 - **Behavior**:
-  - **Phase 1 (Auto-Fix & Modernize)**: Runs `go mod tidy`, `modernize -fix` (handling exit status 3 as auto-fix success), `gofmt -w .`, and `deadcode` (reporting unreachable functions as warnings).
-  - **Phase 2 (Build)**: Runs `go build` (with `-o <output>` if specified). If compilation fails, inspects missing imports or undefined symbols to suggest `read_docs` lookups.
-  - **Phase 3 (Test & Coverage)**: Runs `go test -v -coverprofile=coverage.out`, parses total statement coverage via `go tool cover -func`, and outputs package breakdown.
-  - **Phase 4 (Linter)**: Detects `.golangci.yml/yaml/toml/json` and invokes `golangci-lint` (matching config version v1 or v2), or falls back to `go vet`.
+  - **Build & Compilation**: Compiles target Go packages and binaries (`go build` / `-o <output>`). If compilation fails, analyzes compiler errors and missing symbols to provide actionable guidance.
+  - **Source Preparation & Modernization**: Executes `go mod tidy`, `modernize`, and `gofmt` to ensure valid AST formatting, with `deadcode` reporting unreachable functions.
+  - **Verification Testing & Coverage**: Runs `go test` with coverage profiling, outputs coverage percentages, and syncs execution data to `testquery.db`.
+  - **Linting**: Runs configured static linters (`golangci-lint` or `go vet`).
 
 #### `smart_test`
 - **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `packages` (string, optional, default `./...`), `level` (string, optional: `fast`, `basic` [default], `benchmark`, `complete`), `run` (string, optional regex filter).

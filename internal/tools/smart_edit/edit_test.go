@@ -30,69 +30,67 @@ var editTests = []struct {
 	},
 }
 
-//nolint:funlen,errcheck
-func TestEdit(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "edit-test-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	//nolint:errcheck
-	defer os.RemoveAll(tmpDir)
-
-	t.Run("invalid params", func(t *testing.T) {
-		testCases := []string{"", "main.go", "./pkg/file.go", "internal/server.go"}
-		for _, fn := range testCases {
-			res, _, err := Handler(context.TODO(), nil, SingleEditParams{Filename: fn})
-			if err != nil {
-				t.Fatalf("unexpected go error: %v", err)
-			}
-			if !res.IsError {
-				t.Errorf("expected error for non-absolute filename %q", fn)
-			}
-			text := res.Content[0].(*mcp.TextContent).Text
-			if !strings.Contains(text, "filename is required and must be an absolute path") {
-				t.Errorf("expected absolute path error message, got: %s", text)
-			}
+func TestEdit_InvalidParams(t *testing.T) {
+	testCases := []string{"", "main.go", "./pkg/file.go", "internal/server.go"}
+	for _, fn := range testCases {
+		res, _, err := Handler(context.TODO(), nil, SingleEditParams{Filename: fn})
+		if err != nil {
+			t.Fatalf("unexpected go error: %v", err)
 		}
-	})
+		if !res.IsError {
+			t.Errorf("expected error for non-absolute filename %q", fn)
+		}
+		text := res.Content[0].(*mcp.TextContent).Text
+		if !strings.Contains(text, "filename is required and must be an absolute path") {
+			t.Errorf("expected absolute path error message, got: %s", text)
+		}
+	}
+}
 
+func TestEdit_SingleEditValid(t *testing.T) {
+	tmpDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n\ngo 1.26.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
-	t.Run("single edit valid", func(t *testing.T) {
-		tmpFile, err := os.CreateTemp(tmpDir, "edit_test_*.go")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = os.Remove(tmpFile.Name()) }()
+	tmpFile, err := os.CreateTemp(tmpDir, "edit_test_*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Remove(tmpFile.Name()) }()
 
-		initialContent := "package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n"
-		if _, err := tmpFile.WriteString(initialContent); err != nil {
-			t.Fatal(err)
-		}
-		_ = tmpFile.Close()
+	initialContent := "package main\n\nfunc main() {\n\tprintln(\"hello\")\n}\n"
+	if _, err := tmpFile.WriteString(initialContent); err != nil {
+		t.Fatal(err)
+	}
+	_ = tmpFile.Close()
 
-		res, _, err := Handler(context.TODO(), nil, SingleEditParams{
-			Filename:   tmpFile.Name(),
-			OldContent: "println(\"hello\")",
-			NewContent: "println(\"world\")",
-		})
-		if err != nil {
-			t.Fatalf("unexpected go error: %v", err)
-		}
-		if res.IsError {
-			t.Fatalf("expected success, got error: %s", res.Content[0].(*mcp.TextContent).Text)
-		}
-
-		content, err := os.ReadFile(tmpFile.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(content), "println(\"world\")") {
-			t.Errorf("content not updated: %s", string(content))
-		}
+	res, _, err := Handler(context.TODO(), nil, SingleEditParams{
+		Filename:   tmpFile.Name(),
+		OldContent: "println(\"hello\")",
+		NewContent: "println(\"world\")",
 	})
+	if err != nil {
+		t.Fatalf("unexpected go error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success, got error: %s", res.Content[0].(*mcp.TextContent).Text)
+	}
+
+	content, err := os.ReadFile(filepath.Clean(tmpFile.Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "println(\"world\")") {
+		t.Errorf("content not updated: %s", string(content))
+	}
+}
+
+func TestEdit_TableDriven(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module test\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	content := `package main
 import "fmt"
@@ -120,8 +118,7 @@ func main() {
 				t.Fatalf("Tool returned error: %v", res.Content[0].(*mcp.TextContent).Text)
 			}
 
-			//nolint:gosec // G304: Test file path.
-			newContent, _ := os.ReadFile(filePath)
+			newContent, _ := os.ReadFile(filepath.Clean(filePath))
 			if !strings.Contains(string(newContent), tt.expected) {
 				t.Errorf("expected %q in content, got: %s", tt.expected, string(newContent))
 			}
@@ -130,12 +127,7 @@ func main() {
 }
 
 func TestEdit_Broken(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "edit-broken-*")
-	if err != nil {
-		t.Fatal(err)
-	}
-	//nolint:errcheck
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte("module broken\n\ngo 1.26.0\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +165,7 @@ func TestEdit_Broken(t *testing.T) {
 	}
 
 	// Verify rollback restored original content
-	restored, err := os.ReadFile(filePath)
+	restored, err := os.ReadFile(filepath.Clean(filePath))
 	if err != nil {
 		t.Fatalf("failed to read file after rollback: %v", err)
 	}

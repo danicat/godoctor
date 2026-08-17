@@ -9,29 +9,29 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/danicat/godoctor/internal/config"
 	"github.com/danicat/godoctor/internal/safeshell"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // Register registers the tool with the server.
 func Register(server *mcp.Server) {
-	//nolint:lll
 	mcp.AddTool(server, &mcp.Tool{
-		Name:        "test_query",
-		Title:       "Test Query",
-		Description: "Queries Go test results and coverage data using SQL via testquery (tq). Uses a persistent SQLite database (.godoctor/testquery.db or testquery.db) to avoid re-running tests on every query. Set rebuild=true after code changes to refresh the database. Available tables: all_tests (time, action, package, test, elapsed, output), all_coverage (package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), test_coverage (test_name, package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name), all_code (package, file, line_number, content), metadata (key, value).",
+		Name:  "test_query",
+		Title: "Test Query",
+		Description: "Queries Go test results and coverage data using SQL via testquery (tq). " +
+			"Uses a persistent SQLite database (.godoctor/testquery.db or testquery.db) to avoid " +
+			"re-running tests on every query. Set rebuild=true after code changes to refresh the " +
+			"database. Available tables: all_tests, all_coverage, test_coverage, all_code, metadata.",
 	}, Handler)
 }
 
 // Params defines the input parameters.
 type Params struct {
-	//nolint:lll
-	Dir string `json:"dir" jsonschema:"The absolute directory path to analyze. Required. Relative paths are rejected."`
-	//nolint:lll
-	Query string `json:"query" jsonschema:"SQL query to run against test results (e.g. SELECT * FROM all_tests WHERE action = 'fail')"`
-	Pkg   string `json:"pkg,omitempty" jsonschema:"Go package pattern to analyze (default: ./...)"`
-	//nolint:lll
-	Rebuild bool `json:"rebuild,omitempty" jsonschema:"Force rebuild of the test database before querying. Use after code changes. First call always builds."`
+	Dir     string `json:"dir" jsonschema:"The absolute directory path to analyze. Required."`
+	Query   string `json:"query" jsonschema:"SQL query to run against test results (e.g. SELECT * FROM all_tests)"`
+	Pkg     string `json:"pkg,omitempty" jsonschema:"Go package pattern to analyze (default: ./...)"`
+	Rebuild bool   `json:"rebuild,omitempty" jsonschema:"Force rebuild of test database before querying."`
 }
 
 // Runner defines the interface for running commands.
@@ -70,21 +70,20 @@ func (r *stdRunner) LookPath(file string) (string, error) {
 var CommandRunner Runner = &stdRunner{}
 
 const (
-	cmdTestQuery       = "testquery"
-	cmdTQ              = "tq"
-	cmdSQLite3         = "sqlite3"
-	dbFile             = "testquery.db"
-	legacyDBFile       = "testquery.db"
-	defaultDBDir       = ".godoctor"
-	defaultFallbackPkg = "github.com/danicat/testquery@latest"
-	flagOutput         = "--output"
-	flagDB             = "--db"
-	flagPkg            = "--pkg"
-	flagFormat         = "--format"
-	flagTable          = "table"
-	cmdBuild           = "build"
-	cmdQuery           = "query"
-	pragmaWAL          = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"
+	cmdTestQuery = "testquery"
+	cmdTQ        = "tq"
+	cmdSQLite3   = "sqlite3"
+	dbFile       = "testquery.db"
+	legacyDBFile = "testquery.db"
+	defaultDBDir = ".godoctor"
+	flagOutput   = "--output"
+	flagDB       = "--db"
+	flagPkg      = "--pkg"
+	flagFormat   = "--format"
+	flagTable    = "table"
+	cmdBuild     = "build"
+	cmdQuery     = "query"
+	pragmaWAL    = "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;"
 )
 
 // Handler handles the test_query tool execution.
@@ -94,19 +93,29 @@ func Handler(ctx context.Context, req *mcp.CallToolRequest, args Params) (*mcp.C
 		return errorResult(err.Error()), nil, nil
 	}
 
-	relDBPath, absDBPath := resolveDBPath(absDir)
+	cfg, _ := config.LoadFromWorkspace(absDir)
+	if cfg == nil {
+		cfg = config.NewDefaultConfig()
+	}
+
+	tqCmd, err := resolveTQCommand(cfg, CommandRunner)
+	if err != nil {
+		return errorResult(err.Error()), nil, nil
+	}
+
+	relDBPath, absDBPath := resolveDBPath(absDir, cfg)
 
 	if args.Rebuild || !fileExists(absDBPath) {
-		if errRes := buildDB(ctx, absDir, args, relDBPath, absDBPath); errRes != nil {
+		if errRes := buildDB(ctx, absDir, args, relDBPath, absDBPath, tqCmd); errRes != nil {
 			return errRes, nil, nil
 		}
 	}
 
-	return runQuery(ctx, absDir, relDBPath, absDBPath, args.Query)
+	return runQuery(ctx, absDir, relDBPath, absDBPath, args.Query, tqCmd)
 }
 
 func validateParams(_ *mcp.CallToolRequest, args Params) (string, error) {
-	if args.Query == "" {
+	if strings.TrimSpace(args.Query) == "" {
 		return "", fmt.Errorf("query cannot be empty")
 	}
 
@@ -117,80 +126,113 @@ func validateParams(_ *mcp.CallToolRequest, args Params) (string, error) {
 	return filepath.Clean(args.Dir), nil
 }
 
-func resolveDBPath(absDir string) (string, string) {
+func resolveDBPath(absDir string, cfg *config.Config) (string, string) {
+	preferredRel := filepath.Join(defaultDBDir, dbFile)
+	preferredAbs := filepath.Join(absDir, preferredRel)
+
+	if cfg != nil && cfg.TestQuery.DatabasePath != "" &&
+		cfg.TestQuery.DatabasePath != config.DefaultTestQueryDB &&
+		cfg.TestQuery.DatabasePath != preferredRel {
+		dbPath := cfg.TestQuery.DatabasePath
+		if filepath.IsAbs(dbPath) {
+			return dbPath, dbPath
+		}
+		return dbPath, filepath.Join(absDir, dbPath)
+	}
+
+	if fileExists(preferredAbs) {
+		return preferredRel, preferredAbs
+	}
+
 	legacyPath := filepath.Join(absDir, legacyDBFile)
 	if fileExists(legacyPath) {
 		return legacyDBFile, legacyPath
 	}
 
-	preferredRel := filepath.Join(defaultDBDir, dbFile)
-	return preferredRel, filepath.Join(absDir, preferredRel)
+	return preferredRel, preferredAbs
 }
 
-func getTQCommand(runner Runner, args ...string) (string, []string) {
+func resolveTQCommand(cfg *config.Config, runner Runner) (string, error) {
+	if cfg != nil && cfg.Tools.TestQuery.Command != "" {
+		cmd := cfg.Tools.TestQuery.Command
+		if filepath.IsAbs(cmd) {
+			return cmd, nil
+		}
+		if _, err := runner.LookPath(cmd); err == nil {
+			return cmd, nil
+		}
+	}
 	if _, err := runner.LookPath(cmdTestQuery); err == nil {
-		return cmdTestQuery, args
+		return cmdTestQuery, nil
 	}
 	if _, err := runner.LookPath(cmdTQ); err == nil {
-		return cmdTQ, args
+		return cmdTQ, nil
 	}
-	goArgs := append([]string{"run", defaultFallbackPkg}, args...)
-	return "go", goArgs
+	return "", fmt.Errorf("testquery binary not found in PATH; configure tools.testquery.command or install testquery")
 }
 
-func ensureWALMode(ctx context.Context, absDir, relDBPath string) {
+func ensureWALMode(ctx context.Context, absDir, relDBPath, tqCmd string) {
 	if _, err := CommandRunner.LookPath(cmdSQLite3); err == nil {
 		_ = CommandRunner.Run(ctx, absDir, cmdSQLite3, relDBPath, pragmaWAL)
 		return
 	}
-	tqCmd, tqArgs := getTQCommand(CommandRunner, cmdQuery, flagDB, relDBPath, flagFormat, flagTable, pragmaWAL)
+	tqArgs := []string{cmdQuery, flagDB, relDBPath, flagFormat, flagTable, pragmaWAL}
 	_ = CommandRunner.Run(ctx, absDir, tqCmd, tqArgs...)
 }
 
-func buildDB(ctx context.Context, absDir string, args Params, relDBPath, absDBPath string) *mcp.CallToolResult {
-	if err := os.MkdirAll(filepath.Dir(absDBPath), 0755); err != nil {
+func buildDB(ctx context.Context, absDir string, args Params, relDBPath, absDBPath, tqCmd string) *mcp.CallToolResult {
+	if err := os.MkdirAll(filepath.Dir(absDBPath), 0750); err != nil {
 		return errorResult(fmt.Sprintf("failed to create database directory: %v", err))
 	}
+
+	hadExistingDB := fileExists(absDBPath)
+	_ = os.Remove(absDBPath)
+	_ = os.Remove(absDBPath + "-wal")
+	_ = os.Remove(absDBPath + "-shm")
 
 	pkg := args.Pkg
 	if pkg == "" {
 		pkg = "./..."
 	}
 
-	tqCmd, tqArgs := getTQCommand(CommandRunner, cmdBuild, flagPkg, pkg, flagOutput, relDBPath)
-
+	tqArgs := []string{cmdBuild, flagPkg, pkg, flagOutput, relDBPath}
 	out, buildErr := CommandRunner.RunWithOutput(ctx, absDir, tqCmd, tqArgs...)
 	buildOutput := filterNoise(out)
 
 	if buildErr != nil {
 		hint := "**HINT:** Ensure Go tests compile cleanly. " +
 			"Run `smart_build` or `smart_test` first to identify any compilation or syntax errors."
-		if fileExists(absDBPath) {
-			return errorResult(fmt.Sprintf("failed to rebuild test database (stale database exists): %v\n%s\n\n%s", buildErr, buildOutput, hint))
+		if hadExistingDB {
+			msg := fmt.Sprintf("failed to rebuild test database (stale database exists): %v\n%s\n\n%s",
+				buildErr, buildOutput, hint)
+			return errorResult(msg)
 		}
 		return errorResult(fmt.Sprintf("failed to build test database: %v\n%s\n\n%s", buildErr, buildOutput, hint))
 	}
 
-	ensureWALMode(ctx, absDir, relDBPath)
+	ensureWALMode(ctx, absDir, relDBPath, tqCmd)
 	return nil
 }
 
-func runQuery(ctx context.Context, absDir, relDBPath, absDBPath, query string) (*mcp.CallToolResult, any, error) {
+func runQuery(
+	ctx context.Context,
+	absDir, relDBPath, absDBPath, query, tqCmd string,
+) (*mcp.CallToolResult, any, error) {
 	if fileExists(absDBPath) {
-		ensureWALMode(ctx, absDir, relDBPath)
+		ensureWALMode(ctx, absDir, relDBPath, tqCmd)
 	}
 
-	tqCmd, tqArgs := getTQCommand(CommandRunner, cmdQuery, flagDB, relDBPath, flagFormat, flagTable, query)
-
+	tqArgs := []string{cmdQuery, flagDB, relDBPath, flagFormat, flagTable, query}
 	out, runErr := CommandRunner.RunWithOutput(ctx, absDir, tqCmd, tqArgs...)
 	output := filterNoise(out)
 
 	if runErr != nil && output == "" {
 		hint := "**HINT:** Check SQL query syntax and available tables:\n" +
 			"- `all_tests` (time, action, package, test, elapsed, output)\n" +
-			"- `all_coverage` (package, file, start_line, start_col, end_line, end_col, stmt_num, count, function_name)\n" +
-			"- `test_coverage` (test_name, package, file, start_line, start_col,\n" +
-			"  end_line, end_col, stmt_num, count, function_name)\n" +
+			"- `all_coverage` (package, file, start_line, start_col, end_line, end_col, " +
+			"stmt_num, count, function_name)\n" +
+			"- `test_coverage` (test_name, package, file, start_line, start_col, end_line, " +
+			"end_col, stmt_num, count, function_name)\n" +
 			"- `all_code` (package, file, line_number, content)\n" +
 			"- `metadata` (key, value)"
 		msg := fmt.Sprintf("test query failed: %v\n\n%s", runErr, hint)
@@ -233,7 +275,9 @@ func filterNoise(s string) string {
 	var filtered []string
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "go: downloading ") || strings.HasPrefix(trimmed, "exit status ") || trimmed == "exit status" {
+		if strings.HasPrefix(trimmed, "go: downloading ") ||
+			strings.HasPrefix(trimmed, "exit status ") ||
+			trimmed == "exit status" {
 			continue
 		}
 		filtered = append(filtered, line)

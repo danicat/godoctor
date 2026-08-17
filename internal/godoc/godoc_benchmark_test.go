@@ -11,14 +11,14 @@ func BenchmarkLoad_Cached(b *testing.B) {
 	symbol := "Cmd"
 
 	// Warm the cache
-	_, err := Load(ctx, pkgPath, symbol)
+	_, err := LoadWithFallback(ctx, pkgPath, symbol)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := Load(ctx, pkgPath, symbol)
+		_, err := LoadWithFallback(ctx, pkgPath, symbol)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -33,10 +33,10 @@ func BenchmarkLoad_Uncached(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
-		ClearCache()
+		clearCacheForTest()
 		b.StartTimer()
 
-		_, err := Load(ctx, pkgPath, symbol)
+		_, err := LoadWithFallback(ctx, pkgPath, symbol)
 		if err != nil {
 			b.Fatal(err)
 		}

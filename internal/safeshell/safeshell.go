@@ -34,8 +34,6 @@ func CommandContext(ctx context.Context, name string, args ...string) (*exec.Cmd
 			return nil, fmt.Errorf("invalid argument %q: %w", arg, err)
 		}
 	}
-
-	// nolint:gosec // G204: safeshell strictly sanitizes name and arguments before execution
 	return exec.CommandContext(ctx, name, args...), nil
 }
 

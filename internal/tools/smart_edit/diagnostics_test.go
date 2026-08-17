@@ -12,10 +12,9 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-func TestExtractASTSymbols(t *testing.T) {
-	t.Run("all declarations collected", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		sourceCode := `package testpkg
+func TestExtractASTSymbols_Declarations(t *testing.T) {
+	tmpDir := t.TempDir()
+	sourceCode := `package testpkg
 
 const (
 	MyConst1 = 1
@@ -50,70 +49,72 @@ func Foo() {}
 
 func (b Bar) MethodOnBar() {}
 `
-		filePath := filepath.Join(tmpDir, "sample.go")
-		if err := os.WriteFile(filePath, []byte(sourceCode), 0600); err != nil {
-			t.Fatalf("failed to write sample Go file: %v", err)
-		}
+	filePath := filepath.Join(tmpDir, "sample.go")
+	if err := os.WriteFile(filePath, []byte(sourceCode), 0600); err != nil {
+		t.Fatalf("failed to write sample Go file: %v", err)
+	}
 
-		symbols := extractASTSymbols(filePath)
+	symbols := extractASTSymbols(filePath)
 
-		expectedSymbols := []string{
-			"MyConst1", "MyConst2", "SingleConst",
-			"VarA", "VarB", "SingleVar",
-			"MyType", "Bar", "FieldX", "FieldY", "unexported",
-			"AnonymousContainer",
-			"Greeter", "Greet", "name",
-			"Foo", "MethodOnBar",
-		}
+	expectedSymbols := []string{
+		"MyConst1", "MyConst2", "SingleConst",
+		"VarA", "VarB", "SingleVar",
+		"MyType", "Bar", "FieldX", "FieldY", "unexported",
+		"AnonymousContainer",
+		"Greeter", "Greet", "name",
+		"Foo", "MethodOnBar",
+	}
 
-		for _, expected := range expectedSymbols {
-			if !slices.Contains(symbols, expected) {
-				t.Errorf("expected symbol %q was not found in extracted symbols: %v", expected, symbols)
-			}
+	for _, expected := range expectedSymbols {
+		if !slices.Contains(symbols, expected) {
+			t.Errorf("expected symbol %q was not found in extracted symbols: %v", expected, symbols)
 		}
-	})
+	}
+}
 
-	t.Run("multiple Go files in directory", func(t *testing.T) {
-		tmpDir := t.TempDir()
+func TestExtractASTSymbols_MultipleFiles(t *testing.T) {
+	tmpDir := t.TempDir()
 
-		fileA := filepath.Join(tmpDir, "a.go")
-		fileAContent := "package testpkg\n\nfunc FuncA() {}\nvar SharedVar = 1\n"
-		if err := os.WriteFile(fileA, []byte(fileAContent), 0600); err != nil {
-			t.Fatalf("failed to write a.go: %v", err)
-		}
+	fileA := filepath.Join(tmpDir, "a.go")
+	fileAContent := "package testpkg\n\nfunc FuncA() {}\nvar SharedVar = 1\n"
+	if err := os.WriteFile(fileA, []byte(fileAContent), 0600); err != nil {
+		t.Fatalf("failed to write a.go: %v", err)
+	}
 
-		fileB := filepath.Join(tmpDir, "b.go")
-		fileBContent := "package testpkg\n\nfunc FuncB() {}\nvar SharedVar = 2\n"
-		if err := os.WriteFile(fileB, []byte(fileBContent), 0600); err != nil {
-			t.Fatalf("failed to write b.go: %v", err)
-		}
+	fileB := filepath.Join(tmpDir, "b.go")
+	fileBContent := "package testpkg\n\nfunc FuncB() {}\nvar SharedVar = 2\n"
+	if err := os.WriteFile(fileB, []byte(fileBContent), 0600); err != nil {
+		t.Fatalf("failed to write b.go: %v", err)
+	}
 
-		symbols := extractASTSymbols(fileA)
+	symbols := extractASTSymbols(fileA)
 
-		if !slices.Contains(symbols, "FuncA") {
-			t.Errorf("expected FuncA in symbols: %v", symbols)
-		}
-		if !slices.Contains(symbols, "FuncB") {
-			t.Errorf("expected FuncB in symbols: %v", symbols)
-		}
-		if !slices.Contains(symbols, "SharedVar") {
-			t.Errorf("expected SharedVar in symbols: %v", symbols)
-		}
+	if !slices.Contains(symbols, "FuncA") {
+		t.Errorf("expected FuncA in symbols: %v", symbols)
+	}
+	if !slices.Contains(symbols, "FuncB") {
+		t.Errorf("expected FuncB in symbols: %v", symbols)
+	}
+	if !slices.Contains(symbols, "SharedVar") {
+		t.Errorf("expected SharedVar in symbols: %v", symbols)
+	}
 
-		// Ensure deduplication
-		count := 0
-		for _, sym := range symbols {
-			if sym == "SharedVar" {
-				count++
-			}
+	// Ensure deduplication
+	count := 0
+	for _, sym := range symbols {
+		if sym == "SharedVar" {
+			count++
 		}
-		if count != 1 {
-			t.Errorf("expected SharedVar to appear exactly once, got %d occurrences", count)
-		}
-	})
+	}
+	if count != 1 {
+		t.Errorf("expected SharedVar to appear exactly once, got %d occurrences", count)
+	}
+}
+
+func TestExtractASTSymbols_EdgeCases(t *testing.T) {
+	tmpDir := t.TempDir()
 
 	t.Run("empty directory", func(t *testing.T) {
-		tmpDir := t.TempDir()
 		dummyPath := filepath.Join(tmpDir, "dummy.go")
 		symbols := extractASTSymbols(dummyPath)
 		if len(symbols) != 0 {
@@ -130,31 +131,19 @@ func (b Bar) MethodOnBar() {}
 	})
 
 	t.Run("syntax errors handled gracefully", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		brokenCode := `package broken
-
-func ValidFunc() {}
-
-func BrokenFunc( {
-	invalid syntax here !@@#
-`
+		brokenCode := "package broken\n\nfunc BrokenFunc( {\ninvalid syntax\n"
 		brokenPath := filepath.Join(tmpDir, "broken.go")
 		if err := os.WriteFile(brokenPath, []byte(brokenCode), 0600); err != nil {
 			t.Fatalf("failed to write broken.go: %v", err)
 		}
-
-		// Should not panic, returns whatever symbols could be extracted or nil
-		symbols := extractASTSymbols(brokenPath)
-		_ = symbols
+		_ = extractASTSymbols(brokenPath)
 	})
 
 	t.Run("non Go files only", func(t *testing.T) {
-		tmpDir := t.TempDir()
 		txtPath := filepath.Join(tmpDir, "notes.txt")
 		if err := os.WriteFile(txtPath, []byte("some text"), 0600); err != nil {
 			t.Fatalf("failed to write notes.txt: %v", err)
 		}
-
 		symbols := extractASTSymbols(filepath.Join(tmpDir, "anything.go"))
 		if len(symbols) != 0 {
 			t.Errorf("expected empty symbols for dir without Go files, got %v", symbols)
@@ -162,14 +151,13 @@ func BrokenFunc( {
 	})
 }
 
-func TestFindClosestSymbol(t *testing.T) {
+func TestFindClosestSymbol_Matching(t *testing.T) {
 	t.Run("exact match exclusion", func(t *testing.T) {
 		known := []string{"Foo", "Bar", "Baz"}
 		bestSym, bestDist := findClosestSymbol("Foo", known)
 		if bestSym == "Foo" {
 			t.Errorf("exact match should be excluded, got %q", bestSym)
 		}
-		// "Bar" or "Baz" distance to "Foo" is 3
 		if bestDist != 3 {
 			t.Errorf("expected best distance 3, got %d", bestDist)
 		}
@@ -212,7 +200,9 @@ func TestFindClosestSymbol(t *testing.T) {
 			}
 		}
 	})
+}
 
+func TestFindClosestSymbol_EdgeCases(t *testing.T) {
 	t.Run("case insensitivity", func(t *testing.T) {
 		known := []string{"MyFunction", "CalculateSum"}
 		sym, dist := findClosestSymbol("myfunction", known)
@@ -245,12 +235,9 @@ func TestFindClosestSymbol(t *testing.T) {
 	})
 }
 
-func TestFindSuggestions(t *testing.T) {
-	ctx := context.Background()
-
-	setupWorkspace := func(t *testing.T) string {
-		tmpDir := t.TempDir()
-		source := `package testpkg
+func setupTestWorkspace(t *testing.T) string {
+	tmpDir := t.TempDir()
+	source := `package testpkg
 
 type S struct {
 	GoodField string
@@ -259,15 +246,18 @@ type S struct {
 func GoodSym() {}
 func HandleRequest() {}
 `
-		filePath := filepath.Join(tmpDir, "file.go")
-		if err := os.WriteFile(filePath, []byte(source), 0600); err != nil {
-			t.Fatalf("failed to write test file: %v", err)
-		}
-		return filePath
+	filePath := filepath.Join(tmpDir, "file.go")
+	if err := os.WriteFile(filePath, []byte(source), 0600); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
 	}
+	return filePath
+}
+
+func TestFindSuggestions_Patterns(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("undeclared name pattern", func(t *testing.T) {
-		filePath := setupWorkspace(t)
+		filePath := setupTestWorkspace(t)
 		errMsg := filePath + ":10:5: undeclared name: GoodSim"
 
 		suggestion := findSuggestions(ctx, errMsg)
@@ -281,7 +271,7 @@ func HandleRequest() {}
 	})
 
 	t.Run("undefined pattern", func(t *testing.T) {
-		filePath := setupWorkspace(t)
+		filePath := setupTestWorkspace(t)
 		errMsg := filePath + ":12:8: HandleReqest undefined"
 
 		suggestion := findSuggestions(ctx, errMsg)
@@ -292,7 +282,7 @@ func HandleRequest() {}
 	})
 
 	t.Run("no field or method pattern", func(t *testing.T) {
-		filePath := setupWorkspace(t)
+		filePath := setupTestWorkspace(t)
 		errMsg := filePath + ":15:3: type S has no field or method GoodFeild"
 
 		suggestion := findSuggestions(ctx, errMsg)
@@ -301,9 +291,13 @@ func HandleRequest() {}
 			t.Errorf("expected suggestion to contain %q, got: %s", expected, suggestion)
 		}
 	})
+}
+
+func TestFindSuggestions_EdgeCases(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("distance greater than 4 yields no suggestions", func(t *testing.T) {
-		filePath := setupWorkspace(t)
+		filePath := setupTestWorkspace(t)
 		errMsg := filePath + ":10:5: undeclared name: CompletelyUnrelatedLongIdentifier"
 
 		suggestion := findSuggestions(ctx, errMsg)
@@ -327,6 +321,10 @@ func HandleRequest() {}
 			}
 		}
 	})
+}
+
+func TestFindSuggestions_MultiFileAndWindows(t *testing.T) {
+	ctx := context.Background()
 
 	t.Run("multiple error lines across multiple files", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -359,14 +357,12 @@ func HandleRequest() {}
 			t.Errorf("expected suggestion 2 %q, got: %s", expected2, suggestion)
 		}
 	})
+
 	t.Run("windows path pattern", func(t *testing.T) {
-		filePath := setupWorkspace(t)
-		// Emulate a Windows drive path in the compiler output
+		filePath := setupTestWorkspace(t)
 		winPath := `C:\workspace\` + filepath.Base(filePath)
 		errMsg := winPath + ":10:5: undeclared name: GoodSim"
 
-		// Use the actual file path for AST symbol extraction simulation
-		// fileErrorRegex matches the winPath as filePath
 		matches := fileErrorRegex.FindStringSubmatch(errMsg)
 		if len(matches) < 5 {
 			t.Fatalf("expected at least 5 matches for Windows path, got %d", len(matches))
@@ -455,10 +451,7 @@ func main() {
 	})
 }
 
-func TestGetAllGoFiles(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create directories
+func setupGoFilesTree(t *testing.T, tmpDir string) ([]string, []string) {
 	dirsToCreate := []string{
 		filepath.Join(tmpDir, "pkg", "subpkg"),
 		filepath.Join(tmpDir, ".git", "objects"),
@@ -473,7 +466,6 @@ func TestGetAllGoFiles(t *testing.T) {
 		}
 	}
 
-	// Create files
 	filesToCreate := map[string]string{
 		filepath.Join(tmpDir, "root.go"):                  "package main",
 		filepath.Join(tmpDir, "pkg", "pkg.go"):            "package pkg",
@@ -493,22 +485,11 @@ func TestGetAllGoFiles(t *testing.T) {
 		}
 	}
 
-	goFiles, err := getAllGoFiles(tmpDir)
-	if err != nil {
-		t.Fatalf("getAllGoFiles failed: %v", err)
-	}
-
 	expectedAllowed := []string{
 		filepath.Join(tmpDir, "root.go"),
 		filepath.Join(tmpDir, "pkg", "pkg.go"),
 		filepath.Join(tmpDir, "pkg", "subpkg", "deep.go"),
 		filepath.Join(tmpDir, "normal_dir", "normal.go"),
-	}
-
-	for _, expected := range expectedAllowed {
-		if !slices.Contains(goFiles, expected) {
-			t.Errorf("expected %s in collected Go files, but not found in: %v", expected, goFiles)
-		}
 	}
 
 	forbiddenDisallowed := []string{
@@ -518,6 +499,24 @@ func TestGetAllGoFiles(t *testing.T) {
 		filepath.Join(tmpDir, "skills", "skill.go"),
 		filepath.Join(tmpDir, "agents", "agent.go"),
 		filepath.Join(tmpDir, "hooks", "hook.go"),
+	}
+
+	return expectedAllowed, forbiddenDisallowed
+}
+
+func TestGetAllGoFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+	expectedAllowed, forbiddenDisallowed := setupGoFilesTree(t, tmpDir)
+
+	goFiles, err := getAllGoFiles(tmpDir)
+	if err != nil {
+		t.Fatalf("getAllGoFiles failed: %v", err)
+	}
+
+	for _, expected := range expectedAllowed {
+		if !slices.Contains(goFiles, expected) {
+			t.Errorf("expected %s in collected Go files, but not found in: %v", expected, goFiles)
+		}
 	}
 
 	for _, forbidden := range forbiddenDisallowed {
@@ -553,280 +552,250 @@ func TestGetAllGoFiles(t *testing.T) {
 	})
 }
 
-func TestWriteAndVerify(t *testing.T) {
+func TestWriteAndVerify_Success(t *testing.T) {
 	ctx := context.Background()
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
 
-	t.Run("successful write and verify", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		goModPath := filepath.Join(tmpDir, "go.mod")
-		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
+	mainFile := filepath.Join(tmpDir, "main.go")
+	origContent := []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"original\")\n}\n")
+	if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
 
-		mainFile := filepath.Join(tmpDir, "main.go")
-		origContent := []byte("package main\n\nimport \"fmt\"\n\n" +
-			"func main() {\n\tfmt.Println(\"original\")\n}\n")
-		if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
-			t.Fatalf("failed to write main.go: %v", err)
-		}
+	newContent := []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"updated\")\n}\n")
+	currentContents := map[string][]byte{mainFile: newContent}
+	backups := map[string]FileBackup{
+		mainFile: {Content: origContent, Mode: 0600, Existed: true},
+	}
 
-		newContent := []byte("package main\n\nimport \"fmt\"\n\n" +
-			"func main() {\n\tfmt.Println(\"updated\")\n}\n")
-		currentContents := map[string][]byte{mainFile: newContent}
-		backups := map[string]FileBackup{
-			mainFile: {Content: origContent, Mode: 0600, Existed: true},
-		}
+	res, err := writeAndVerify(ctx, nil, currentContents, backups)
+	if err != nil {
+		t.Fatalf("unexpected error from writeAndVerify: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("expected success, got error result: %v", res.Content[0].(*mcp.TextContent).Text)
+	}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err != nil {
-			t.Fatalf("unexpected error from writeAndVerify: %v", err)
-		}
-		if res.IsError {
-			t.Fatalf("expected success, got error result: %v", res.Content[0].(*mcp.TextContent).Text)
-		}
+	written, err := os.ReadFile(filepath.Clean(mainFile))
+	if err != nil {
+		t.Fatalf("failed to read written file: %v", err)
+	}
+	if string(written) != string(newContent) {
+		t.Errorf("file content mismatch, expected %q, got %q", string(newContent), string(written))
+	}
+}
 
-		written, err := os.ReadFile(mainFile)
-		if err != nil {
-			t.Fatalf("failed to read written file: %v", err)
-		}
-		if string(written) != string(newContent) {
-			t.Errorf("file content mismatch, expected %q, got %q", string(newContent), string(written))
-		}
-	})
+func TestWriteAndVerify_PermissionPreservation(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
 
-	t.Run("permission preservation across write and rollback", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		goModPath := filepath.Join(tmpDir, "go.mod")
-		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
+	scriptFile := filepath.Join(tmpDir, "script.go")
+	origContent := []byte("package main\n\nfunc main() {}\n")
+	// #nosec G306 -- Testing executable permission preservation
+	if err := os.WriteFile(scriptFile, origContent, 0755); err != nil {
+		t.Fatalf("failed to write script.go: %v", err)
+	}
 
-		scriptFile := filepath.Join(tmpDir, "script.go")
-		origContent := []byte("package main\n\nfunc main() {}\n")
-		// Executable permissions
-		if err := os.WriteFile(scriptFile, origContent, 0755); err != nil {
-			t.Fatalf("failed to write script.go: %v", err)
-		}
+	// Edit with vet error to trigger rollback
+	badContent := []byte("package main\n\nvar _ int = \"type mismatch\"\n\nfunc main() {}\n")
+	currentContents := map[string][]byte{scriptFile: badContent}
+	backups := map[string]FileBackup{
+		scriptFile: {Content: origContent, Mode: 0755, Existed: true},
+	}
 
-		// Edit with vet error to trigger rollback
-		badContent := []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
-		currentContents := map[string][]byte{scriptFile: badContent}
-		backups := map[string]FileBackup{
-			scriptFile: {Content: origContent, Mode: 0755, Existed: true},
-		}
+	res, err := writeAndVerify(ctx, nil, currentContents, backups)
+	if err == nil || !res.IsError {
+		t.Fatalf("expected vet error, got: res=%v, err=%v", res, err)
+	}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err == nil || !res.IsError {
-			t.Fatalf("expected vet error, got: res=%v, err=%v", res, err)
-		}
+	info, err := os.Stat(scriptFile)
+	if err != nil {
+		t.Fatalf("failed to stat restored file: %v", err)
+	}
+	if info.Mode().Perm() != 0755 {
+		t.Errorf("expected restored permissions 0755, got: %o", info.Mode().Perm())
+	}
+}
 
-		// Verify file mode was preserved after rollback
-		info, err := os.Stat(scriptFile)
-		if err != nil {
-			t.Fatalf("failed to stat restored file: %v", err)
-		}
-		if info.Mode().Perm() != 0755 {
-			t.Errorf("expected restored permissions 0755, got: %o", info.Mode().Perm())
-		}
-	})
+func TestWriteAndVerify_RollbackVet(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
 
-	t.Run("rollback on go vet failure with suggestions", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		goModPath := filepath.Join(tmpDir, "go.mod")
-		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
+	mainFile := filepath.Join(tmpDir, "main.go")
+	origContent := []byte("package main\n\nimport \"fmt\"\n\nfunc ValidFunction() {\n\tfmt.Println(\"ok\")\n}\nfunc main() {\n\tValidFunction()\n}\n")
+	if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
 
-		mainFile := filepath.Join(tmpDir, "main.go")
-		origContent := []byte("package main\n\nimport \"fmt\"\n\n" +
-			"func ValidFunction() {\n\tfmt.Println(\"ok\")\n}\n" +
-			"func main() {\n\tValidFunction()\n}\n")
-		if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
-			t.Fatalf("failed to write main.go: %v", err)
-		}
+	badContent := []byte("package main\n\nfunc ValidFunction() {\n\tvar _ int = \"type mismatch\"\n}\nfunc main() {\n\tValidFunction()\n}\n")
+	currentContents := map[string][]byte{mainFile: badContent}
+	backups := map[string]FileBackup{
+		mainFile: {Content: origContent, Mode: 0600, Existed: true},
+	}
 
-		// Invalid vet: fmt.Printf format %d with string argument
-		badContent := []byte("package main\n\nimport \"fmt\"\n\n" +
-			"func ValidFunction() {\n\tfmt.Printf(\"%d\", \"not an int\")\n}\n" +
-			"func main() {\n\tValidFunction()\n}\n")
-		currentContents := map[string][]byte{mainFile: badContent}
-		backups := map[string]FileBackup{
-			mainFile: {Content: origContent, Mode: 0600, Existed: true},
-		}
+	res, err := writeAndVerify(ctx, nil, currentContents, backups)
+	if err == nil || !res.IsError {
+		t.Fatalf("expected error result from writeAndVerify on vet failure, got res=%v, err=%v", res, err)
+	}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err == nil {
-			t.Fatalf("expected error from writeAndVerify on vet failure, got nil")
-		}
-		if !res.IsError {
-			t.Fatalf("expected error result from writeAndVerify, got success")
-		}
+	text := res.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(text, "Post-edit diagnostics check failed. All changes rolled back.") {
+		t.Errorf("expected diagnostics failure message, got: %s", text)
+	}
 
-		text := res.Content[0].(*mcp.TextContent).Text
-		if !strings.Contains(text, "Post-edit diagnostics check failed. All changes rolled back.") {
-			t.Errorf("expected diagnostics failure message, got: %s", text)
-		}
+	restored, err := os.ReadFile(filepath.Clean(mainFile))
+	if err != nil {
+		t.Fatalf("failed to read restored file: %v", err)
+	}
+	if string(restored) != string(origContent) {
+		t.Errorf("file was not restored to original content")
+	}
+}
 
-		// Ensure file was restored to original backup content
-		restored, err := os.ReadFile(mainFile)
-		if err != nil {
-			t.Fatalf("failed to read restored file: %v", err)
-		}
-		if string(restored) != string(origContent) {
-			t.Errorf("file was not restored to original content.\nGot:\n%s\nExpected:\n%s",
-				string(restored), string(origContent))
-		}
-	})
+func TestWriteAndVerify_RollbackCreatesAndRemoves(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
 
-	t.Run("rollback removes newly created file and directory on go vet failure", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		goModPath := filepath.Join(tmpDir, "go.mod")
-		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
+	mainFile := filepath.Join(tmpDir, "main.go")
+	origMainContent := []byte("package main\n\nfunc main() {}\n")
+	if err := os.WriteFile(mainFile, origMainContent, 0600); err != nil {
+		t.Fatalf("failed to write main.go: %v", err)
+	}
 
-		mainFile := filepath.Join(tmpDir, "main.go")
-		origMainContent := []byte("package main\n\nfunc main() {}\n")
-		if err := os.WriteFile(mainFile, origMainContent, 0600); err != nil {
-			t.Fatalf("failed to write main.go: %v", err)
-		}
+	nestedDir := filepath.Join(tmpDir, "newpkg")
+	newFile := filepath.Join(nestedDir, "extra.go")
+	newFileContent := []byte("package main\n\nfunc Extra() {\n\tvar _ int = \"type mismatch\"\n}\n")
 
-		nestedDir := filepath.Join(tmpDir, "newpkg")
-		newFile := filepath.Join(nestedDir, "extra.go")
-		// Invalid vet: fmt.Printf format %d with string
-		newFileContent := []byte("package main\n\nimport \"fmt\"\n\n" +
-			"func Extra() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
+	currentContents := map[string][]byte{newFile: newFileContent}
+	backups := map[string]FileBackup{
+		newFile: {Content: nil, Mode: 0600, Existed: false},
+	}
 
-		currentContents := map[string][]byte{newFile: newFileContent}
-		backups := map[string]FileBackup{
-			newFile: {Content: nil, Mode: 0600, Existed: false},
-		}
+	res, err := writeAndVerify(ctx, nil, currentContents, backups)
+	if err == nil || !res.IsError {
+		t.Fatalf("expected error on vet failure, got: res=%v, err=%v", res, err)
+	}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err == nil {
-			t.Fatalf("expected error on vet failure, got nil")
-		}
-		if !res.IsError {
-			t.Fatalf("expected error result, got success")
-		}
+	if _, err := os.Stat(newFile); !os.IsNotExist(err) {
+		t.Errorf("expected newly created file %s to be removed on rollback", newFile)
+	}
+	if _, err := os.Stat(nestedDir); !os.IsNotExist(err) {
+		t.Errorf("expected newly created dir %s to be removed on rollback", nestedDir)
+	}
+}
 
-		// Verify newly created file was deleted during rollback
-		if _, err := os.Stat(newFile); !os.IsNotExist(err) {
-			t.Errorf("expected newly created file %s to be removed on rollback, but it exists", newFile)
-		}
-		// Verify newly created directory was deleted during rollback
-		if _, err := os.Stat(nestedDir); !os.IsNotExist(err) {
-			t.Errorf("expected newly created dir %s to be removed on rollback, but it exists", nestedDir)
-		}
-	})
+func TestWriteAndVerify_NoGoFiles(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
 
-	t.Run("rollback on write error", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		mainFile := filepath.Join(tmpDir, "main.go")
-		origContent := []byte("package main\n\nfunc main() {}\n")
-		if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
-			t.Fatalf("failed to write main.go: %v", err)
-		}
+	txtFile := filepath.Join(tmpDir, "data.txt")
+	origContent := []byte("initial")
+	if err := os.WriteFile(txtFile, origContent, 0600); err != nil {
+		t.Fatalf("failed to write data.txt: %v", err)
+	}
 
-		// Create a conflict path: a file where a directory is expected
-		conflictFile := filepath.Join(tmpDir, "conflict_as_file")
-		if err := os.WriteFile(conflictFile, []byte("i am a file"), 0600); err != nil {
-			t.Fatalf("failed to write conflict file: %v", err)
-		}
+	newContent := []byte("updated data")
+	currentContents := map[string][]byte{txtFile: newContent}
+	backups := map[string]FileBackup{
+		txtFile: {Content: origContent, Mode: 0600, Existed: true},
+	}
 
-		// Attempting to create sub-file inside a file will fail
-		unwritableFile := filepath.Join(conflictFile, "sub.go")
+	res, err := writeAndVerify(ctx, nil, currentContents, backups)
+	if err != nil || res.IsError {
+		t.Fatalf("expected success, got res=%v, err=%v", res, err)
+	}
 
-		currentContents := map[string][]byte{
-			mainFile:       []byte("package main\n\nfunc main() { /* changed */ }\n"),
-			unwritableFile: []byte("package main\n"),
-		}
-		backups := map[string]FileBackup{
-			mainFile:       {Content: origContent, Mode: 0600, Existed: true},
-			unwritableFile: {Content: nil, Mode: 0600, Existed: false},
-		}
+	written, err := os.ReadFile(filepath.Clean(txtFile))
+	if err != nil {
+		t.Fatalf("failed to read data.txt: %v", err)
+	}
+	if string(written) != string(newContent) {
+		t.Errorf("content mismatch, expected %q, got %q", string(newContent), string(written))
+	}
+}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err == nil {
-			t.Fatalf("expected write error, got nil")
-		}
-		if !res.IsError {
-			t.Fatalf("expected error result, got success")
-		}
+func TestWriteAndVerify_WriteError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
 
-		// Check that mainFile was rolled back to original content
-		restored, err := os.ReadFile(mainFile)
-		if err != nil {
-			t.Fatalf("failed to read main.go: %v", err)
-		}
-		if string(restored) != string(origContent) {
-			t.Errorf("expected main.go to be restored to %q, got %q", string(origContent), string(restored))
-		}
-	})
+	mainFile := filepath.Join(tmpDir, "main2.go")
+	origContent := []byte("package main\n\nfunc main() {}\n")
+	if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
+		t.Fatalf("failed to write main2.go: %v", err)
+	}
 
-	t.Run("no go files skips go vet", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		txtFile := filepath.Join(tmpDir, "data.txt")
-		origContent := []byte("initial")
-		if err := os.WriteFile(txtFile, origContent, 0600); err != nil {
-			t.Fatalf("failed to write data.txt: %v", err)
-		}
+	conflictFile := filepath.Join(tmpDir, "conflict_as_file")
+	if err := os.WriteFile(conflictFile, []byte("i am a file"), 0600); err != nil {
+		t.Fatalf("failed to write conflict file: %v", err)
+	}
 
-		newContent := []byte("updated data")
-		currentContents := map[string][]byte{txtFile: newContent}
-		backups := map[string]FileBackup{
-			txtFile: {Content: origContent, Mode: 0600, Existed: true},
-		}
+	unwritableFile := filepath.Join(conflictFile, "sub.go")
+	currentContents := map[string][]byte{
+		mainFile:       []byte("package main\n\nfunc main() { /* changed */ }\n"),
+		unwritableFile: []byte("package main\n"),
+	}
+	backups := map[string]FileBackup{
+		mainFile:       {Content: origContent, Mode: 0600, Existed: true},
+		unwritableFile: {Content: nil, Mode: 0600, Existed: false},
+	}
 
-		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if res.IsError {
-			t.Fatalf("expected success, got error: %v", res.Content[0].(*mcp.TextContent).Text)
-		}
+	res, err := writeAndVerify(ctx, nil, currentContents, backups)
+	if err == nil || !res.IsError {
+		t.Fatalf("expected write error, got res=%v, err=%v", res, err)
+	}
 
-		written, err := os.ReadFile(txtFile)
-		if err != nil {
-			t.Fatalf("failed to read data.txt: %v", err)
-		}
-		if string(written) != string(newContent) {
-			t.Errorf("content mismatch, expected %q, got %q", string(newContent), string(written))
-		}
-	})
+	restored, err := os.ReadFile(filepath.Clean(mainFile))
+	if err != nil {
+		t.Fatalf("failed to read main2.go: %v", err)
+	}
+	if string(restored) != string(origContent) {
+		t.Errorf("expected main2.go to be restored to %q, got %q", string(origContent), string(restored))
+	}
+}
+
+func TestWriteAndVerify_RollbackFailures(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	goModPath := filepath.Join(tmpDir, "go.mod")
+	if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
+		t.Fatalf("failed to write go.mod: %v", err)
+	}
 
 	t.Run("rollback failure on go vet error", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		goModPath := filepath.Join(tmpDir, "go.mod")
-		if err := os.WriteFile(goModPath, []byte("module testmod\n\ngo 1.26.0\n"), 0600); err != nil {
-			t.Fatalf("failed to write go.mod: %v", err)
-		}
-
-		mainFile := filepath.Join(tmpDir, "main.go")
+		mainFile := filepath.Join(tmpDir, "main_rf.go")
 		origContent := []byte("package main\n\nfunc main() {}\n")
 		if err := os.WriteFile(mainFile, origContent, 0600); err != nil {
-			t.Fatalf("failed to write main.go: %v", err)
+			t.Fatalf("failed to write main_rf.go: %v", err)
 		}
 
-		// Invalid vet: fmt.Printf format %d with string
-		badContent := []byte("package main\n\nimport \"fmt\"\n\n" +
-			"func main() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
+		badContent := []byte("package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Printf(\"%d\", \"bad\")\n}\n")
 		nonExistentFile := filepath.Join(tmpDir, "non_existent_dir", "ghost.go")
 
 		currentContents := map[string][]byte{mainFile: badContent}
-		// Non-existent file in non-existent directory in backups with Existed=true
-		// causes commitWrite to fail on rollback
 		backups := map[string]FileBackup{
 			mainFile:        {Content: origContent, Mode: 0600, Existed: true},
 			nonExistentFile: {Content: []byte("cannot restore"), Mode: 0600, Existed: true},
 		}
 
 		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err == nil {
-			t.Fatalf("expected combined error on vet and rollback failure, got nil")
-		}
-		if !res.IsError {
-			t.Fatalf("expected error result, got success")
+		if err == nil || !res.IsError {
+			t.Fatalf("expected combined error on vet and rollback failure, got res=%v, err=%v", res, err)
 		}
 
 		text := res.Content[0].(*mcp.TextContent).Text
@@ -836,14 +805,13 @@ func TestWriteAndVerify(t *testing.T) {
 	})
 
 	t.Run("rollback failure on writeContents error", func(t *testing.T) {
-		tmpDir := t.TempDir()
 		conflictDir := filepath.Join(tmpDir, "conflict_file")
 		if err := os.WriteFile(conflictDir, []byte("file content"), 0600); err != nil {
 			t.Fatalf("failed to write file: %v", err)
 		}
 
 		unwritableFile := filepath.Join(conflictDir, "child.go")
-		nonExistentFile := filepath.Join(tmpDir, "non_existent_dir", "ghost.go")
+		nonExistentFile := filepath.Join(tmpDir, "non_existent_dir_2", "ghost.go")
 
 		currentContents := map[string][]byte{
 			unwritableFile: []byte("package main\n"),
@@ -854,11 +822,8 @@ func TestWriteAndVerify(t *testing.T) {
 		}
 
 		res, err := writeAndVerify(ctx, nil, currentContents, backups)
-		if err == nil {
-			t.Fatalf("expected error, got nil")
-		}
-		if !res.IsError {
-			t.Fatalf("expected error result, got success")
+		if err == nil || !res.IsError {
+			t.Fatalf("expected error, got res=%v, err=%v", res, err)
 		}
 	})
 }

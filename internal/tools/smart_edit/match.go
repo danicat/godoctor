@@ -66,26 +66,22 @@ func findBestMatch(content, search string) (int, int, float64) {
 	return 0, 0, 0
 }
 
-func collectCandidates(normContent string, normContentRunes, searchRunes []rune, searchLen int) map[int]int {
-	seedLen := 16
-	step := 8
-
+func computeSeedAndStep(searchLen int) (int, int) {
 	switch {
 	case searchLen < 4:
-		seedLen = 1
-		step = 1
+		return 1, 1
 	case searchLen < 8:
-		seedLen = 2
-		step = 1
+		return 2, 1
 	case searchLen < 16:
-		seedLen = 4
-		step = 2
+		return 4, 2
 	case searchLen < 64:
-		seedLen = 8
-		step = 4
+		return 8, 4
+	default:
+		return 16, 8
 	}
+}
 
-	// Map byte offset in normContent to rune index in normContentRunes.
+func buildByteToRuneMap(normContent string) []int {
 	byteToNormRune := make([]int, len(normContent)+1)
 	runeIdx := 0
 	for byteOffset := range normContent {
@@ -93,7 +89,12 @@ func collectCandidates(normContent string, normContentRunes, searchRunes []rune,
 		runeIdx++
 	}
 	byteToNormRune[len(normContent)] = runeIdx
+	return byteToNormRune
+}
 
+func collectCandidates(normContent string, normContentRunes, searchRunes []rune, searchLen int) map[int]int {
+	seedLen, step := computeSeedAndStep(searchLen)
+	byteToNormRune := buildByteToRuneMap(normContent)
 	candidates := make(map[int]int)
 
 	checkSeed := func(offset int) {

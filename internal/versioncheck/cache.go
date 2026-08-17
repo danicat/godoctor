@@ -86,17 +86,3 @@ func (c *VersionCache) Set(toolID, binaryPath string, status ToolStatus) {
 		expiresAt: c.nowFunc().Add(c.ttl),
 	}
 }
-
-// Invalidate removes a specific tool entry from the cache.
-func (c *VersionCache) Invalidate(toolID string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.entries, toolID)
-}
-
-// Clear flushes all entries from the cache.
-func (c *VersionCache) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries = make(map[string]cacheEntry)
-}

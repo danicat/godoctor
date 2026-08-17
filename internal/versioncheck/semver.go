@@ -3,7 +3,6 @@
 package versioncheck
 
 import (
-	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -34,6 +33,12 @@ type Version struct {
 	CommitHash string
 }
 
+// Devel string constants
+const (
+	DevelVersion      = "devel"
+	DevelParenVersion = "(devel)"
+)
+
 // ParseVersion converts raw version strings (e.g. "v1.24.0", "go1.26.3", "v2.12.2-rc1", "devel (abc1234)")
 // into a structured Version.
 func ParseVersion(vStr string) Version {
@@ -45,7 +50,7 @@ func ParseVersion(vStr string) Version {
 	}
 
 	lower := strings.ToLower(vStr)
-	if lower == "(devel)" || strings.HasPrefix(lower, "devel") {
+	if lower == DevelParenVersion || strings.HasPrefix(lower, DevelVersion) {
 		v.IsDevel = true
 		// Check if commit hash is present, e.g. "devel (abc1234)" or "devel +abc1234"
 		if hash := extractCommitHash(vStr); hash != "" {
@@ -82,7 +87,7 @@ func ParseVersion(vStr string) Version {
 // Compare compares version v to target.
 // Returns:
 //   - -1 if v < target
-//   -  0 if v == target
+//   - 0 if v == target
 //   - +1 if v > target
 func (v Version) Compare(target Version) int {
 	if v.Major != target.Major {
@@ -181,22 +186,4 @@ var hashRe = regexp.MustCompile(`[0-9a-fA-F]{7,40}`)
 
 func extractCommitHash(text string) string {
 	return hashRe.FindString(text)
-}
-
-// String returns formatted version string.
-func (v Version) String() string {
-	if v.IsDevel {
-		if v.CommitHash != "" {
-			return fmt.Sprintf("devel (%s)", v.CommitHash)
-		}
-		return "devel"
-	}
-	if v.Raw != "" {
-		return v.Raw
-	}
-	res := fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
-	if v.Prerelease != "" {
-		res += "-" + v.Prerelease
-	}
-	return res
 }

@@ -177,29 +177,41 @@ func TestExtractVersion(t *testing.T) {
 	}
 }
 
+func findToolSpecForTest(id string) ToolSpec {
+	for _, s := range DefaultRegistry() {
+		if s.ID == id {
+			return s
+		}
+	}
+	return ToolSpec{}
+}
+
 func TestRegistry(t *testing.T) {
 	registry := DefaultRegistry()
 	if len(registry) < 6 {
 		t.Fatalf("DefaultRegistry() returned %d tools, expected at least 6", len(registry))
 	}
 
-	expectedIDs := []string{"go", "golangci_lint", "modernize", "deadcode", "selene", "testquery"}
-	for _, id := range expectedIDs {
-		spec, found := FindToolSpec(id)
-		if !found {
-			t.Errorf("FindToolSpec(%q) not found", id)
+	expectedIDs := map[string]bool{
+		"go":            false,
+		"golangci_lint": false,
+		"modernize":     false,
+		"deadcode":      false,
+		"selene":        false,
+		"testquery":     false,
+	}
+	for _, spec := range registry {
+		if _, ok := expectedIDs[spec.ID]; ok {
+			expectedIDs[spec.ID] = true
 		}
 		if spec.DisplayName == "" {
-			t.Errorf("spec %q has empty DisplayName", id)
+			t.Errorf("spec %q has empty DisplayName", spec.ID)
 		}
 	}
-
-	// Test aliases
-	if _, found := FindToolSpec("golangci-lint"); !found {
-		t.Errorf("FindToolSpec('golangci-lint') hyphen alias should be found")
-	}
-	if _, found := FindToolSpec("tq"); !found {
-		t.Errorf("FindToolSpec('tq') alias should be found")
+	for id, found := range expectedIDs {
+		if !found {
+			t.Errorf("expected tool ID %q not found in DefaultRegistry()", id)
+		}
 	}
 }
 
@@ -222,7 +234,7 @@ func TestVersionCache(t *testing.T) {
 
 	cache := NewVersionCache(5 * time.Minute)
 	cache.nowFunc = func() time.Time { return currentTime }
-	cache.stat = func(path string) (os.FileInfo, error) {
+	cache.stat = func(_ string) (os.FileInfo, error) {
 		return mockFileInfo{modTime: mtime}, nil
 	}
 
@@ -254,18 +266,12 @@ func TestVersionCache(t *testing.T) {
 	currentTime = fixedTime
 	cache.Set("golangci_lint", "/usr/local/bin/golangci-lint", status)
 	// Change mtime to simulate binary upgrade on disk
-	cache.stat = func(path string) (os.FileInfo, error) {
+	cache.stat = func(_ string) (os.FileInfo, error) {
 		return mockFileInfo{modTime: fixedTime.Add(1 * time.Minute)}, nil
 	}
 	_, ok = cache.Get("golangci_lint", "/usr/local/bin/golangci-lint")
 	if ok {
 		t.Errorf("Cache.Get should invalidate when binary mtime changes on disk")
-	}
-
-	// 4. Invalidate and Clear
-	cache.Clear()
-	if len(cache.entries) != 0 {
-		t.Errorf("Cache.Clear did not empty entries")
 	}
 }
 
@@ -305,147 +311,222 @@ func (m *mockRunner) Stat(path string) (os.FileInfo, error) {
 	return mockFileInfo{modTime: time.Now()}, nil
 }
 
+func testCheckerMissing(ctx context.Context, t *testing.T) {
+	t.Helper()
+	runner := &mockRunner{
+		lookPathFunc: func(_ string) (string, error) {
+			return "", errors.New("not found")
+		},
+	}
+	checker := NewChecker(WithRunner(runner), WithNoCache(true))
+	spec := findToolSpecForTest("golangci_lint")
+
+	st, err := checker.CheckTool(ctx, spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != StatusMissing {
+		t.Errorf("expected StatusMissing, got %s", st.Status)
+	}
+	if st.Satisfies {
+		t.Errorf("missing tool should not satisfy")
+	}
+	if st.UpgradeCommand == "" {
+		t.Errorf("missing tool should provide upgrade command")
+	}
+}
+
+func testCheckerValidCLI(ctx context.Context, t *testing.T) {
+	t.Helper()
+	runner := &mockRunner{
+		lookPathFunc: func(_ string) (string, error) {
+			return "/usr/bin/golangci-lint", nil
+		},
+		runCommandFunc: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return []byte("golangci-lint has version 2.12.2 built with go1.24.0"), nil
+		},
+	}
+	checker := NewChecker(WithRunner(runner), WithNoCache(true))
+	spec := findToolSpecForTest("golangci_lint")
+
+	st, err := checker.CheckTool(ctx, spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != StatusOk {
+		t.Errorf("expected StatusOk, got %s", st.Status)
+	}
+	if st.InstalledVersion != "2.12.2" {
+		t.Errorf("expected 2.12.2, got %s", st.InstalledVersion)
+	}
+}
+
+func testCheckerOutdated(ctx context.Context, t *testing.T) {
+	t.Helper()
+	runner := &mockRunner{
+		lookPathFunc: func(_ string) (string, error) {
+			return "/usr/bin/golangci-lint", nil
+		},
+		runCommandFunc: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return []byte("golangci-lint version 1.60.0 built from (devel)"), nil
+		},
+	}
+	checker := NewChecker(WithRunner(runner), WithNoCache(true))
+	spec := findToolSpecForTest("golangci_lint")
+
+	st, err := checker.CheckTool(ctx, spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != StatusOutdated {
+		t.Errorf("expected StatusOutdated, got %s", st.Status)
+	}
+	if st.InstalledVersion != "1.60.0" {
+		t.Errorf("expected 1.60.0, got %s", st.InstalledVersion)
+	}
+	if !strings.Contains(st.UpgradeCommand, "golangci-lint@v2.12.2") {
+		t.Errorf("expected upgrade command to pin v2.12.2, got %q", st.UpgradeCommand)
+	}
+}
+
+func testCheckerBuildInfoFallback(ctx context.Context, t *testing.T) {
+	t.Helper()
+	runner := &mockRunner{
+		lookPathFunc: func(_ string) (string, error) {
+			return "/usr/bin/modernize", nil
+		},
+		runCommandFunc: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return nil, errors.New("unrecognized flag")
+		},
+		readBuildInfoFunc: func(_ string) (*buildinfo.BuildInfo, error) {
+			return &buildinfo.BuildInfo{
+				Main: debug.Module{
+					Path:    "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize",
+					Version: "v0.25.0",
+				},
+			}, nil
+		},
+	}
+	checker := NewChecker(WithRunner(runner), WithNoCache(true))
+	spec := findToolSpecForTest("modernize")
+
+	st, err := checker.CheckTool(ctx, spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != StatusOk {
+		t.Errorf("expected StatusOk via buildinfo fallback, got %s", st.Status)
+	}
+	if st.InstalledVersion != "v0.25.0" {
+		t.Errorf("expected v0.25.0, got %s", st.InstalledVersion)
+	}
+}
+
+func testCheckerVCSDevelFallback(ctx context.Context, t *testing.T) {
+	t.Helper()
+	runner := &mockRunner{
+		lookPathFunc: func(_ string) (string, error) {
+			return "/usr/bin/deadcode", nil
+		},
+		runCommandFunc: func(_ context.Context, _ string, _ ...string) ([]byte, error) {
+			return []byte("deadcode: unknown flag"), errors.New("exit status 1")
+		},
+		readBuildInfoFunc: func(_ string) (*buildinfo.BuildInfo, error) {
+			return &buildinfo.BuildInfo{
+				Main: debug.Module{
+					Version: "(devel)",
+				},
+				Settings: []debug.BuildSetting{
+					{Key: "vcs.revision", Value: "1a2b3c4d5e6f7a8b9c"},
+				},
+			}, nil
+		},
+	}
+	checker := NewChecker(WithRunner(runner), WithNoCache(true))
+	spec := findToolSpecForTest("deadcode")
+
+	st, err := checker.CheckTool(ctx, spec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if st.Status != StatusOk {
+		t.Errorf("expected StatusOk for devel build with 'latest' rec, got %s", st.Status)
+	}
+	if st.InstalledVersion != "devel (1a2b3c4)" {
+		t.Errorf("expected 'devel (1a2b3c4)', got %q", st.InstalledVersion)
+	}
+}
+
 func TestChecker_CheckTool(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("Missing binary", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathFunc: func(file string) (string, error) {
-				return "", errors.New("not found")
-			},
-		}
-		checker := NewChecker(WithRunner(runner), WithNoCache(true))
-		spec, _ := FindToolSpec("golangci_lint")
-
-		st, err := checker.CheckTool(ctx, spec)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if st.Status != StatusMissing {
-			t.Errorf("expected StatusMissing, got %s", st.Status)
-		}
-		if st.Satisfies {
-			t.Errorf("missing tool should not satisfy")
-		}
-		if st.UpgradeCommand == "" {
-			t.Errorf("missing tool should provide upgrade command")
-		}
+		testCheckerMissing(ctx, t)
 	})
 
 	t.Run("Valid CLI version - OK", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathFunc: func(file string) (string, error) {
-				return "/usr/bin/golangci-lint", nil
-			},
-			runCommandFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
-				return []byte("golangci-lint has version 2.12.2 built with go1.24.0"), nil
-			},
-		}
-		checker := NewChecker(WithRunner(runner), WithNoCache(true))
-		spec, _ := FindToolSpec("golangci_lint")
-
-		st, err := checker.CheckTool(ctx, spec)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if st.Status != StatusOk {
-			t.Errorf("expected StatusOk, got %s", st.Status)
-		}
-		if st.InstalledVersion != "2.12.2" {
-			t.Errorf("expected 2.12.2, got %s", st.InstalledVersion)
-		}
+		testCheckerValidCLI(ctx, t)
 	})
 
 	t.Run("Outdated CLI version", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathFunc: func(file string) (string, error) {
-				return "/usr/bin/golangci-lint", nil
-			},
-			runCommandFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
-				return []byte("golangci-lint version 1.60.0 built from (devel)"), nil
-			},
-		}
-		checker := NewChecker(WithRunner(runner), WithNoCache(true))
-		spec, _ := FindToolSpec("golangci_lint")
-
-		st, err := checker.CheckTool(ctx, spec)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if st.Status != StatusOutdated {
-			t.Errorf("expected StatusOutdated, got %s", st.Status)
-		}
-		if st.InstalledVersion != "1.60.0" {
-			t.Errorf("expected 1.60.0, got %s", st.InstalledVersion)
-		}
-		if !strings.Contains(st.UpgradeCommand, "golangci-lint@v2.12.2") {
-			t.Errorf("expected upgrade command to pin v2.12.2, got %q", st.UpgradeCommand)
-		}
+		testCheckerOutdated(ctx, t)
 	})
 
 	t.Run("Fallback to ReadBuildInfo when CLI fails", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathFunc: func(file string) (string, error) {
-				return "/usr/bin/modernize", nil
-			},
-			runCommandFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
-				return nil, errors.New("unrecognized flag")
-			},
-			readBuildInfoFunc: func(path string) (*buildinfo.BuildInfo, error) {
-				return &buildinfo.BuildInfo{
-					Main: debug.Module{
-						Path:    "golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize",
-						Version: "v0.25.0",
-					},
-				}, nil
-			},
-		}
-		checker := NewChecker(WithRunner(runner), WithNoCache(true))
-		spec, _ := FindToolSpec("modernize")
-
-		st, err := checker.CheckTool(ctx, spec)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if st.Status != StatusOk {
-			t.Errorf("expected StatusOk via buildinfo fallback, got %s", st.Status)
-		}
-		if st.InstalledVersion != "v0.25.0" {
-			t.Errorf("expected v0.25.0, got %s", st.InstalledVersion)
-		}
+		testCheckerBuildInfoFallback(ctx, t)
 	})
 
 	t.Run("Fallback to VCS revision for devel build", func(t *testing.T) {
-		runner := &mockRunner{
-			lookPathFunc: func(file string) (string, error) {
-				return "/usr/bin/deadcode", nil
-			},
-			runCommandFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
-				return []byte("deadcode: unknown flag"), errors.New("exit status 1")
-			},
-			readBuildInfoFunc: func(path string) (*buildinfo.BuildInfo, error) {
-				return &buildinfo.BuildInfo{
-					Main: debug.Module{
-						Version: "(devel)",
-					},
-					Settings: []debug.BuildSetting{
-						{Key: "vcs.revision", Value: "1a2b3c4d5e6f7a8b9c"},
-					},
-				}, nil
-			},
-		}
-		checker := NewChecker(WithRunner(runner), WithNoCache(true))
-		spec, _ := FindToolSpec("deadcode")
+		testCheckerVCSDevelFallback(ctx, t)
+	})
 
+	t.Run("Disabled tool returns OK status", func(t *testing.T) {
+		checker := NewChecker(WithNoCache(true))
+		spec := ToolSpec{
+			ID:          "custom-disabled",
+			DisplayName: "custom-disabled",
+			Disabled:    true,
+		}
 		st, err := checker.CheckTool(ctx, spec)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if st.Status != StatusOk {
-			t.Errorf("expected StatusOk for devel build with 'latest' rec, got %s", st.Status)
+		if st.Status != StatusOk || !st.Satisfies {
+			t.Errorf("expected StatusOk and satisfies=true for disabled tool, got status=%s, satisfies=%v", st.Status, st.Satisfies)
 		}
-		if st.InstalledVersion != "devel (1a2b3c4)" {
-			t.Errorf("expected 'devel (1a2b3c4)', got %q", st.InstalledVersion)
+	})
+
+	t.Run("Tool with custom timeout", func(t *testing.T) {
+		timeoutObserved := false
+		runner := &mockRunner{
+			lookPathFunc: func(_ string) (string, error) {
+				return "/usr/bin/tool", nil
+			},
+			runCommandFunc: func(cmdCtx context.Context, _ string, _ ...string) ([]byte, error) {
+				deadline, ok := cmdCtx.Deadline()
+				if ok && time.Until(deadline) <= 500*time.Millisecond {
+					timeoutObserved = true
+				}
+				return []byte("tool version 1.0.0"), nil
+			},
+		}
+		checker := NewChecker(WithRunner(runner), WithNoCache(true), WithTimeout(5*time.Second))
+		spec := ToolSpec{
+			ID:          "custom-timeout",
+			DisplayName: "custom-timeout",
+			Binaries:    []string{"tool"},
+			VersionArgs: [][]string{{"version"}},
+			Timeout:     100 * time.Millisecond,
+		}
+		st, err := checker.CheckTool(ctx, spec)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !timeoutObserved {
+			t.Errorf("expected custom spec timeout to be applied to context deadline")
+		}
+		if st.InstalledVersion != "1.0.0" {
+			t.Errorf("expected installed version 1.0.0, got %s", st.InstalledVersion)
 		}
 	})
 }
@@ -455,7 +536,7 @@ func TestChecker_CheckAll(t *testing.T) {
 		lookPathFunc: func(file string) (string, error) {
 			return "/usr/bin/" + file, nil
 		},
-		runCommandFunc: func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		runCommandFunc: func(_ context.Context, name string, _ ...string) ([]byte, error) {
 			if strings.Contains(name, "go") {
 				return []byte("go version go1.26.0 darwin/arm64"), nil
 			}
@@ -475,17 +556,22 @@ func TestChecker_CheckAll(t *testing.T) {
 func TestCheckAll_WithConfig(t *testing.T) {
 	cfg := config.NewDefaultConfig()
 	cfg.Tools.GolangCILint.RecommendedVersion = "v2.15.0"
+	cfg.Tools.Deadcode.Disabled = true
 
 	// Package-level CheckAll with custom config
 	statuses, err := CheckAll(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("CheckAll with config failed: %v", err)
 	}
-	if len(statuses) < 6 {
-		t.Errorf("expected at least 6 statuses, got %d", len(statuses))
+	// Total 6 tools in registry, 1 disabled -> 5 statuses
+	if len(statuses) != 5 {
+		t.Errorf("expected 5 statuses (deadcode disabled), got %d", len(statuses))
 	}
 
 	for _, s := range statuses {
+		if s.ID == "deadcode" {
+			t.Errorf("disabled tool 'deadcode' should not be present in CheckAll results")
+		}
 		if s.ID == "golangci_lint" {
 			if s.RecommendedVersion != "v2.15.0" {
 				t.Errorf("expected recommended version v2.15.0 from config override, got %s", s.RecommendedVersion)
@@ -494,19 +580,48 @@ func TestCheckAll_WithConfig(t *testing.T) {
 	}
 }
 
-func TestCheckTool_WithConfig(t *testing.T) {
-	toolSpec := config.ToolSpec{
-		BinaryName:         "custom-tool",
-		RecommendedVersion: "v1.5.0",
-		Package:            "example.com/custom/tool@v1.5.0",
+func TestWorkspaceConfig_CheckAll(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// 1. Without config file, loads default
+	cfg, err := config.LoadFromWorkspace(tmpDir)
+	if err != nil {
+		t.Fatalf("config.LoadFromWorkspace failed on empty dir: %v", err)
+	}
+	statuses, err := CheckAll(ctx, cfg)
+	if err != nil {
+		t.Fatalf("CheckAll failed on default workspace config: %v", err)
+	}
+	if len(statuses) < 6 {
+		t.Errorf("expected 6 statuses for default workspace, got %d", len(statuses))
 	}
 
-	st, err := CheckTool(context.Background(), "custom-tool", toolSpec)
-	if err != nil {
-		t.Fatalf("CheckTool failed: %v", err)
+	// 2. With .godoctor.yaml in workspace
+	configYaml := `
+version: "1"
+features:
+  version_check_hints: false
+tools:
+  deadcode:
+    disabled: true
+  golangci_lint:
+    recommended_version: "v2.20.0"
+`
+	if err := os.WriteFile(tmpDir+"/.godoctor.yaml", []byte(configYaml), 0600); err != nil {
+		t.Fatalf("failed to write test .godoctor.yaml: %v", err)
 	}
-	if st.RecommendedVersion != "v1.5.0" {
-		t.Errorf("expected recommended version v1.5.0, got %s", st.RecommendedVersion)
+
+	cfgWithYaml, err := config.LoadFromWorkspace(tmpDir)
+	if err != nil {
+		t.Fatalf("config.LoadFromWorkspace failed with yaml: %v", err)
+	}
+	statusesWithCfg, err := CheckAll(ctx, cfgWithYaml)
+	if err != nil {
+		t.Fatalf("CheckAll with yaml failed: %v", err)
+	}
+	if len(statusesWithCfg) != 5 {
+		t.Errorf("expected 5 statuses (deadcode disabled in yaml), got %d", len(statusesWithCfg))
 	}
 }
 
@@ -529,51 +644,5 @@ func TestFormatStatusTable(t *testing.T) {
 	}
 	if !strings.Contains(table, "Summary: 1/3 tools healthy, 1 outdated, 1 missing.") {
 		t.Errorf("table missing or malformed summary line: %s", table)
-	}
-}
-
-func TestFormatRecommendationsMarkdown(t *testing.T) {
-	t.Run("Has recommendations", func(t *testing.T) {
-		statuses := []ToolStatus{
-			{DisplayName: "golangci-lint", Status: StatusOutdated, InstalledVersion: "v1.64.0", RecommendedVersion: "v2.12.2", UpgradeCommand: "go install pkg@v2.12.2"},
-			{DisplayName: "selene", Status: StatusMissing, Required: false, UpgradeCommand: "go install selene@latest"},
-		}
-
-		md := FormatRecommendationsMarkdown(statuses)
-		if !strings.Contains(md, "> [!TIP]") {
-			t.Errorf("markdown missing TIP block: %s", md)
-		}
-		if !strings.Contains(md, "golangci-lint") || !strings.Contains(md, "selene") {
-			t.Errorf("markdown missing tool names: %s", md)
-		}
-	})
-
-	t.Run("All tools healthy - returns empty", func(t *testing.T) {
-		statuses := []ToolStatus{
-			{DisplayName: "Go Toolchain", Status: StatusOk, InstalledVersion: "1.26.3", RecommendedVersion: ">=1.24.0"},
-			{DisplayName: "golangci-lint", Status: StatusOk, InstalledVersion: "v2.12.2", RecommendedVersion: "v2.12.2"},
-		}
-
-		md := FormatRecommendationsMarkdown(statuses)
-		if md != "" {
-			t.Errorf("expected empty string when all tools are healthy, got: %q", md)
-		}
-	})
-}
-
-func TestVersion_String(t *testing.T) {
-	v1 := Version{Major: 1, Minor: 2, Patch: 3}
-	if v1.String() != "1.2.3" {
-		t.Errorf("v1.String() = %q, want '1.2.3'", v1.String())
-	}
-
-	v2 := Version{Major: 1, Minor: 2, Patch: 3, Prerelease: "rc1"}
-	if v2.String() != "1.2.3-rc1" {
-		t.Errorf("v2.String() = %q, want '1.2.3-rc1'", v2.String())
-	}
-
-	v3 := Version{IsDevel: true, CommitHash: "abcdef1"}
-	if v3.String() != "devel (abcdef1)" {
-		t.Errorf("v3.String() = %q, want 'devel (abcdef1)'", v3.String())
 	}
 }

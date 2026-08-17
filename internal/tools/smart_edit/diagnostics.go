@@ -49,31 +49,8 @@ func writeAndVerify(
 	}
 
 	if len(goFiles) > 0 {
-		cmd, err := safeshell.CommandContext(ctx, "go", "vet", "./...")
-		if err != nil {
-			rbErr := rollback(backups, createdDirs)
-			msg := fmt.Sprintf("Post-edit secure validation failed: %v", err)
-			if rbErr != nil {
-				msg += fmt.Sprintf(" (rollback failure: %v)", rbErr)
-				return errorResult(msg), errors.Join(err, rbErr)
-			}
-			return errorResult(msg), err
-		}
-		cmd.Dir = workspaceRoot
-		out, cmdErr := cmd.CombinedOutput()
-		if cmdErr != nil {
-			rbErr := rollback(backups, createdDirs)
-
-			errorOutput := string(out)
-			suggestions := findSuggestions(ctx, errorOutput)
-			if rbErr != nil {
-				msg := fmt.Sprintf("Post-edit diagnostics check failed. All changes rolled back.\n\n"+
-					"Errors:\n%s%s\n\nRollback Failure:\n%v", errorOutput, suggestions, rbErr)
-				return errorResult(msg), errors.Join(cmdErr, rbErr)
-			}
-			msg := fmt.Sprintf("Post-edit diagnostics check failed. All changes rolled back.\n\n"+
-				"Errors:\n%s%s", errorOutput, suggestions)
-			return errorResult(msg), cmdErr
+		if res, err := verifyWorkspace(ctx, workspaceRoot, backups, createdDirs); err != nil || res != nil {
+			return res, err
 		}
 	}
 
@@ -86,6 +63,41 @@ func writeAndVerify(
 			&mcp.TextContent{Text: fmt.Sprintf("Successfully edited files: %s", strings.Join(editedFiles, ", "))},
 		},
 	}, nil
+}
+
+func verifyWorkspace(
+	ctx context.Context,
+	workspaceRoot string,
+	backups map[string]FileBackup,
+	createdDirs []string,
+) (*mcp.CallToolResult, error) {
+	cmd, err := safeshell.CommandContext(ctx, "go", "vet", "./...")
+	if err != nil {
+		rbErr := rollback(backups, createdDirs)
+		msg := fmt.Sprintf("Post-edit secure validation failed: %v", err)
+		if rbErr != nil {
+			msg += fmt.Sprintf(" (rollback failure: %v)", rbErr)
+			return errorResult(msg), errors.Join(err, rbErr)
+		}
+		return errorResult(msg), err
+	}
+	cmd.Dir = workspaceRoot
+	out, cmdErr := cmd.CombinedOutput()
+	if cmdErr != nil {
+		rbErr := rollback(backups, createdDirs)
+
+		errorOutput := string(out)
+		suggestions := findSuggestions(ctx, errorOutput)
+		if rbErr != nil {
+			msg := fmt.Sprintf("Post-edit diagnostics check failed. All changes rolled back.\n\n"+
+				"Errors:\n%s%s\n\nRollback Failure:\n%v", errorOutput, suggestions, rbErr)
+			return errorResult(msg), errors.Join(cmdErr, rbErr)
+		}
+		msg := fmt.Sprintf("Post-edit diagnostics check failed. All changes rolled back.\n\n"+
+			"Errors:\n%s%s", errorOutput, suggestions)
+		return errorResult(msg), cmdErr
+	}
+	return nil, nil
 }
 
 // findWorkspaceRoot searches upwards from edited files to locate the module or workspace root.
@@ -217,13 +229,12 @@ func findSuggestions(_ context.Context, errorMsg string) string {
 
 func extractASTSymbols(filePath string) []string {
 	dir := filepath.Dir(filePath)
-	fset := token.NewFileSet()
-	//nolint:staticcheck // ParseDir is used for fast symbol extraction
-	pkgs, err := parser.ParseDir(fset, dir, nil, 0)
-	if err != nil && len(pkgs) == 0 {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
 		return nil
 	}
 
+	fset := token.NewFileSet()
 	var symbols []string
 	seen := make(map[string]bool)
 	add := func(name string) {
@@ -233,26 +244,32 @@ func extractASTSymbols(filePath string) []string {
 		}
 	}
 
-	for _, pkg := range pkgs {
-		for _, f := range pkg.Files {
-			ast.Inspect(f, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.FuncDecl:
-					add(node.Name.Name)
-				case *ast.TypeSpec:
-					add(node.Name.Name)
-				case *ast.ValueSpec:
-					for _, name := range node.Names {
-						add(name.Name)
-					}
-				case *ast.Field:
-					for _, name := range node.Names {
-						add(name.Name)
-					}
-				}
-				return true
-			})
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
 		}
+		path := filepath.Join(dir, entry.Name())
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil || f == nil {
+			continue
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.FuncDecl:
+				add(node.Name.Name)
+			case *ast.TypeSpec:
+				add(node.Name.Name)
+			case *ast.ValueSpec:
+				for _, name := range node.Names {
+					add(name.Name)
+				}
+			case *ast.Field:
+				for _, name := range node.Names {
+					add(name.Name)
+				}
+			}
+			return true
+		})
 	}
 
 	return symbols
