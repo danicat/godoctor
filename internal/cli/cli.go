@@ -652,7 +652,18 @@ func newInstallCmd(stdout, stderr io.Writer) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "install",
-		Short: "Configure MCP server registration and unpack agent skills",
+		Short: "Configure MCP server registration and unpack the @godoctor skill",
+		Long: `Register the godoctor MCP server and unpack the embedded @godoctor skill.
+
+By default (with no flags or --all), install performs four steps:
+  1. Resolves the target directory:
+     - Global scope (default or --global): $GEMINI_CONFIG_DIR or ~/.gemini/config
+     - Workspace scope (--workspace / -w): ./.agents
+  2. Registers "godoctor" ("godoctor mcp") under "mcpServers" in mcp_config.json
+     (backing up invalid JSON to mcp_config.json.bak before writing).
+  3. Unpacks the embedded @godoctor skill and reference guides into <target>/skills/godoctor/
+     (skipping modified files unless --force is set).
+  4. Removes obsolete plugin and agent files on global installs.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if opts.InstallAll || (!opts.InstallMCP && !opts.InstallSkills) {
 				opts.InstallMCP = true
@@ -662,13 +673,19 @@ func newInstallCmd(stdout, stderr io.Writer) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.InstallAll, "all", "a", false, "Install both MCP server and agent skills")
-	cmd.Flags().BoolVar(&opts.InstallMCP, "mcp", false, "Register the MCP server in mcp_config.json")
-	cmd.Flags().BoolVar(&opts.InstallSkills, "skills", false, "Unpack embedded skills (@godoctor, @selene, @testquery)")
-	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Install to workspace scope (.agents/)")
-	cmd.Flags().BoolVarP(&opts.Global, "global", "g", false, "Install to global user config (Default: ~/.gemini/config)")
-	cmd.Flags().BoolVarP(&opts.Force, "force", "f", false, "Force overwrite of existing skill files")
-	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Quiet / script-friendly output")
+	cmd.Flags().BoolVarP(
+		&opts.InstallAll, "all", "a", false,
+		"Install both MCP server and @godoctor skill (default when neither --mcp nor --skills is set)",
+	)
+	cmd.Flags().BoolVar(&opts.InstallMCP, "mcp", false, "Register only the MCP server in mcp_config.json")
+	cmd.Flags().BoolVar(&opts.InstallSkills, "skills", false, "Unpack only the embedded @godoctor skill")
+	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Install to workspace scope (./.agents/)")
+	cmd.Flags().BoolVarP(
+		&opts.Global, "global", "g", false,
+		"Install to global user config ($GEMINI_CONFIG_DIR or ~/.gemini/config)",
+	)
+	cmd.Flags().BoolVarP(&opts.Force, "force", "f", false, "Force overwrite of modified skill files on disk")
+	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Suppress the installation summary banner")
 	cmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Explicit path to mcp_config.json")
 	cmd.Flags().StringVarP(&opts.SkillsDir, "skills-dir", "s", "", "Explicit directory for skills installation")
 
@@ -680,7 +697,12 @@ func newUninstallCmd(stdout, stderr io.Writer) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "uninstall",
-		Short: "Remove MCP server registration and agent skills",
+		Short: "Remove MCP server registration and the @godoctor skill",
+		Long: `Remove the godoctor MCP server entry from mcp_config.json and delete installed skill files.
+
+By default (with no flags or --all), uninstall removes both the MCP server entry
+and the @godoctor skill directory from global scope ($GEMINI_CONFIG_DIR or ~/.gemini/config)
+or workspace scope (-w).`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if opts.UninstallAll || (!opts.UninstallMCP && !opts.UninstallSkills) {
 				opts.UninstallMCP = true
@@ -690,14 +712,15 @@ func newUninstallCmd(stdout, stderr io.Writer) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.UninstallAll, "all", "a", false, "Remove both MCP server registration and agent skills")
-	cmd.Flags().BoolVar(&opts.UninstallMCP, "mcp", false, "Remove the MCP server from mcp_config.json")
-	cmd.Flags().BoolVar(&opts.UninstallSkills, "skills", false, "Remove GoDoctor skills (@godoctor, @selene, @testquery)")
-	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Uninstall from workspace scope (.agents/)")
+	cmd.Flags().BoolVarP(&opts.UninstallAll, "all", "a", false, "Remove both MCP server registration and skill files")
+	cmd.Flags().BoolVar(&opts.UninstallMCP, "mcp", false, "Remove only the MCP server from mcp_config.json")
+	cmd.Flags().BoolVar(&opts.UninstallSkills, "skills", false, "Remove only the @godoctor skill files")
+	cmd.Flags().BoolVarP(&opts.Workspace, "workspace", "w", false, "Uninstall from workspace scope")
 	cmd.Flags().BoolVarP(
-		&opts.Global, "global", "g", false, "Uninstall from global user config (Default: ~/.gemini/config)",
+		&opts.Global, "global", "g", false,
+		"Uninstall from global user config ($GEMINI_CONFIG_DIR or ~/.gemini/config)",
 	)
-	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Quiet / script-friendly output")
+	cmd.Flags().BoolVarP(&opts.Quiet, "quiet", "q", false, "Suppress the uninstallation summary banner")
 	cmd.Flags().StringVarP(&opts.ConfigPath, "config", "c", "", "Explicit path to mcp_config.json")
 	cmd.Flags().StringVarP(&opts.SkillsDir, "skills-dir", "s", "", "Explicit directory for skills removal")
 

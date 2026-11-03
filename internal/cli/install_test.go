@@ -39,8 +39,20 @@ func TestRunInstall_Help(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for --help: %v", err)
 	}
-	if !strings.Contains(stdout.String(), "Usage:") {
-		t.Errorf("expected usage in stdout, got %q", stdout.String())
+	out := stdout.String()
+	for _, want := range []string{
+		"Usage:",
+		"Resolves the target directory:",
+		"Registers \"godoctor\"",
+		"Unpacks the embedded @godoctor skill",
+		"Removes obsolete plugin and agent files",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in install help output, got %q", want, out)
+		}
+	}
+	if strings.Contains(out, "@selene") || strings.Contains(out, "@testquery") {
+		t.Errorf("install help should not reference removed @selene or @testquery skills, got %q", out)
 	}
 }
 

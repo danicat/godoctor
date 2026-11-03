@@ -76,20 +76,25 @@ godoctor call selene '{"dir": "/path/to/project"}'
 godoctor call tq '{"dir": "/path/to/project", "query": "SELECT package, test, elapsed FROM all_tests WHERE action = '\''fail'\''"}'
 ```
 
-## Agent skill and reference guides
+## What `godoctor install` does
 
-`godoctor install` writes the `@godoctor` skill to your user home folder (`~/.gemini/config/skills/godoctor`) or project folder (`.agents/skills/godoctor`):
+By default (with no flags or `--all`), `godoctor install` runs four steps:
 
-- **[`skills/godoctor/SKILL.md`](skills/godoctor/SKILL.md)**: Go style rules, flat package design, and tool workflows.
-- **[`skills/godoctor/references/selene.md`](skills/godoctor/references/selene.md)**: Guide to Selene mutation rules, mutant states (`KILLED`, `SURVIVED`, `UNCOVERED`), and fixing test gaps.
-- **[`skills/godoctor/references/testquery.md`](skills/godoctor/references/testquery.md)**: SQLite schema (`all_tests`, `all_coverage`, `test_coverage`, `all_code`) and SQL recipes for `.godoctor/testquery.db`.
+1. **Picks the target folder**: Uses `$GEMINI_CONFIG_DIR` or `~/.gemini/config` for global installs, or `./.agents` when you pass `-w` (`--workspace`). You can override these paths with `--config` (`-c`) and `--skills-dir` (`-s`).
+2. **Registers the MCP server**: Adds a `"godoctor"` entry (`godoctor mcp`) under `"mcpServers"` in `mcp_config.json`. If `mcp_config.json` has broken JSON, it saves a backup to `mcp_config.json.bak` before writing a clean file.
+3. **Unpacks the `@godoctor` skill**: Writes the embedded skill and reference guides into `<target>/skills/godoctor/`. If you edited any skill files on disk, it skips them unless you pass `--force` (`-f`):
+   - **[`skills/godoctor/SKILL.md`](skills/godoctor/SKILL.md)**: Go style rules, flat package design, and tool workflows.
+   - **[`skills/godoctor/references/selene.md`](skills/godoctor/references/selene.md)**: Guide to Selene mutation rules, mutant states (`KILLED`, `SURVIVED`, `UNCOVERED`), and fixing test gaps.
+   - **[`skills/godoctor/references/testquery.md`](skills/godoctor/references/testquery.md)**: SQLite schema (`all_tests`, `all_coverage`, `test_coverage`, `all_code`) and SQL recipes for `.godoctor/testquery.db`.
+4. **Cleans up old files**: On global installs, it deletes old `plugins/godoctor` and `agents/godoctor.md` paths from earlier releases.
 
-You can manage the MCP server and skill files separately:
+You can also run each step on its own or remove the setup:
 
 ```bash
 godoctor install --mcp       # Register MCP server only
 godoctor install --skills    # Unpack @godoctor skill only
-godoctor install -w          # Install into current workspace (.agents/)
+godoctor install -w          # Install into current workspace (./.agents/)
+godoctor install -f          # Overwrite modified skill files on disk
 godoctor uninstall           # Remove global MCP entry and skill files
 godoctor uninstall -w        # Remove workspace MCP entry and skill files
 ```
