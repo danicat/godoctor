@@ -1,178 +1,122 @@
-# GoDoctor
+# `godoctor`
 
-GoDoctor is a specialized agentic coding suite for Go developers, providing AST-aware code navigation, compiler-verified editing, automated test and coverage analytics, and mutation testing.
+`godoctor` gives coding agents and Go engineers safe code edits, build checks, test queries, and mutation tests. You can run it as a Model Context Protocol (MCP) server, call its tools from your shell, or install the bundled `@godoctor` agent skill.
 
-GoDoctor is delivered across two primary surfaces powered by embedded Agent Skills:
+## Quickstart
 
-1. **MCP Server**: Exposes 6 compiler-verified tools (`smart_build`, `smart_test`, `smart_edit`, `read_docs`, `selene`, `test_query`) over Model Context Protocol (stdio & streamable HTTP).
-2. **Headless CLI**: Provides direct subshell invocation (`edit`, `build`, `test`, `docs`, `selene`, `tq`) via `godoctor call`.
-3. **Embedded Agent Skills**: Bundled operational guides (`@godoctor`, `@selene`, `@testquery`) unpacked directly into agent workspaces.
-
----
-
-## Installation
-
-### Option A: One-Line Installer (`install.sh`)
-
-Downloads the latest prebuilt release binary (via GoReleaser) and initializes MCP & Skills:
+Download the release build, add the MCP server, and unpack the `@godoctor` skill:
 
 ```bash
-# Global install (Default: ~/.gemini/config)
+# Global install (default: ~/.gemini/config)
 curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash
 
-# Workspace-scoped install (.agents/)
+# Workspace install (.agents/)
 curl -fsSL https://raw.githubusercontent.com/danicat/godoctor/main/install.sh | bash -s -- -w
 ```
 
-### Option B: Go Toolchain (`go install` + `godoctor install`)
+Or build from source with `go install`:
 
 ```bash
-# 1. Install binary
 go install github.com/danicat/godoctor/cmd/godoctor@latest
-
-# 2. Configure surfaces (registers MCP server and unpacks embedded skills)
 godoctor install
 ```
 
-#### Granular Surface Management Flags:
+Verify that your Go tools and helper binaries are ready:
 
 ```bash
-# Configure MCP server only
-godoctor install --mcp
-
-# Unpack embedded Agent Skills only
-godoctor install --skills
-
-# Configure in current workspace scope (.agents/)
-godoctor install -w
-
-# Remove configuration (Global or Workspace)
-godoctor uninstall
-godoctor uninstall -w
+godoctor check
 ```
 
-#### Headless Agent Tool Invocation (`godoctor call`)
+## Tools
 
-For agents operating in subshells or environments without native MCP integration, all tools can be invoked via JSON payloads using the `call` subcommand:
+`godoctor` exposes six tools through both the MCP server and the `godoctor call` command. All file and folder paths (`filename` and `dir`) must be full paths starting from the root directory.
+
+| MCP tool | CLI command | What it does |
+| :--- | :--- | :--- |
+| `smart_edit` | `godoctor call edit` | Matches code blocks with fuzzy search, formats imports, and runs `go vet ./...`. If the check fails, it rolls back the edit and suggests close symbol names. |
+| `smart_build` | `godoctor call build` | Runs `go mod tidy`, `modernize`, `gofmt`, `go build`, unit tests with coverage, `golangci-lint`, and `deadcode`. |
+| `smart_test` | `godoctor call test` | Runs Go tests and benchmarks across four levels (`fast`, `basic`, `benchmark`, and `complete`) and logs results to `.godoctor/testquery.db`. |
+| `test_query` | `godoctor call tq` | Runs SQL queries against test history and line coverage stored in `.godoctor/testquery.db`. |
+| `selene` | `godoctor call selene` | Runs [Selene](https://github.com/danicat/selene) Abstract Syntax Tree (AST) mutation tests to find weak or missing test checks. |
+| `read_docs` | `godoctor call docs` | Reads Go package and symbol docs, bundles return type structs, and fetches remote modules in a temporary folder when needed. |
+
+### Test levels (`smart_test`)
+
+Pick a test level based on your loop speed:
+
+- **`fast`**: Runs `go test -v` without coverage tracking or SQLite indexing. Best for quick edits.
+- **`basic`** (default): Runs unit tests, measures statement coverage, and saves test data to `.godoctor/testquery.db`.
+- **`benchmark`**: Runs Go benchmarks (`-benchmem -run=NONE`) and prints a Markdown table of speed and memory use.
+- **`complete`**: Runs `basic` tests and coverage, then runs `selene` mutation tests across your packages.
+
+### Shell usage (`godoctor call`)
+
+When working in a terminal or a shell agent without MCP, pass JSON arguments to `godoctor call`:
 
 ```bash
-# Print help
-godoctor
-
-# List all intelligence tools
+# List all tools
 godoctor list
 
-# Invoke tools via CLI (edit, build, test, docs, selene, tq)
-godoctor call edit '{"filename": "/path/to/file.go", "old_content": "...", "new_content": "..."}'
+# Edit a file with go vet rollback protection
+godoctor call edit '{"filename": "/path/to/main.go", "old_content": "fmt.Println(\"old\")", "new_content": "fmt.Println(\"new\")"}'
+
+# Build, lint, and test a project
 godoctor call build '{"dir": "/path/to/project"}'
+
+# Run fast unit tests
 godoctor call test '{"dir": "/path/to/project", "level": "fast"}'
-godoctor call docs '{"import_path": "net/http", "symbol_name": "Get"}'
+
+# Read package or symbol docs
+godoctor call docs '{"import_path": "net/http", "symbol_name": "Client"}'
+
+# Run AST mutation tests
 godoctor call selene '{"dir": "/path/to/project"}'
-godoctor call tq '{"dir": "/path/to/project", "query": "SELECT test, elapsed FROM all_tests WHERE action='\''fail'\''"}'
+
+# Query failed tests with SQL
+godoctor call tq '{"dir": "/path/to/project", "query": "SELECT package, test, elapsed FROM all_tests WHERE action = '\''fail'\''"}'
 ```
 
----
+## Agent skill and reference guides
 
-## Available MCP Tools
+`godoctor install` writes the `@godoctor` skill to your user home folder (`~/.gemini/config/skills/godoctor`) or project folder (`.agents/skills/godoctor`):
 
-| Tool | Summary |
-| :--- | :--- |
-| [`smart_edit`](#smart_edit) | Single-file compiler-verified coordinate editor with formatting, `go vet` verification, rollback protection, and Levenshtein typo suggestions. |
-| [`smart_build`](#smart_build) | Go build and compilation pipeline with integrated testing, statement coverage, linting, and quality verification. |
-| [`smart_test`](#smart_test) | Multi-tier test and benchmark engine (`fast`, `basic`, `benchmark`, `complete`) with SQLite (`testquery.db`) sync. |
-| [`test_query`](#test_query) | SQL analytics engine executing queries against statement coverage and test run history in `testquery.db`. |
-| [`selene`](#selene) | Selene-powered AST mutation testing evaluating unit test quality by introducing code mutations. |
-| [`read_docs`](#read_docs) | AST documentation reader with ephemeral remote package downloading, fuzzy matching, parent fallback, and return type inspection. |
+- **[`skills/godoctor/SKILL.md`](skills/godoctor/SKILL.md)**: Go style rules, flat package design, and tool workflows.
+- **[`skills/godoctor/references/selene.md`](skills/godoctor/references/selene.md)**: Guide to Selene mutation rules, mutant states (`KILLED`, `SURVIVED`, `UNCOVERED`), and fixing test gaps.
+- **[`skills/godoctor/references/testquery.md`](skills/godoctor/references/testquery.md)**: SQLite schema (`all_tests`, `all_coverage`, `test_coverage`, `all_code`) and SQL recipes for `.godoctor/testquery.db`.
 
-### Tool Breakdown & Real Behaviors
+You can manage the MCP server and skill files separately:
 
-#### `smart_edit`
-- **Parameters**: `filename` (string, required absolute path — relative paths are rejected), `new_content` (string, required), `old_content` (string, optional), `start_line` (int, optional), `end_line` (int, optional), `threshold` (float64, optional, default `0.95`), `append` (bool, optional).
-- **Behavior**:
-  - Locates code blocks using 4-gram anchor seeding and Levenshtein similarity within the specified line window.
-  - Aborts before disk writes if match confidence is below `threshold` (default `0.95`), returning the best match candidate with line coordinates.
-  - Formats with `imports.Process` (validates syntax and cleans up `import` declarations).
-  - Commits atomically to disk and executes `go vet ./...` across the workspace.
-  - If `go vet` fails, immediately rolls back disk changes (restoring previous state or deleting newly created files), parses compiler errors, extracts AST package symbols, and returns Levenshtein-based suggestions for misspelled identifiers.
+```bash
+godoctor install --mcp       # Register MCP server only
+godoctor install --skills    # Unpack @godoctor skill only
+godoctor install -w          # Install into current workspace (.agents/)
+godoctor uninstall           # Remove global MCP entry and skill files
+godoctor uninstall -w        # Remove workspace MCP entry and skill files
+```
 
-#### `smart_build`
-- **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `packages` (string, optional, default `./...`), `output` (string, optional binary target path passed as `-o`).
-- **Behavior**:
-  - **Build & Compilation**: Compiles target Go packages and binaries (`go build` / `-o <output>`). If compilation fails, analyzes compiler errors and missing symbols to provide actionable guidance.
-  - **Source Preparation & Modernization**: Executes `go mod tidy`, `modernize`, and `gofmt` to ensure valid AST formatting, with `deadcode` reporting unreachable functions.
-  - **Verification Testing & Coverage**: Runs `go test` with coverage profiling, outputs coverage percentages, and syncs execution data to `testquery.db`.
-  - **Linting**: Runs configured static linters (`golangci-lint` or `go vet`).
+## Configuration
 
-#### `smart_test`
-- **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `packages` (string, optional, default `./...`), `level` (string, optional: `fast`, `basic` [default], `benchmark`, `complete`), `run` (string, optional regex filter).
-- **Behavior**:
-  - **`fast`**: Executes unit tests without coverage profiling or SQLite syncing.
-  - **`basic` (Default)**: Runs tests with coverage profiling (`-coverprofile`), formats failure traces, computes total/package coverage, and builds/updates SQLite `testquery.db` via `testquery build`.
-  - **`benchmark`**: Runs `go test -bench=<run|'.'> -benchmem -run=NONE` and formats outputs into a markdown table (`Benchmark`, `Iterations`, `Time / Op`, `Memory / Op`, `Allocs / Op`).
-  - **`complete`**: Runs `basic` tests and coverage; if successful, immediately executes Selene AST mutation testing to check for surviving mutants.
+`godoctor` works out of the box with sensible defaults. To customize timeouts, linter rules, or helper binary paths, create a `.godoctor.yaml` file in your project root:
 
-#### `test_query`
-- **Parameters**: `dir` (string, required absolute path — relative paths are rejected), `query` (string, required), `pkg` (string, optional, default `./...`), `rebuild` (bool, optional).
-- **Behavior**:
-  - Auto-initializes `testquery.db` if missing or if `rebuild=true`.
-  - Executes SQL queries against:
-    - `all_tests` (`time`, `action`, `package`, `test`, `elapsed`, `output`)
-    - `all_coverage` (`package`, `file`, `start_line`, `start_col`, `end_line`, `end_col`, `stmt_num`, `count`, `function_name`)
-    - `test_coverage` (`test_name`, `package`, `file`, `start_line`, `start_col`, `end_line`, `end_col`, `stmt_num`, `count`, `function_name`)
-    - `all_code` (`package`, `file`, `line_number`, `content`)
-    - `metadata` (`key`, `value`)
-  - Returns structured ASCII / markdown SQL table output.
+```bash
+# Create a full .godoctor.yaml config
+godoctor init
 
-#### `selene`
-- **Parameters**: `dir` (string, required absolute path — relative paths are rejected).
-- **Behavior**:
-  - Runs Selene AST mutation testing (`selene ./...` or `go run github.com/danicat/selene/cmd/selene@latest ./...`) in target directory.
-  - Tests whether the unit test suite catches comparison shifts, boolean inversions, arithmetic swaps, and modified return values.
-  - Returns `IsError: true` with surviving mutant source coordinates when defects slip past assertions.
+# Create a short .godoctor.yaml config
+godoctor init --minimal
+```
 
-#### `read_docs`
-- **Parameters**: `import_path` (string, required), `symbol_name` (string, optional), `format` (string, optional: `markdown` [default] or `json`).
-- **Behavior**:
-  - Resolves local packages via `go list`. If not found, spins up an ephemeral temp module, downloads the package via `go get`, extracts AST documentation, and cleans up.
-  - If download fails, provides fuzzy suggestions (`Did you mean: ...?`) from `std` and local packages.
-  - Walks parent directories if subpackages are missing, returning parent module docs.
-  - When inspecting functions, automatically bundles the return type's struct/interface definition.
-  - Extracts runnable examples with output and performs fuzzy symbol matching on misspelled names.
+`godoctor` runs helper tools like `golangci-lint`, `modernize`, `deadcode`, `selene`, and `testquery` straight from your `$PATH`. It never falls back to slow `go run` calls. Use `godoctor check` to inspect tool versions, or pass `--json` for script output.
 
----
+## Local development
 
-## Specialized Agent Skills
+Build the binary and run the test suite from source:
 
-- **`@godoctor`**: Full guide for GoDoctor CLI subcommands (`call`, `list`, `mcp`) and operational tips ([`skills/godoctor/SKILL.md`](skills/godoctor/SKILL.md)).
-- **`@selene`**: Guide for interpreting mutation scores, boundary mutants, and assertion gaps ([`skills/selene/SKILL.md`](skills/selene/SKILL.md)).
-- **`@testquery`**: SQLite schema reference and analytical SQL recipes for `testquery.db` ([`skills/testquery/SKILL.md`](skills/testquery/SKILL.md)).
-
----
-
-## Developer Instructions
-
-### Local Development
-
-Build binary locally:
 ```bash
 make build
-```
-
-Run test suite:
-```bash
 make test
 ```
-
-### Releasing
-
-Releasing a new version is automated via GoReleaser:
-```bash
-make bump-version VERSION=0.2.0
-```
-
----
 
 ## License
 
 Apache-2.0
-

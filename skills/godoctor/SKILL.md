@@ -1,14 +1,14 @@
 ---
 name: godoctor
-description: Activate this skill whenever developing, building, editing, testing, documenting, or verifying Go (golang) code, or managing GoDoctor CLI and MCP surfaces. Enforces strict Google Go Style, flat package architecture, zero-fallback execution, multi-tier testing, AST-aware edits with compiler rollback gates, Selene mutation testing, and TestQuery SQL analytics.
+description: Activate this skill whenever developing, building, editing, testing, documenting, or verifying Go (golang) code, or managing GoDoctor CLI and MCP surfaces. Enforces strict Google Go Style, flat package architecture, zero-fallback execution, multi-tier testing, guarded edits with compiler rollback gates, Selene mutation testing, and TestQuery SQL analytics.
 metadata:
   author: daniela@danicat.dev
-  version: 0.34.0
+  version: 0.34.1
 ---
 
 # Go Quality & Tooling Guide (GoDoctor)
 
-GoDoctor provides AST-aware Go developer tooling, code quality enforcement, and testing analytics available both as a command-line interface (CLI) and as a Model Context Protocol (MCP) server.
+GoDoctor is a high-level Go developer workflow orchestrator that coordinates standard Go toolchain binaries and static analysis utilities—providing guarded code edits, automated build and lint pipelines, mutation testing, and SQLite test analytics both as a command-line interface (CLI) and as a Model Context Protocol (MCP) server.
 
 ---
 
@@ -44,18 +44,18 @@ GoDoctor provides AST-aware Go developer tooling, code quality enforcement, and 
 
 | Task / Goal | CLI Command (`godoctor call`) | MCP Tool Name | Behavior / Safeguards |
 | :--- | :--- | :--- | :--- |
-| **AST-Aware Code Edits** | `godoctor call edit` | `smart_edit` | Coordinate matching + AST formatting + atomic write + compiler rollback gate (`go vet`). |
-| **Build & Quality Pipeline** | `godoctor call build` | `smart_build` | Builds Go binaries and packages with integrated compilation, testing, coverage analysis, linting, and quality verification. |
-| **Test & Benchmark Runner** | `godoctor call test` | `smart_test` | Multi-tier runner (`fast`, `basic`/`standard`, `benchmark`, `complete`) + auto-indexes into `testquery.db`. |
-| **AST Documentation** | `godoctor call docs` | `read_docs` | Fetches package docs, exported symbols, types, and function signatures with 3-tier fallback caching. |
-| **Mutation Testing** | `godoctor call selene` | `selene` | Evaluates test suite quality by mutating AST operators and checking for test assertion kills. See [references/selene.md](references/selene.md). |
-| **SQL Test Analytics** | `godoctor call tq` | `test_query` | Executes SQLite queries against test history and statement coverage in `testquery.db`. See [references/testquery.md](references/testquery.md). |
+| **Guarded Code Edits** | `godoctor call edit` | `smart_edit` | Whitespace-insensitive fuzzy matching + `goimports` formatting + atomic file write + compiler rollback gate (`go vet`). |
+| **Build & Quality Pipeline** | `godoctor call build` | `smart_build` | Orchestrates `go mod tidy`, `modernize -fix`, `gofmt`, `go build`, `go test` with coverage, `golangci-lint`, and `deadcode`. |
+| **Test & Benchmark Runner** | `godoctor call test` | `smart_test` | Multi-tier runner (`fast`, `basic`, `benchmark`, `complete`) orchestrating `go test`, `go tool cover`, `testquery`, and `selene`. |
+| **Package & Symbol Docs** | `godoctor call docs` | `read_docs` | Inspects package docs, exported symbols, types, and runnable examples via `go list` and `go/doc` with return-type bundling. |
+| **Mutation Testing** | `godoctor call selene` | `selene` | Invokes the `selene` CLI binary with parallel workers and `testquery.db` targeted test integration. See [references/selene.md](references/selene.md). |
+| **SQL Test Analytics** | `godoctor call tq` | `test_query` | Invokes the `testquery` (`tq`) CLI binary to execute SQLite queries against test history and statement coverage in `testquery.db`. See [references/testquery.md](references/testquery.md). |
 
 ### Test Runner Tiers (`smart_test` / `godoctor call test`)
-- **`level: "fast"`**: Sub-second inner loop test execution. Runs package unit tests directly; skips coverage profiling, benchmarks, and mutation analysis. Ideal for rapid iterative development.
-- **`level: "basic"` / `"standard"`**: Standard testing tier. Runs unit tests with statement coverage profiling and auto-indexes execution metrics into `.godoctor/testquery.db`.
-- **`level: "benchmark"`**: Runs unit tests, coverage profiling, and Go benchmark suites (`go test -bench=.`).
-- **`level: "complete"`**: Comprehensive quality gate. Runs unit tests, coverage profiling, benchmarks, and full multi-worker Selene AST mutation testing across all packages. Ideal for pre-commit, CI verification, and release audits.
+- **`level: "fast"`**: Sub-second inner loop test execution. Runs `go test -v` directly; skips coverage profiling and `testquery.db` synchronization. Ideal for rapid iterative development.
+- **`level: "basic"` (default)**: Standard testing tier. Runs unit tests with statement coverage profiling (`go tool cover -func`) and auto-indexes execution metrics into `.godoctor/testquery.db` via `testquery`.
+- **`level: "benchmark"`**: Runs Go benchmark suites (`go test -bench=<pattern> -benchmem -run=NONE`) and formats throughput and memory allocations as a Markdown table.
+- **`level: "complete"`**: Comprehensive quality gate. Runs `basic` unit tests, coverage profiling, and `testquery.db` indexing, followed by multi-worker `selene` mutation testing across packages. Ideal for pre-commit, CI verification, and release audits.
 
 ---
 
@@ -63,9 +63,9 @@ GoDoctor provides AST-aware Go developer tooling, code quality enforcement, and 
 
 - **Zero-Fallback Policy**: External binaries (`golangci-lint`, `modernize`, `deadcode`, `selene`, `testquery`) must be pre-installed in `$PATH` or defined in `.godoctor.yaml`. Dynamic `go run` compilation fallbacks are banned to eliminate 1.5s–4.5s latency delays and ensure reproducible execution.
 - **Tool Version Tracking**: GoDoctor actively verifies installed tool versions against recommended baselines, reporting non-blocking upgrade recommendations and providing `godoctor check`.
-- **Absolute Paths Required**: All directory (`dir`) and file (`filename`) parameters must be absolute paths (e.g. `/Users/.../project`).
-- **Atomic Edit Transactions & Compiler Gate**: `edit` / `smart_edit` writes changes to temporary files before atomic replacement, preserving file permissions. Edits are verified via `go vet ./...` and automatically rolled back if errors are introduced.
-- **Concurrency & Resource Management**: Heavy operations like `level: "complete"` (Selene AST mutation testing) utilize all CPU cores; avoid spawning concurrent test/build tasks while complete runs are in flight to prevent CPU exhaustion and SQLite WAL contention.
+- **Absolute Paths Required**: All directory (`dir`) and file (`filename`) parameters must be absolute paths (e.g. `/path/to/project`).
+- **Atomic Edit Transactions & Compiler Gate**: `edit` / `smart_edit` matches target blocks using whitespace-insensitive Levenshtein similarity, formats via `goimports`, and writes to a temporary file before atomic rename. Edits are verified via `go vet ./...` across the workspace and automatically rolled back (with identifier spelling suggestions) if errors are introduced.
+- **Concurrency & Resource Management**: Heavy operations like `level: "complete"` (Selene mutation testing) utilize all CPU cores; avoid spawning concurrent test/build tasks while complete runs are in flight to prevent CPU exhaustion and SQLite WAL contention.
 - **Configuration-Driven**: Subsystems read settings from `.godoctor.yaml` following a strict 3-tier precedence hierarchy:
   $$\text{Per-Call Payload (JSON)} \succ \text{Config File } (\texttt{.godoctor.yaml}) \succ \text{Built-in Defaults}$$
 
@@ -174,7 +174,7 @@ godoctor uninstall -w
 
 ## 7. Direct CLI Invocation Examples (`godoctor call`)
 
-### 1. `edit` (AST-Verified Coordinate Edits with Atomic Rollback)
+### 1. `edit` (Guarded Fuzzy Edits with `goimports` & Compiler Rollback)
 ```bash
 godoctor call edit '{"filename": "/absolute/path/to/main.go", "old_content": "fmt.Println(\"old\")", "new_content": "fmt.Println(\"new\")"}'
 ```
@@ -194,7 +194,7 @@ godoctor call build '{"dir": "/absolute/path/to/project", "packages": "./cmd/god
 godoctor call test '{"dir": "/absolute/path/to/project", "level": "basic"}'
 ```
 
-### 4. `docs` (AST Symbol & Type Documentation)
+### 4. `docs` (Package & Symbol Documentation via `go/doc`)
 ```bash
 godoctor call docs '{"import_path": "net/http", "symbol_name": "Client"}'
 ```
